@@ -9,10 +9,19 @@ const auth = require('./auth');
 const { layout, html } = require('./views/html');
 const { BookingError } = require('./bookings');
 const { startJobs } = require('./jobs');
+const { listenHttps } = require('./tls');
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 const app = express();
-app.set('trust proxy', 1); // HTTPS is terminated at the reverse proxy / hosting platform
+app.set('trust proxy', 1); // in production HTTPS is terminated by the reverse proxy, which sets X-Forwarded-Proto
 app.disable('x-powered-by');
+
+// HTTPS only: redirect plain-HTTP requests that reach the app behind a proxy in production.
+app.use((req, res, next) => {
+  if (!config.forceHttps || req.secure || req.path === '/healthz') return next();
+  res.redirect(301, `https://${req.get('host')}${req.originalUrl}`);
+});
 
 app.use((req, res, next) => {
   res.set({
@@ -21,7 +30,8 @@ app.use((req, res, next) => {
     'Referrer-Policy': 'same-origin',
     'X-Frame-Options': 'DENY',
   });
-  if (config.production) res.set('Strict-Transport-Security', 'max-age=31536000');
+  // HSTS applies to the whole host (all ports), so never pin localhost: it would break other local dev servers.
+  if (req.secure && !LOCAL_HOSTS.has(req.hostname)) res.set('Strict-Transport-Security', 'max-age=31536000');
   next();
 });
 
@@ -52,7 +62,7 @@ app.use((req, res, next) => {
     res.clearCookie('flash', { path: '/' });
   }
   res.flash = (type, text) => res.cookie('flash', Buffer.from(JSON.stringify({ type, text })).toString('base64url'),
-    { httpOnly: true, sameSite: 'lax', secure: config.production, path: '/' });
+    { httpOnly: true, sameSite: 'lax', secure: req.secure, path: '/' });
   res.page = (title, body) => res.send(layout(req, title, body));
   next();
 });
@@ -113,9 +123,22 @@ app.use((err, req, res, next) => {
   res.status(500).page('שגיאה', html`<h1>אירעה שגיאה</h1><p>נסו שוב מאוחר יותר.</p>`);
 });
 
-module.exports = { app, BookingError };
+/** Starts the web server (HTTPS or plain HTTP, see config.https) and the background jobs. */
+async function start({ port = config.port, host, jobs = true } = {}) {
+  const server = config.https.enabled
+    ? await listenHttps(app, port, host)
+    : await new Promise((resolve, reject) => { const s = app.listen(port, host, () => resolve(s)).once('error', reject); });
+  const scheme = config.https.enabled ? 'https' : 'http';
+  console.log(`${config.appName} listening on ${scheme}://localhost:${server.address().port} (public URL: ${config.baseUrl})`);
+  if (jobs) startJobs();
+  return server;
+}
+
+module.exports = { app, start, BookingError };
 
 if (require.main === module) {
-  app.listen(config.port, () => console.log(`${config.appName} listening on ${config.baseUrl} (port ${config.port})`));
-  startJobs();
+  start().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }

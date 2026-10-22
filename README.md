@@ -5,14 +5,27 @@
 
 ## הפעלה
 
-דרישות: Node.js 22.5 ומעלה (המערכת משתמשת ב־SQLite המובנה ב־Node, בלי שרת מסד נתונים נפרד), או Docker.
+דרישות: Node.js 22.13 ומעלה (המערכת משתמשת ב־SQLite המובנה ב־Node, בלי שרת מסד נתונים נפרד), או Docker.
+
+### הפעלה מהירה על המחשב שלך
+
+- **Windows:** לחיצה כפולה על `start.cmd`
+- **Mac/Linux:** `./start.sh`
+
+הסקריפט מתקין תלויות, יוצר נתוני דמו, מפעיל את השרת ופותח את **https://localhost:3000**. בפעם הראשונה הדפדפן יזהיר על התעודה, כי היא תעודה עצמית ל־localhost: בוחרים "מתקדם" ואז "המשך ל־localhost". כניסה: `admin@example.org` / `Password1`.
+
+## HTTPS
+
+- **פיתוח:** השרת מגיש HTTPS בעצמו בפורט 3000, עם תעודה עצמית ל־localhost שנוצרת אוטומטית ב־`data/certs`. בקשת `http://` לאותו פורט מועברת ל־`https://`. כדי להימנע מאזהרת הדפדפן אפשר ליצור תעודה מהימנה עם [mkcert](https://github.com/FiloSottile/mkcert) (`mkcert -install && mkcert localhost 127.0.0.1`) ולהגדיר `HTTPS_CERT_FILE` ו־`HTTPS_KEY_FILE` בקובץ `.env`.
+- **ייצור:** `docker-compose.prod.yml` מריץ את [Caddy](https://caddyserver.com) לפני האפליקציה. Caddy מנפיק ומחדש תעודת Let's Encrypt לדומיין שב־`DOMAIN` ומעביר כל HTTP ל־HTTPS. האפליקציה עצמה מפנה ל־HTTPS כל בקשה שלא הגיעה דרך HTTPS (חוץ מ־`/healthz`), שולחת HSTS ומסמנת את עוגיית הסשן כ־`Secure`.
+- `HTTPS=true/false` עוקף את ברירת המחדל: HTTPS ישיר בפיתוח, מאחורי proxy בייצור.
 
 ## סביבת פיתוח
 
 ### עם Docker (מומלץ)
 
 ```bash
-docker compose up --build                  # האפליקציה: http://localhost:3000
+docker compose up --build                  # האפליקציה: https://localhost:3000
                                            # תיבת דואר לבדיקות (Mailpit): http://localhost:8025
 docker compose exec app npm run seed       # משתמשי ונתוני דמו
 docker compose exec app npm test           # הרצת הבדיקות בתוך הקונטיינר
@@ -27,7 +40,7 @@ docker compose down -v                     # עצירה ומחיקת מסד הנ
 npm install
 cp .env.development.example .env
 npm run seed       # נתוני דמו
-npm run dev        # http://localhost:3000, טעינה מחדש בכל שמירה
+npm run dev        # https://localhost:3000, טעינה מחדש בכל שמירה
 ```
 
 בלי הגדרת SMTP, המיילים לא נשלחים אלא נשמרים כקבצי `.eml` בתיקייה `data/outbox`.
@@ -79,8 +92,8 @@ npm run dev        # http://localhost:3000, טעינה מחדש בכל שמיר�
 
 ```bash
 docker build -t car-rental .                                    # image ייצור (Dockerfile)
-cp .env.example .env                                            # BASE_URL, SMTP_* וכו׳
-docker compose -f docker-compose.prod.yml up -d                 # או עם IMAGE=ghcr.io/yehonatan21/car-rental:latest
+cp .env.example .env                                            # DOMAIN, BASE_URL=https://<DOMAIN>, SMTP_* וכו׳
+docker compose -f docker-compose.prod.yml up -d                 # Caddy (HTTPS בפורטים 80/443) + האפליקציה
 docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js --email … --password …
 ```
 
@@ -94,6 +107,10 @@ docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js 
 |---|---|
 | `PORT` | פורט השרת (ברירת מחדל 3000) |
 | `BASE_URL` | הכתובת הציבורית, משמשת לקישורים במיילים, למשל `https://car.example.org` |
+| `HTTPS` | `true` כדי שהשרת יגיש TLS בעצמו (ברירת מחדל בפיתוח), `false` מאחורי proxy (ברירת מחדל בייצור) |
+| `HTTPS_CERT_FILE`, `HTTPS_KEY_FILE` | תעודה ומפתח ל־HTTPS ישיר. בלעדיהם נוצרת תעודה עצמית ל־localhost |
+| `DOMAIN` | הדומיין לייצור, ש־Caddy מנפיק עבורו תעודה |
+| `FORCE_HTTPS=false` | ביטול ההפניה ל־HTTPS בייצור (לא מומלץ) |
 | `NODE_ENV=production` | מפעיל עוגיות `Secure` ו־HSTS (חובה מאחורי HTTPS) |
 | `DATA_DIR` | תיקיית הנתונים: מסד הנתונים, צילומי הרישיונות ו־outbox (ברירת מחדל `./data`) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | שרת דואר יוצא |
@@ -102,7 +119,7 @@ docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js 
 
 ### העלאה לאוויר
 
-- להריץ מאחורי reverse proxy עם HTTPS (Nginx/Caddy) או בפלטפורמה שמספקת HTTPS. השרת מוגדר עם `trust proxy`.
+- להריץ מאחורי reverse proxy עם HTTPS: `docker-compose.prod.yml` כולל את Caddy עם תעודות אוטומטיות, או בפלטפורמה שמספקת HTTPS. השרת מוגדר עם `trust proxy`.
 - **גיבוי:** כל הנתונים נמצאים ב־`DATA_DIR`. יש לגבות את התיקייה באופן תקופתי (למשל `sqlite3 app.db ".backup backup.db"` יחד עם תיקיית `licenses`).
 - התיקייה `data/licenses` אינה נגישה ישירות מהרשת. הקבצים מוגשים רק דרך נתיב שבודק הרשאת מנהל, וכל צפייה נרשמת ביומן הפעולות.
 

@@ -29,14 +29,14 @@ function createSession(res, userId, needs2fa = false) {
   db.prepare('INSERT INTO sessions (token_hash, user_id, csrf, needs_2fa, expires_at) VALUES (?, ?, ?, ?, ?)')
     .run(sha256(token), userId, csrf, needs2fa ? 1 : 0, expires);
   res.cookie(COOKIE, token, {
-    httpOnly: true, sameSite: 'lax', secure: config.production, expires: new Date(expires), path: '/',
+    httpOnly: true, sameSite: 'lax', secure: res.req.secure, expires: new Date(expires), path: '/',
   });
 }
 
 function destroySession(req, res) {
   const token = req.cookies[COOKIE];
   if (token) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token));
-  res.clearCookie(COOKIE, { path: '/' });
+  res.clearCookie(COOKIE, { path: '/', secure: req.secure });
 }
 
 function destroyAllSessions(userId) {

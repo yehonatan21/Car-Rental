@@ -105,8 +105,11 @@ jobs:
             if curl -fsS http://localhost:3000/healthz; then echo; break; fi
             sleep 1
           done
-          curl -fsS -o /dev/null http://localhost:3000/login
-          curl -fsS -o /dev/null http://localhost:3000/static/style.css
+          # Plain HTTP is redirected to HTTPS; requests forwarded as HTTPS by the proxy are served.
+          test "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://localhost:3000/login)" = "301 https://localhost:3000/login"
+          curl -fsS -o /dev/null -H 'X-Forwarded-Proto: https' http://localhost:3000/login
+          curl -fsS -o /dev/null -H 'X-Forwarded-Proto: https' http://localhost:3000/static/style.css
+          curl -fsS -D - -o /dev/null -H 'X-Forwarded-Proto: https' -H 'Host: car.example.org' http://localhost:3000/login | grep -i '^strict-transport-security'
           test "$(docker inspect -f '{{.Config.User}}' car-rental:smoke)" = "node"
           docker logs smoke
           docker rm -f smoke

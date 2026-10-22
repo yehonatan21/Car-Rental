@@ -1,9 +1,26 @@
-# Production deployment (single host)
-#   cp .env.example .env    # fill in BASE_URL and SMTP_* settings
+# Production deployment (single host) with automatic HTTPS
+#   cp .env.example .env    # set DOMAIN, BASE_URL=https://<DOMAIN>, SMTP_* …
 #   docker compose -f docker-compose.prod.yml up -d
 #   docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js --email ... --password ...
-# Put a TLS-terminating reverse proxy (Caddy, Nginx, Traefik…) in front of port 3000.
+# The domain's DNS must point at this server, with ports 80 and 443 open: Caddy obtains and renews
+# Let's Encrypt certificates automatically and redirects all HTTP traffic to HTTPS.
 services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
   app:
     image: ${IMAGE:-ghcr.io/yehonatan21/car-rental:latest}
     build:
@@ -14,8 +31,9 @@ services:
     environment:
       NODE_ENV: production
       DATA_DIR: /data
-    ports:
-      - "127.0.0.1:3000:3000"
+      HTTPS: "false"          # TLS is terminated by Caddy
+    expose:
+      - "3000"                # reachable only through Caddy
     volumes:
       - app-data:/data
     read_only: true
@@ -26,3 +44,5 @@ services:
 
 volumes:
   app-data:
+  caddy-data:
+  caddy-config:

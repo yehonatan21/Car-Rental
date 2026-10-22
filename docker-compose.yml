@@ -1,0 +1,37 @@
+# Development environment
+#   docker compose up --build              → app: http://localhost:3000 · e-mail inbox: http://localhost:8025
+#   docker compose exec app npm run seed   → demo users and bookings (password: Password1)
+#   docker compose exec app npm test       → run the tests inside the container
+#   docker compose down -v                 → stop and wipe the dev database
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      BASE_URL: http://localhost:3000
+      APP_NAME: הזמנת רכב (פיתוח)
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      MAIL_FROM: car-rental@localhost
+    volumes:
+      # Source is mounted so `node --watch` reloads on every save.
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./scripts:/app/scripts
+      - ./test:/app/test
+      - dev-data:/app/data
+    depends_on:
+      - mailpit
+
+  mailpit:
+    # Catches every e-mail the app sends and shows it in a web inbox.
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
+volumes:
+  dev-data:

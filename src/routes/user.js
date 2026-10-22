@@ -10,7 +10,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const { renderCalendar, windowFor } = require('../views/calendar');
 const { html, markdown, postForm, actionButton, field, badge, USER_STATUS } = require('../views/html');
-const { normalizePhone, validPhone } = require('./public');
+const { normalizePhone, validPhone, safeNext } = require('./public');
 
 const STATUS_HELP = {
   pending: 'החשבון ממתין לבדיקת המנהל. תישלח הודעה בדואר האלקטרוני לאחר האישור.',
@@ -301,7 +301,7 @@ ${accepted?.policy_version === policy.version ? html`<p>✓ הגרסה הנוכ�
     }
     db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, ip) VALUES (?, ?, ?)').run(req.user.id, version, req.ip);
     res.flash('success', 'הנהלים אושרו');
-    res.redirect(/^\/(?!\/)/.test(req.body.next || '') ? req.body.next : '/me');
+    res.redirect(safeNext(req.body.next) || '/me');
   });
 
   app.get('/me/security', requireLogin, async (req, res) => {

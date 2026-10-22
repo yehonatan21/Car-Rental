@@ -24,8 +24,8 @@ const normalizePhone = (p) => String(p || '').replace(/[\s-]/g, '');
 const validPhone = (p) => /^(05\d{8}|\+9725\d{8})$/.test(p);
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
-/** Only allow redirects to local paths after login. */
-const safeNext = (n) => (typeof n === 'string' && /^\/(?!\/)/.test(n) ? n : null);
+/** Only allow redirects to local paths ("//host" and "/\\host" are treated by browsers as other origins). */
+const safeNext = (n) => (typeof n === 'string' && /^\/(?![/\\])/.test(n) && !/[\r\n]/.test(n) ? n : null);
 
 function homeFor(user) {
   if (user.role === 'admin') return '/admin';
@@ -268,3 +268,4 @@ ${req.user ? raw(`<p><a href="/policy/accept">לאישור הנהלים</a></p>`
 module.exports.validIsraeliId = validIsraeliId;
 module.exports.normalizePhone = normalizePhone;
 module.exports.validPhone = validPhone;
+module.exports.safeNext = safeNext;

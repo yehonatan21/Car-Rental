@@ -25,7 +25,6 @@ if (form) {
   const start = form.querySelector('[name=start]');
   const end = form.querySelector('[name=end]');
   const box = document.getElementById('availability');
-  let timer;
   const pad = (n) => String(n).padStart(2, '0');
   const local = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 

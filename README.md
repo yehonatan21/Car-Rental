@@ -5,16 +5,86 @@
 
 ## הפעלה
 
-דרישות: Node.js 22.5 ומעלה (המערכת משתמשת ב־SQLite המובנה ב־Node, בלי שרת מסד נתונים נפרד).
+דרישות: Node.js 22.5 ומעלה (המערכת משתמשת ב־SQLite המובנה ב־Node, בלי שרת מסד נתונים נפרד), או Docker.
+
+## סביבת פיתוח
+
+### עם Docker (מומלץ)
+
+```bash
+docker compose up --build                  # האפליקציה: http://localhost:3000
+                                           # תיבת דואר לבדיקות (Mailpit): http://localhost:8025
+docker compose exec app npm run seed       # משתמשי ונתוני דמו
+docker compose exec app npm test           # הרצת הבדיקות בתוך הקונטיינר
+docker compose down -v                     # עצירה ומחיקת מסד הנתונים של הפיתוח
+```
+
+הקוד ממופה לתוך הקונטיינר, והשרת נטען מחדש בכל שמירה. כל המיילים שהמערכת שולחת נתפסים ב־Mailpit ומוצגים בתיבת דואר בדפדפן.
+
+### בלי Docker
 
 ```bash
 npm install
-npm run create-admin -- --email admin@example.org --password 'סיסמה-חזקה' --first דנה --last כהן --phone 0501234567
-npm start            # http://localhost:3000
-npm test             # בדיקות קצה לקצה
+cp .env.development.example .env
+npm run seed       # נתוני דמו
+npm run dev        # http://localhost:3000, טעינה מחדש בכל שמירה
 ```
 
-ללא הגדרת SMTP, המיילים לא נשלחים אלא נשמרים כקבצי `.eml` בתיקייה `data/outbox` (נוח לבדיקות).
+בלי הגדרת SMTP, המיילים לא נשלחים אלא נשמרים כקבצי `.eml` בתיקייה `data/outbox`.
+
+**משתמשי דמו** (סיסמה `Password1`): `admin@example.org` (מנהלת), `noa@example.org`, `yossi@example.org` (פעילים), `roni@example.org` (ממתין לאישור), `michal@example.org` (רישיון פג).
+
+### פקודות
+
+| פקודה | תיאור |
+|---|---|
+| `npm run dev` | שרת פיתוח עם טעינה מחדש |
+| `npm run seed` | נתוני דמו (רק על מסד ריק, `-- --force` להוספה בכל מקרה, חסום ב־production) |
+| `npm run lint` | ESLint |
+| `npm test` | כל הבדיקות |
+| `npm run test:unit` | בדיקות יחידה: כללי הזמנה, זמנים ושעון קיץ, אימות, מיילים, משימות רקע |
+| `npm run test:e2e` | בדיקות קצה לקצה מול שרת אמיתי: תהליכי משתמש ומנהל, אבטחה והרשאות |
+| `npm run test:coverage` | בדיקות עם דוח כיסוי (נכשל מתחת ל־80% שורות) |
+| `npm run create-admin -- --email … --password …` | יצירת מנהל או קידום משתמש קיים למנהל |
+
+## ענפים ו־CI/CD
+
+| ענף | תפקיד | מה קורה ב־push |
+|---|---|---|
+| `dev` | פיתוח שוטף. כל שינוי נכנס לכאן קודם | Lint, בדיקות, בניית Docker, פרסום `ghcr.io/yehonatan21/car-rental:dev` ופריסה לסביבת `development` |
+| `main` | גרסת ייצור. מתעדכן רק ב־Pull Request מ־`dev` | Lint, בדיקות, בניית Docker, פרסום `ghcr.io/yehonatan21/car-rental:latest` ופריסה לסביבת `production` |
+
+ה־workflow נמצא ב־`.github/workflows/ci-cd.yml`:
+
+1. **Lint**: ESLint.
+2. **Tests**: כל הבדיקות על Node 22 ו־24, עם סף כיסוי של 80%. דוח הכיסוי (lcov) נשמר כ־artifact.
+3. **Docker**: בניית שני ה־images (`Dockerfile`, `Dockerfile.dev`) ובדיקת smoke ל־image של הייצור: עלייה, `/healthz`, דף התחברות, וריצה כמשתמש שאינו root. ב־push ה־image נדחף ל־GitHub Container Registry.
+4. **Deploy**: קריאה ל־deploy hook של סביבת האחסון, ובדיקת `/healthz` בכתובת שנפרסה.
+
+ב־Pull Request רצים רק שלבים 1 עד 3, בלי פרסום ובלי פריסה.
+
+### הגדרת הפריסה ב־GitHub
+
+ב־**Settings → Environments** יוצרים שתי סביבות, `development` ו־`production`, ובכל אחת מגדירים:
+
+- **Secret** `DEPLOY_HOOK_URL`: כתובת ה־deploy hook של פלטפורמת האחסון (Render, Railway, Coolify וכדומה, או webhook בשרת שלכם שמריץ `docker compose -f docker-compose.prod.yml pull && … up -d`).
+- **Variable** `APP_URL`: הכתובת הציבורית של הסביבה, לבדיקת התקינות אחרי הפריסה.
+- ב־`production` מומלץ להוסיף **Required reviewers**, כדי שכל פריסה לייצור תדרוש אישור ידני.
+
+כל עוד הם לא הוגדרו, ה־image מתפרסם אבל שלב הפריסה מדלג בהודעה ולא נכשל.
+
+מומלץ גם להגדיר **Branch protection** ל־`main` (ב־Settings → Branches): לחייב Pull Request ולחייב מעבר של בדיקות ה־CI (Lint ו־Tests).
+
+### Docker לייצור
+
+```bash
+docker build -t car-rental .                                    # image ייצור (Dockerfile)
+cp .env.example .env                                            # BASE_URL, SMTP_* וכו׳
+docker compose -f docker-compose.prod.yml up -d                 # או עם IMAGE=ghcr.io/yehonatan21/car-rental:latest
+docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js --email … --password …
+```
+
+ה־image של הייצור כולל רק תלויות ריצה, רץ כמשתמש `node` (לא root) עם מערכת קבצים לקריאה בלבד, שומר את הנתונים ב־volume `/data`, וכולל healthcheck.
 
 ### משתני סביבה
 
@@ -50,8 +120,14 @@ src/
   routes/          public (הרשמה/התחברות), user (אזור אישי, יומן, הזמנות), admin (ממשק מנהל)
   views/           תבניות HTML (עם escaping אוטומטי) ויומן יום/שבוע/חודש
 public/            CSS ו־JS (שיפורים בלבד: הכל עובד גם בלי JavaScript)
-scripts/           create-admin
-test/              בדיקות קצה לקצה
+scripts/           create-admin, seed (נתוני דמו)
+test/
+  helpers.js       מסד נתונים זמני לכל קובץ בדיקה, לקוח HTTP עם עוגיות ו־CSRF, קריאת outbox
+  unit/            בדיקות יחידה
+  e2e/             בדיקות קצה לקצה
+.github/           CI/CD, סקריפטי פריסה, Dependabot
+Dockerfile         image ייצור · Dockerfile.dev: image פיתוח
+docker-compose.yml סביבת פיתוח (אפליקציה + Mailpit) · docker-compose.prod.yml: ייצור
 ```
 
 ## מה מומש מתוך האפיון

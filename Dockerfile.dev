@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1
+# Development image: all dependencies (incl. lint/test tools), auto-reload on file changes.
+# Normally started through docker-compose.yml, which mounts the source code into the container.
+
+FROM node:22-alpine
+RUN apk add --no-cache tzdata sqlite
+ENV NODE_ENV=development \
+    APP_ENV=development \
+    TZ=Asia/Jerusalem \
+    DATA_DIR=/app/data \
+    PORT=3000
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+EXPOSE 3000
+CMD ["npm", "run", "dev"]

@@ -26,6 +26,12 @@ app.use((req, res, next) => {
 });
 
 app.use('/static', express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
+
+// Liveness/readiness probe for Docker, CI smoke tests and the hosting platform.
+app.get('/healthz', (req, res) => {
+  db.prepare('SELECT 1').get();
+  res.json({ status: 'ok', env: process.env.APP_ENV || process.env.NODE_ENV || 'development' });
+});
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 
 // Session, user and flash message loading.
@@ -98,7 +104,7 @@ require('./routes/admin')(ctx);
 
 app.use((req, res) => res.status(404).page('לא נמצא', html`<h1>העמוד לא נמצא</h1><p><a href="/">חזרה לדף הבית</a></p>`));
 
-app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     res.flash('error', err.code === 'LIMIT_FILE_SIZE' ? 'הקובץ גדול מדי (עד 8MB)' : 'שגיאה בהעלאת הקובץ');
     return res.redirect(req.get('referer') || '/');

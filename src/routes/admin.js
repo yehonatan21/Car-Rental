@@ -352,8 +352,8 @@ ${bookingsTable(list)}`);
   ${postForm(req, '/admin/bookings/new', html`
     ${field('משתמש', html`<select name="user_id" required><option value="">בחירה…</option>${userOptions(req.query.user)}</select>`)}
     <div class="grid2">
-      ${field('איסוף', html`<input type="datetime-local" name="start" value="${start}" required step="900">`)}
-      ${field('החזרה', html`<input type="datetime-local" name="end" value="${end}" required step="900">`)}
+      ${field('איסוף', html`<input type="datetime-local" name="start" value="${start}" required>`)}
+      ${field('החזרה', html`<input type="datetime-local" name="end" value="${end}" required>`)}
     </div>
     ${field('מטרה', html`<input name="purpose" maxlength="200">`)}
     ${field('הערות', html`<textarea name="notes" rows="2"></textarea>`)}
@@ -380,8 +380,8 @@ ${bookingsTable(list)}`);
   <p class="muted">סימון שהרכב אינו זמין (טיפול, תקלה, שימוש פנימי) ללא יצירת הזמנה בשם משתמש.</p>
   ${postForm(req, '/admin/blocks/new', html`
     <div class="grid2">
-      ${field('מ־', html`<input type="datetime-local" name="start" value="${start}" required step="900">`)}
-      ${field('עד', html`<input type="datetime-local" name="end" required step="900">`)}
+      ${field('מ־', html`<input type="datetime-local" name="start" value="${start}" required>`)}
+      ${field('עד', html`<input type="datetime-local" name="end" required>`)}
     </div>
     ${field('סיבה', html`<input name="reason" required maxlength="200" list="reasons" placeholder="טיפול תקופתי">`)}
     <datalist id="reasons"><option value="טיפול תקופתי"><option value="תקלה"><option value="שימוש פנימי"><option value="טסט"></datalist>

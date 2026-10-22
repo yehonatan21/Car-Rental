@@ -79,7 +79,7 @@ test('request validation', () => {
   rejects(() => request(u, inDays(2, '12:00'), inDays(2, '12:00')), /אחרי מועד האיסוף/);
   rejects(() => request(u, inDays(2, '12:00'), inDays(2, '10:00')), /אחרי מועד האיסוף/);
   rejects(() => request(u, inDays(-1, '10:00'), inDays(1, '10:00')), /כבר עבר/);
-  rejects(() => request(u, inDays(1, '10:00'), inDays(9, '10:00')), /משך הזמנה מקסימלי הוא 168/);
+  rejects(() => request(u, inDays(1, '10:00'), inDays(9, '10:00')), /משך הזמנה מקסימלי הוא 7 ימים \(168 שעות\)/);
   setSetting('max_booking_hours', 0);
   assert.ok(request(u, inDays(1, '10:00'), inDays(9, '10:00')), '0 means unlimited');
 });
@@ -242,4 +242,11 @@ test('inRange returns entries intersecting the window, filtered by status', () =
   assert.equal(bookings.inRange(V, ...day3).length, 1, 'approved only by default');
   assert.equal(bookings.inRange(V, ...day3, ['approved', 'pending']).length, 2);
   assert.equal(bookings.inRange(V, inDays(5, '00:00'), inDays(6, '00:00')).length, 0);
+});
+
+test('durationLabel shows whole days when possible', () => {
+  assert.equal(bookings.durationLabel(168), '7 ימים (168 שעות)');
+  assert.equal(bookings.durationLabel(24), 'יום אחד (24 שעות)');
+  assert.equal(bookings.durationLabel(36), '36 שעות');
+  assert.equal(bookings.durationLabel(5), '5 שעות');
 });

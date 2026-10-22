@@ -98,6 +98,29 @@ test('availability API reports busy/free without personal details', async () => 
   assert.equal((await client().get('/api/availability')).status, 302, 'login required');
 });
 
+test('availability API warns about rule violations before the form is sent', async () => {
+  const check = async (start, end) => JSON.parse((await alice.get(`/api/availability?start=${start}&end=${end}`)).text);
+  let r = await check(inDays(1, '16:18'), time.addDays(time.today(), 366) + 'T16:00');
+  assert.equal(r.ok, false);
+  assert.match(r.message, /משך הזמנה מקסימלי הוא 7 ימים/, 'a year-long booking is flagged live');
+  r = await check(inDays(-1, '10:00'), inDays(-1, '12:00'));
+  assert.match(r.message, /כבר עבר/);
+  r = await check(inDays(1, '12:00'), inDays(1, '10:00'));
+  assert.match(r.message, /אחרי מועד האיסוף/);
+  r = await check(inDays(1, '16:18'), inDays(1, '18:07'));
+  assert.equal(r.ok, true, 'any minute is accepted');
+});
+
+test('date fields accept any minute (no 15-minute step)', async () => {
+  const page = (await alice.get('/bookings/new')).text;
+  assert.match(page, /type="datetime-local" name="start"/);
+  assert.doesNotMatch(page, /step="900"/);
+  assert.match(page, /משך הזמנה מקסימלי: 7 ימים \(168 שעות\)/);
+  const r = await alice.post('/bookings/new', { start: inDays(25, '16:18'), end: inDays(25, '17:47'), accept_rules: '1' }, '/bookings/new');
+  assert.equal(r.status, 200);
+  db.prepare("DELETE FROM bookings WHERE start_at = ?").run(inDays(25, '16:18'));
+});
+
 test('competing requests: admin chooses one, overlap is refused at approval', async () => {
   await bob.post('/register', registrationForm({ email: 'bob@test.org' }));
   bobId = db.prepare("SELECT id FROM users WHERE email = 'bob@test.org'").get().id;

@@ -98,16 +98,85 @@ test('approval requires a future license date', async () => {
   assert.match(admin.flash().text, /אינו עתידי/);
 });
 
-test('admin note and role changes are saved and audited', async () => {
+test('admin note is saved', async () => {
   const u = createUser();
   await admin.post(`/admin/users/${u.id}/note`, { admin_note: 'נהג/ת זהיר/ה' }, `/admin/users/${u.id}`);
   assert.equal(getUser(u.id).admin_note, 'נהג/ת זהיר/ה');
-  await admin.post(`/admin/users/${u.id}/role`, {}, `/admin/users/${u.id}`);
+});
+
+test('user card has a permissions section with the right action', async () => {
+  const active = createUser();
+  const pending = createUser({ status: 'pending' });
+  const otherAdmin = createUser({ role: 'admin' });
+  let page = (await admin.get(`/admin/users/${active.id}`)).text;
+  assert.match(page, /<h2>הרשאות<\/h2>/);
+  assert.match(page, /משתמש רגיל/);
+  assert.match(page, new RegExp(`action="/admin/users/${active.id}/make-admin"`));
+  page = (await admin.get(`/admin/users/${pending.id}`)).text;
+  assert.doesNotMatch(page, /make-admin/);
+  assert.match(page, /ניתן למנות למנהל רק משתמש פעיל/);
+  page = (await admin.get(`/admin/users/${otherAdmin.id}`)).text;
+  assert.match(page, /מנהל מערכת/);
+  assert.match(page, new RegExp(`action="/admin/users/${otherAdmin.id}/remove-admin"`));
+  assert.match(page, /אין אימות דו־שלבי/);
+  const me = db.prepare("SELECT id FROM users WHERE email = 'admin@adm.test'").get();
+  page = (await admin.get(`/admin/users/${me.id}`)).text;
+  assert.match(page, /לא ניתן לשנות את ההרשאות של עצמך/);
+  assert.doesNotMatch(page, /remove-admin/);
+});
+
+test('making a user admin: immediate access, e-mail and audit; removing it revokes access', async () => {
+  const u = createUser({ email: 'promote@adm.test', first_name: 'דנה' });
+  const c = client();
+  await c.login('promote@adm.test');
+  assert.equal((await c.get('/admin')).status, 403);
+
+  await admin.post(`/admin/users/${u.id}/make-admin`, {}, `/admin/users/${u.id}`);
   assert.equal(getUser(u.id).role, 'admin');
-  await admin.post(`/admin/users/${u.id}/role`, {}, `/admin/users/${u.id}`);
+  assert.match(admin.flash().text, /מונה למנהל/);
+  assert.equal((await c.get('/admin')).status, 200, 'no re-login needed');
+  assert.ok(outbox().some((m) => m.subject === 'קיבלת הרשאות מנהל' && m.to.includes('promote@adm.test')));
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'user.make_admin' AND target_id = ?").get(u.id));
+
+  await admin.post(`/admin/users/${u.id}/make-admin`, {}, `/admin/users/${u.id}`);
+  assert.match(admin.flash().text, /כבר מנהל/, 'repeating is harmless (no toggle)');
+  assert.equal(getUser(u.id).role, 'admin');
+
+  await admin.post(`/admin/users/${u.id}/remove-admin`, {}, `/admin/users/${u.id}`);
   assert.equal(getUser(u.id).role, 'user');
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'user.role' AND target_id = ?").get(u.id).n, 2);
-  assert.match((await admin.get('/admin/audit')).text, /user\.role/);
+  assert.equal((await c.get('/admin')).status, 403);
+  assert.ok(outbox().some((m) => m.subject === 'הרשאות המנהל שלך הוסרו'));
+  assert.match((await admin.get('/admin/audit')).text, /user\.remove_admin/);
+});
+
+test('only active users can be made admins', async () => {
+  for (const status of ['pending', 'blocked', 'rejected', 'license_update']) {
+    const u = createUser({ status });
+    await admin.post(`/admin/users/${u.id}/make-admin`, {}, `/admin/users/${u.id}`);
+    assert.equal(getUser(u.id).role, 'user', status);
+    assert.match(admin.flash().text, /רק משתמש פעיל/);
+  }
+});
+
+test('a new admin can promote others', async () => {
+  const a2 = createUser({ email: 'second-admin@adm.test' });
+  await admin.post(`/admin/users/${a2.id}/make-admin`, {}, `/admin/users/${a2.id}`);
+  const c = client();
+  await c.login('second-admin@adm.test');
+  const u = createUser();
+  await c.post(`/admin/users/${u.id}/make-admin`, {}, `/admin/users/${u.id}`);
+  assert.equal(getUser(u.id).role, 'admin');
+});
+
+test('users list can be filtered by role', async () => {
+  createUser({ role: 'admin', email: 'listed-admin@adm.test' });
+  createUser({ email: 'listed-user@adm.test' });
+  let page = (await admin.get('/admin/users?role=admin')).text;
+  assert.match(page, /listed-admin@adm.test/);
+  assert.doesNotMatch(page, /listed-user@adm.test/);
+  page = (await admin.get('/admin/users?role=user')).text;
+  assert.match(page, /listed-user@adm.test/);
+  assert.doesNotMatch(page, /listed-admin@adm.test/);
 });
 
 test('user search and status filter', async () => {

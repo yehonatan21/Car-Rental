@@ -60,7 +60,7 @@ test('regular users get 403 on every admin page and action', async () => {
     '/admin/bookings', '/admin/bookings/new', '/admin/blocks/new', '/admin/vehicle', '/admin/policies', '/admin/settings', '/admin/audit']) {
     assert.equal((await user.get(url)).status, 403, url);
   }
-  for (const url of [`/admin/users/${plainUser.id}/approve`, `/admin/users/${plainUser.id}/role`, '/admin/settings', '/admin/policies']) {
+  for (const url of [`/admin/users/${plainUser.id}/approve`, `/admin/users/${plainUser.id}/make-admin`, '/admin/settings', '/admin/policies']) {
     assert.equal((await user.post(url, { license_expiry: '2099-01-01', content: 'x' })).status, 403, url);
   }
   assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get(plainUser.id).role, 'user', 'cannot self-promote');
@@ -174,7 +174,7 @@ test('logout destroys the session server-side', async () => {
 
 test('admins cannot change their own status or role', async () => {
   await admin.post(`/admin/users/${adminUser.id}/block`, {}, '/admin');
-  await admin.post(`/admin/users/${adminUser.id}/role`, {}, '/admin');
+  await admin.post(`/admin/users/${adminUser.id}/remove-admin`, {}, '/admin');
   const me = db.prepare('SELECT * FROM users WHERE id = ?').get(adminUser.id);
   assert.equal(me.status, 'active');
   assert.equal(me.role, 'admin');
@@ -184,4 +184,22 @@ test('unknown pages return 404', async () => {
   assert.equal((await client().get('/nope')).status, 404);
   assert.equal((await admin.get('/admin/users/999999')).status, 404);
   assert.equal((await admin.get('/admin/bookings/999999')).status, 404);
+});
+
+test('a blocked admin loses all admin powers, even after logging in again', async () => {
+  const other = createUser({ email: 'other@sec.test' });
+  const booking = Number(db.prepare(`INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, status) VALUES (1, ?, ?, ?, 'approved')`)
+    .run(other.id, inDays(15), inDays(15, '12:00')).lastInsertRowid);
+  const exAdmin = createUser({ role: 'admin', email: 'blocked-admin@sec.test' });
+  await admin.post(`/admin/users/${exAdmin.id}/block`, {}, `/admin/users/${exAdmin.id}`);
+  assert.equal(db.prepare('SELECT role, status FROM users WHERE id = ?').get(exAdmin.id).status, 'blocked');
+
+  const c = client();
+  await c.login('blocked-admin@sec.test');
+  for (const url of ['/admin', '/admin/users', `/admin/users/${other.id}/license`]) assert.equal((await c.get(url)).status, 403, url);
+  assert.doesNotMatch((await c.get('/me')).text, /href="\/admin"/, 'no admin menu');
+  const cal = (await c.get(`/calendar?view=day&date=${inDays(15).slice(0, 10)}`)).text;
+  assert.doesNotMatch(cal, /בדיקה משתמש/, 'calendar does not reveal who booked');
+  await c.post(`/me/bookings/${booking}/cancel`, {}, '/me/bookings');
+  assert.equal(db.prepare('SELECT status FROM bookings WHERE id = ?').get(booking).status, 'approved', 'cannot cancel other users\' bookings');
 });

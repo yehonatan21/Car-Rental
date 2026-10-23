@@ -55,7 +55,9 @@ app.use((req, res, next) => {
     if (user) {
       req.session = session;
       // A session waiting for the 2FA code is not yet logged in.
-      if (!session.needs_2fa) req.user = user;
+      // Admin rights require an active account: a blocked/suspended admin is treated as a regular user everywhere.
+      const effective = user.role === 'admin' && user.status !== 'active' ? { ...user, role: 'user' } : user;
+      if (!session.needs_2fa) req.user = effective;
       else req.pendingUser = user;
     }
   }
@@ -108,7 +110,10 @@ const requireLogin = (req, res, next) => {
 };
 const requireAdmin = (req, res, next) => {
   if (!req.user) return requireLogin(req, res, next);
-  if (req.user.role !== 'admin') return res.status(403).page('אין הרשאה', html`<h1>אין הרשאה לעמוד זה</h1>`);
+  // A blocked/suspended admin keeps role=admin in the database but loses all admin access.
+  if (req.user.role !== 'admin' || req.user.status !== 'active') {
+    return res.status(403).page('אין הרשאה', html`<h1>אין הרשאה לעמוד זה</h1>`);
+  }
   next();
 };
 

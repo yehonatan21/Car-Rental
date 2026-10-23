@@ -50,6 +50,34 @@ function bookingsTable(list, { showUser = true } = {}) {
 </tr>`)}</tbody></table>`;
 }
 
+/** "Permissions" section of the user card: current role, what it allows, and the button to change it. */
+function permissionsCard(req, u, isSelf) {
+  const isAdmin = u.role === 'admin';
+  let action;
+  if (isSelf) {
+    action = html`<p class="muted">לא ניתן לשנות את ההרשאות של עצמך. מנהל אחר יכול לעשות זאת.</p>`;
+  } else if (isAdmin) {
+    action = actionButton(req, `/admin/users/${u.id}/remove-admin`, 'הסרת הרשאת מנהל', {
+      cls: 'btn-danger', confirm: `להסיר את הרשאת המנהל של ${fullName(u)}? הוא/היא יחזרו להיות משתמש/ת רגיל/ה.`,
+    });
+  } else if (u.status !== 'active') {
+    action = html`<p class="muted">ניתן למנות למנהל רק משתמש פעיל. יש לאשר את המשתמש קודם.</p>`;
+  } else {
+    action = actionButton(req, `/admin/users/${u.id}/make-admin`, 'הפיכה למנהל', {
+      cls: 'btn-primary', confirm: `לתת ל־${fullName(u)} הרשאות מנהל מלאות? מנהל יכול לאשר משתמשים והזמנות, לצפות ברישיונות נהיגה ולשנות הגדרות.`,
+    });
+  }
+  return html`<section class="card" id="permissions">
+  <h2>הרשאות</h2>
+  <p>תפקיד נוכחי: ${isAdmin ? badge('admin', 'מנהל מערכת') : badge('completed', 'משתמש רגיל')}</p>
+  <p class="muted small">${isAdmin
+    ? 'גישה מלאה לממשק הניהול: אישור משתמשים והזמנות, צפייה ברישיונות נהיגה, ניהול הרכב, הנהלים וההגדרות. מקבל את התראות המנהל במייל.'
+    : 'יכול להזמין את הרכב ולנהל את ההזמנות והפרטים שלו בלבד.'}</p>
+  ${isAdmin && !u.totp_enabled ? html`<p class="small">⚠️ למנהל זה אין אימות דו־שלבי. מומלץ לבקש ממנו להפעיל אותו (אזור אישי ← סיסמה ואבטחה).</p>` : ''}
+  ${action}
+</section>`;
+}
+
 function userOptions(selected) {
   const users = db.prepare("SELECT * FROM users WHERE status = 'active' ORDER BY first_name, last_name").all();
   return users.map((u) => html`<option value="${u.id}" ${u.id === Number(selected) ? 'selected' : ''}>${fullName(u)} (${u.email})</option>`);
@@ -114,9 +142,11 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2>התראות רכב</h
   app.get('/admin/users', requireAdmin, (req, res) => {
     const status = USER_STATUS[req.query.status] ? req.query.status : '';
     const q = String(req.query.q || '').trim();
+    const role = ['admin', 'user'].includes(req.query.role) ? req.query.role : '';
     const where = [];
     const args = [];
     if (status) { where.push('status = ?'); args.push(status); }
+    if (role) { where.push('role = ?'); args.push(role); }
     if (q) { where.push("(first_name || ' ' || last_name LIKE ? OR email LIKE ? OR phone LIKE ? OR id_number LIKE ?)"); args.push(...Array(4).fill(`%${q}%`)); }
     const users = db.prepare(`SELECT * FROM users ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY
       CASE status WHEN 'pending' THEN 0 WHEN 'license_update' THEN 1 ELSE 2 END, created_at DESC`).all(...args);
@@ -126,8 +156,12 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2>התראות רכב</h
   <input name="q" value="${q}" placeholder="חיפוש לפי שם, מייל, טלפון או ת״ז">
   <select name="status"><option value="">כל הסטטוסים</option>
     ${Object.entries(USER_STATUS).map(([k, l]) => html`<option value="${k}" ${k === status ? 'selected' : ''}>${l}</option>`)}</select>
+  <select name="role"><option value="">כל התפקידים</option>
+    <option value="admin" ${role === 'admin' ? 'selected' : ''}>מנהלים</option>
+    <option value="user" ${role === 'user' ? 'selected' : ''}>משתמשים רגילים</option></select>
   <button class="btn btn-light">סינון</button>
 </form>
+<p class="muted small">למינוי מנהל: פותחים את כרטיס המשתמש ← "הרשאות" ← "הפיכה למנהל".</p>
 <table class="table">
 <thead><tr><th>שם</th><th>דואר אלקטרוני</th><th>טלפון</th><th>תוקף רישיון</th><th>סטטוס</th><th></th></tr></thead>
 <tbody>${users.map((u) => html`<tr>
@@ -200,9 +234,10 @@ ${users.length ? '' : html`<p class="muted">לא נמצאו משתמשים.</p>`
     ${u.status === 'pending' ? actionButton(req, `/admin/users/${u.id}/reject`, 'דחיית ההרשמה', { cls: 'btn-danger', note: true, confirm: 'לדחות את המשתמש?' }) : ''}
     ${['active', 'pending'].includes(u.status) ? actionButton(req, `/admin/users/${u.id}/request-license`, 'בקשת רישיון חדש', { cls: 'btn-light', note: true }) : ''}
     ${u.status !== 'blocked' ? actionButton(req, `/admin/users/${u.id}/block`, 'חסימת המשתמש', { cls: 'btn-danger', note: true, confirm: 'לחסום את המשתמש? הזמנות עתידיות לא יבוטלו אוטומטית.' }) : ''}
-    ${u.status === 'active' ? actionButton(req, `/admin/users/${u.id}/role`, u.role === 'admin' ? 'הסרת הרשאת מנהל' : 'הפיכה למנהל', { cls: 'btn-light', confirm: 'לשנות את הרשאות המשתמש?' }) : ''}
   </div>`}
 </section>
+
+${permissionsCard(req, u, isSelf)}
 
 <section class="card">
   <h2>היסטוריית הזמנות</h2>
@@ -291,11 +326,21 @@ ${users.length ? '' : html`<p class="muted">לא נמצאו משתמשים.</p>`
     return 'הרישיון נדחה והמשתמש התבקש להעלות רישיון אחר';
   });
 
-  userAction('role', async (u, req) => {
-    const role = u.role === 'admin' ? 'user' : 'admin';
-    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, u.id);
-    audit(req.user.id, 'user.role', 'user', u.id, role);
-    return role === 'admin' ? 'המשתמש הוגדר כמנהל' : 'הרשאת המנהל הוסרה';
+  userAction('make-admin', async (u, req) => {
+    if (u.role === 'admin') return { type: 'warning', text: 'המשתמש כבר מנהל' };
+    if (u.status !== 'active') return { type: 'error', text: 'ניתן למנות למנהל רק משתמש פעיל. יש לאשר את המשתמש קודם' };
+    db.prepare("UPDATE users SET role = 'admin', updated_at = datetime('now','localtime') WHERE id = ?").run(u.id);
+    audit(req.user.id, 'user.make_admin', 'user', u.id);
+    await mail.roleChanged(u, true);
+    return `${fullName(u)} מונה למנהל ונשלחה אליו הודעה`;
+  });
+
+  userAction('remove-admin', async (u, req) => {
+    if (u.role !== 'admin') return { type: 'warning', text: 'המשתמש אינו מנהל' };
+    db.prepare("UPDATE users SET role = 'user', updated_at = datetime('now','localtime') WHERE id = ?").run(u.id);
+    audit(req.user.id, 'user.remove_admin', 'user', u.id);
+    await mail.roleChanged(u, false);
+    return `הרשאת המנהל של ${fullName(u)} הוסרה`;
   });
 
   userAction('note', async (u, req) => {

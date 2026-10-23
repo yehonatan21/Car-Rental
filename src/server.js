@@ -1,5 +1,6 @@
 'use strict';
 const path = require('node:path');
+const net = require('node:net');
 const crypto = require('node:crypto');
 const express = require('express');
 const multer = require('multer');
@@ -9,9 +10,11 @@ const auth = require('./auth');
 const { layout, html } = require('./views/html');
 const { BookingError } = require('./bookings');
 const { startJobs } = require('./jobs');
-const { listenHttps } = require('./tls');
+const { listenHttps, lanAddresses } = require('./tls');
 
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+// HSTS applies to a whole host name (all ports), so it is never sent for localhost or raw IP addresses:
+// pinning them would force every other local/LAN dev server on that host onto HTTPS.
+const pinnable = (hostname) => hostname !== 'localhost' && !net.isIP(hostname.replace(/^\[|\]$/g, ''));
 
 const app = express();
 app.set('trust proxy', 1); // in production HTTPS is terminated by the reverse proxy, which sets X-Forwarded-Proto
@@ -30,8 +33,7 @@ app.use((req, res, next) => {
     'Referrer-Policy': 'same-origin',
     'X-Frame-Options': 'DENY',
   });
-  // HSTS applies to the whole host (all ports), so never pin localhost: it would break other local dev servers.
-  if (req.secure && !LOCAL_HOSTS.has(req.hostname)) res.set('Strict-Transport-Security', 'max-age=31536000');
+  if (req.secure && pinnable(req.hostname)) res.set('Strict-Transport-Security', 'max-age=31536000');
   next();
 });
 
@@ -67,10 +69,13 @@ app.use((req, res, next) => {
   next();
 });
 
+const PUBLIC_ORIGIN = new URL(config.baseUrl).origin;
+
 // CSRF: every POST must come from our own origin; logged-in POSTs must also carry the session token.
 function verifyCsrf(req, res, next) {
   const origin = req.get('origin');
-  if (origin && origin !== `${req.protocol}://${req.get('host')}`) return res.status(403).send('Forbidden');
+  // Our own origin as this request sees it, or the configured public URL (a tunnel/proxy may rewrite Host).
+  if (origin && origin !== `${req.protocol}://${req.get('host')}` && origin !== PUBLIC_ORIGIN) return res.status(403).send('Forbidden');
   if (req.session) {
     const token = String(req.body?._csrf || '');
     const ok = token.length === req.session.csrf.length &&
@@ -129,7 +134,13 @@ async function start({ port = config.port, host, jobs = true } = {}) {
     ? await listenHttps(app, port, host)
     : await new Promise((resolve, reject) => { const s = app.listen(port, host, () => resolve(s)).once('error', reject); });
   const scheme = config.https.enabled ? 'https' : 'http';
-  console.log(`${config.appName} listening on ${scheme}://localhost:${server.address().port} (public URL: ${config.baseUrl})`);
+  const p = server.address().port;
+  const lines = [`${config.appName} is running`, `  Local:      ${scheme}://localhost:${p}`];
+  if (!host || host === '0.0.0.0' || host === '::') {
+    for (const ip of lanAddresses()) lines.push(`  Network:    ${scheme}://${ip}:${p}   (other devices on the same Wi-Fi)`);
+  }
+  lines.push(`  Public URL: ${config.baseUrl}   (BASE_URL, used in e-mail links)`);
+  console.log(lines.join('\n'));
   if (jobs) startJobs();
   return server;
 }

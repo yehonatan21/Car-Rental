@@ -42,6 +42,8 @@ echo.
 echo  Admin login:  admin@example.org / Password1
 echo  User login:   noa@example.org   / Password1
 echo  E-mails are saved in the data\outbox folder.
+echo  Other devices on your Wi-Fi: use the "Network" address printed below
+echo  (run allow-wifi.cmd once). On the internet: npm run tunnel
 echo  Press Ctrl+C in this window to stop the server.
 echo ============================================================
 echo.

@@ -14,6 +14,31 @@
 
 הסקריפט מתקין תלויות, יוצר נתוני דמו, מפעיל את השרת ופותח את **https://localhost:3000**. בפעם הראשונה הדפדפן יזהיר על התעודה, כי היא תעודה עצמית ל־localhost: בוחרים "מתקדם" ואז "המשך ל־localhost". כניסה: `admin@example.org` / `Password1`.
 
+## גישה מהרשת הביתית (Wi-Fi) ומהאינטרנט
+
+### מכשירים באותה רשת Wi-Fi
+
+1. מפעילים את האפליקציה (`start.cmd` או `npm run dev`). בהפעלה מוצגת כתובת הרשת, למשל:
+   ```
+   Network:    https://192.168.1.23:3000   (other devices on the same Wi-Fi)
+   ```
+2. **Windows, פעם אחת:** לחיצה כפולה על `allow-wifi.cmd`. הקובץ פותח את פורט 3000 ב־Firewall לרשתות פרטיות בלבד ומציג את הכתובות. רשת ה־Wi-Fi צריכה להיות מוגדרת כ־"Private": הגדרות ← רשת ואינטרנט ← Wi-Fi ← הרשת שלך ← רשת פרטית.
+3. בטלפון או במחשב אחר באותה רשת פותחים את הכתובת. בפעם הראשונה יש לאשר את אזהרת התעודה. התעודה העצמית כוללת אוטומטית את כתובות ה־IP של המחשב, ונוצרת מחדש אם הכתובת משתנה.
+
+### גישה מהאינטרנט (Cloudflare Tunnel)
+
+```bash
+winget install --id Cloudflare.cloudflared     # פעם אחת (macOS: brew install cloudflared)
+npm run tunnel                                 # בחלון נוסף, כשהאפליקציה רצה
+```
+
+מוצגת כתובת `https://<אקראי>.trycloudflare.com` שנגישה מכל מקום, כל עוד שני החלונות פתוחים. אין צורך בחשבון ואין צורך לפתוח פורטים בראוטר.
+
+- **אבטחה:** הפקודה מסרבת לפרסם את האתר כל עוד קיים משתמש עם סיסמת הדמו `Password1`, שמופיעה ב־README וידועה לכולם. לפני הפרסום צריך להחליף סיסמאות (`npm run create-admin -- --email admin@example.org --password …`), או להתחיל ממסד נתונים חדש בלי נתוני דמו.
+- הכתובת משתנה בכל הפעלה. כדי שקישורים במיילים יפנו אליה, מגדירים `BASE_URL=<הכתובת>` ב־`.env` ומפעילים מחדש.
+- **לכתובת קבועה:** [Cloudflare Tunnel עם דומיין משלכם](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/), או [ngrok](https://ngrok.com) עם הדומיין הסטטי החינמי: `ngrok http https://localhost:3000 --url=<השם-שלכם>.ngrok-free.app`. בשני המקרים מגדירים את `BASE_URL` לכתובת הקבועה.
+- המחשב צריך להישאר דלוק ומחובר. לסביבה שזמינה תמיד, פורסים את ה־image `:dev` לשרת (ראו "ענפים ו־CI/CD").
+
 ## HTTPS
 
 - **פיתוח:** השרת מגיש HTTPS בעצמו בפורט 3000, עם תעודה עצמית ל־localhost שנוצרת אוטומטית ב־`data/certs`. בקשת `http://` לאותו פורט מועברת ל־`https://`. כדי להימנע מאזהרת הדפדפן אפשר ליצור תעודה מהימנה עם [mkcert](https://github.com/FiloSottile/mkcert) (`mkcert -install && mkcert localhost 127.0.0.1`) ולהגדיר `HTTPS_CERT_FILE` ו־`HTTPS_KEY_FILE` בקובץ `.env`.

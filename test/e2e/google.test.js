@@ -28,7 +28,7 @@ before(async () => {
       const pkceOk = entry && crypto.createHash('sha256').update(p.get('code_verifier') || '').digest('base64url') === entry.challenge;
       if (!entry || entry.status || !pkceOk || p.get('client_secret') !== 'test-secret') {
         res.writeHead(entry?.status || 400, { 'content-type': 'application/json' });
-        return res.end(JSON.stringify({ error: 'invalid_grant' }));
+        return res.end(JSON.stringify({ error: entry?.error || 'invalid_grant' }));
       }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ access_token: 'x', id_token: `${b64url({ alg: 'RS256' })}.${b64url(entry.claims)}.sig` }));
@@ -37,6 +37,7 @@ before(async () => {
   await new Promise((r) => fakeGoogle.listen(0, '127.0.0.1', r));
   config.google.tokenUrl = `http://127.0.0.1:${fakeGoogle.address().port}/token`;
   srv = await startServer();
+  config.baseUrl = srv.base; // Google returns users to BASE_URL, so the tests browse at that address
 });
 after(async () => {
   await srv.close();
@@ -161,7 +162,7 @@ test('rejected responses never log anyone in', async () => {
     const c = client();
     const r = await googleLogin(c, { email: 'victim@test.org', ...claims });
     assert.equal(r.location, '/login', name);
-    assert.match(c.flash().text, /נכשלה/, name);
+    assert.match(c.flash().text, /Google/, name);
     assert.equal((await c.get('/me')).status, 302, `${name}: not logged in`);
   }
   assert.equal(db.prepare("SELECT google_sub FROM users WHERE email = 'victim@test.org'").get().google_sub, null);
@@ -202,7 +203,7 @@ test('user cancelling at Google, and token endpoint errors, are handled', async 
   const c2 = client();
   const e = await googleLogin(c2, {}, { status: 500 });
   assert.equal(e.location, '/login');
-  assert.match(c2.flash().text, /נכשלה/);
+  assert.match(c2.flash().text, /פג תוקף הקוד מ־Google/);
 });
 
 test('an account already linked to another Google id is not taken over', async () => {
@@ -229,5 +230,81 @@ test('without Google credentials the option is hidden and the route is off', asy
     assert.equal((await client().get('/auth/google')).status, 404);
   } finally {
     config.google.clientId = saved;
+  }
+});
+
+test('on an address other than BASE_URL the button is replaced by a link to the right address', async () => {
+  const saved = config.baseUrl;
+  config.baseUrl = 'https://car.example.org';
+  try {
+    const page = (await client().get('/login')).text;
+    assert.doesNotMatch(page, /href="\/auth\/google/);
+    assert.match(page, /ההתחברות עם Google זמינה בכתובת <a href="https:\/\/car.example.org\/login">/);
+    // Following an old link is sent once to the right address (no redirect loop).
+    const r = await client().get('/auth/google?next=/me');
+    assert.equal(r.location, 'https://car.example.org/auth/google?next=%2Fme&moved=1');
+    const again = await client().get('/auth/google?next=/me&moved=1');
+    assert.match(again.location, /^https:\/\/accounts\.google\.com\//);
+  } finally {
+    config.baseUrl = saved;
+  }
+});
+
+test('specific, actionable error messages; the admin settings page shows status and the last error', async () => {
+  const a = createUser({ role: 'admin', email: 'g-admin@test.org' });
+  const adminClient = client();
+  await adminClient.login(a.email);
+  let page = (await adminClient.get('/admin/settings')).text;
+  assert.match(page, /id="google"/);
+  assert.match(page, /מופעלת/);
+  assert.match(page, new RegExp(`<code>${srv.base}/auth/google/callback</code>`), 'exact redirect URI to register');
+
+  // Wrong client secret at Google → invalid_client
+  const c = client();
+  const start = await c.get('/auth/google');
+  const url = new URL(start.location);
+  codes.set('bad-secret', { status: 401, error: 'invalid_client' });
+  await c.get(`/auth/google/callback?code=bad-secret&state=${url.searchParams.get('state')}`);
+  assert.match(c.flash().text, /הגדרות Google שגויות/);
+
+  // Missing state cookie (login started on another address)
+  const c2 = client();
+  const s2 = new URL((await c2.get('/auth/google')).location).searchParams.get('state');
+  delete c2.cookies.gstate;
+  await c2.get(`/auth/google/callback?code=x&state=${s2}`);
+  assert.match(c2.flash().text, /בכתובת אחרת/);
+
+  page = (await adminClient.get('/admin/settings')).text;
+  assert.match(page, /שגיאה אחרונה/);
+  assert.match(page, /state cookie missing/);
+});
+
+test('Google unreachable shows a message instead of an error page', async () => {
+  const saved = config.google.tokenUrl;
+  config.google.tokenUrl = 'http://127.0.0.1:9/token'; // nothing listens on port 9
+  try {
+    const c = client();
+    const r = await googleLogin(c, { email: 'x@test.org' });
+    assert.equal(r.status, 302);
+    assert.equal(r.location, '/login');
+    assert.match(c.flash().text, /לא ניתן להתחבר לשרתי Google/);
+  } finally {
+    config.google.tokenUrl = saved;
+  }
+});
+
+test('admin settings explain what is missing when Google is not configured', async () => {
+  const a = createUser({ role: 'admin', email: 'g-admin2@test.org' });
+  const ac = client();
+  await ac.login(a.email);
+  const saved = config.google.clientSecret;
+  config.google.clientSecret = '';
+  try {
+    const page = (await ac.get('/admin/settings')).text;
+    assert.match(page, /לא מופעלת/);
+    assert.match(page, /❌ <code>GOOGLE_CLIENT_SECRET<\/code>/);
+    assert.match(page, /✅ <code>GOOGLE_CLIENT_ID<\/code>/);
+  } finally {
+    config.google.clientSecret = saved;
   }
 });

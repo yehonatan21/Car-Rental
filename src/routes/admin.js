@@ -7,6 +7,7 @@ const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
 const bookings = require('../bookings');
+const google = require('../google');
 const { html, markdown, postForm, actionButton, field, badge, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 
 const SETTING_LABELS = {
@@ -75,6 +76,36 @@ function permissionsCard(req, u, isSelf) {
     : 'יכול להזמין את הרכב ולנהל את ההזמנות והפרטים שלו בלבד.'}</p>
   ${isAdmin && !u.totp_enabled ? html`<p class="small">⚠️ למנהל זה אין אימות דו־שלבי. מומלץ לבקש ממנו להפעיל אותו (אזור אישי ← סיסמה ואבטחה).</p>` : ''}
   ${action}
+</section>`;
+}
+
+/** Settings page: is "Sign in with Google" set up, and what exactly to enter in Google Cloud Console. */
+function googleStatusCard(req) {
+  const g = google.status();
+  const check = (ok, text) => html`<li>${ok ? '✅' : '❌'} ${text}</li>`;
+  const here = `${req.protocol}://${req.get('host')}`;
+  return html`<section class="card" id="google">
+  <h2>התחברות עם Google</h2>
+  <p>${g.enabled ? badge('active', 'מופעלת') : badge('blocked', 'לא מופעלת')}
+    ${g.enabled ? 'הכפתור מוצג בדפי ההתחברות וההרשמה.' : 'הכפתור מוסתר עד שההגדרה תושלם.'}</p>
+  <ul class="plain">
+    ${check(g.clientIdSet, html`<code>GOOGLE_CLIENT_ID</code> מוגדר ב־.env`)}
+    ${g.clientIdSet && !g.clientIdLooksRight ? html`<li>⚠️ ה־Client ID אמור להסתיים ב־<code>.apps.googleusercontent.com</code></li>` : ''}
+    ${check(g.secretSet, html`<code>GOOGLE_CLIENT_SECRET</code> מוגדר ב־.env`)}
+    ${check(here === g.origin, html`האתר פתוח בכתובת שב־<code>BASE_URL</code> (${g.origin})`)}
+  </ul>
+  ${here !== g.origin ? html`<p class="small">⚠️ פתחת את האתר בכתובת <code>${here}</code>. Google יחזיר את המשתמשים רק לכתובת <code>${g.origin}</code>,
+    ולכן כפתור Google יפעל רק שם. כדי להשתמש בכתובת אחרת, יש לעדכן את <code>BASE_URL</code> ב־.env.</p>` : ''}
+  <h3>מה להזין ב־Google Cloud Console</h3>
+  <p class="small">APIs &amp; Services ← Credentials ← OAuth client ID (Web application):</p>
+  <dl class="dl small">
+    <dt>Authorized JavaScript origins</dt><dd><code>${g.origin}</code></dd>
+    <dt>Authorized redirect URIs</dt><dd><code>${g.redirectUri}</code></dd>
+  </dl>
+  <p class="muted small">כל עוד מסך ההסכמה (OAuth consent screen) במצב <b>Testing</b>, רק חשבונות שהוספו ב־<b>Test users</b> יכולים להתחבר.
+    אחרי עריכת .env יש להפעיל מחדש את השרת.</p>
+  ${g.lastError ? html`<div class="flash flash-error small"><b>שגיאה אחרונה (${time.fmt(time.toLocal(g.lastError.at))}):</b>
+    <code>${g.lastError.message}</code></div>` : ''}
 </section>`;
 }
 
@@ -606,6 +637,7 @@ ${bookingsTable(list)}`);
   ${postForm(req, '/admin/settings', html`
     ${Object.entries(SETTING_LABELS).map(([k, [label, hint]]) => field(label, html`<input type="number" name="${k}" value="${s[k]}" min="0" step="1" required>`, hint))}
     <button class="btn btn-primary btn-block">שמירה</button>`, 'class="card"')}
+  ${googleStatusCard(req)}
   <p><a href="/admin/audit">יומן פעולות מנהלים</a></p>
 </div>`);
   });

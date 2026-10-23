@@ -11,7 +11,28 @@ const STATE_TTL_MS = 10 * 60000;
 const SIGNUP_TTL_MS = 30 * 60000;
 const ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
 
-class GoogleAuthError extends Error {}
+/** A failed Google login. `reason` is shown to the user; `message` has the technical detail for logs/admins. */
+class GoogleAuthError extends Error {
+  constructor(message, reason = 'ההתחברות עם Google נכשלה. נסו שוב.') {
+    super(message);
+    this.reason = reason;
+  }
+}
+
+const REASONS = {
+  state: 'פג תוקף ההתחברות, או שהיא התחילה בכתובת אחרת של האתר. נסו שוב.',
+  invalid_client: 'הגדרות Google שגויות (Client ID או Client secret). יש לפנות למנהל המערכת.',
+  redirect_uri_mismatch: 'כתובת החזרה אינה רשומה ב־Google. יש לפנות למנהל המערכת.',
+  invalid_grant: 'פג תוקף הקוד מ־Google. נסו שוב.',
+  network: 'לא ניתן להתחבר לשרתי Google כרגע. בדקו את חיבור האינטרנט ונסו שוב.',
+  unverified: 'כתובת הדואר האלקטרוני בחשבון Google לא אומתה.',
+};
+
+// Last failure, shown to admins on the settings page to help with setup.
+let lastError = null;
+function recordError(err) {
+  lastError = { at: new Date(), message: err.message };
+}
 
 const enabled = () => Boolean(config.google.clientId && config.google.clientSecret);
 const redirectUri = () => `${config.baseUrl}/auth/google/callback`;
@@ -48,26 +69,37 @@ function decodeJwtPayload(token) {
 
 /** Completes a login: validates state, exchanges the code and returns the verified Google profile. */
 async function complete({ code, state, cookieState }) {
-  if (!state || !cookieState || state !== cookieState) throw new GoogleAuthError('state mismatch');
+  if (!state || !cookieState || state !== cookieState) {
+    throw new GoogleAuthError(cookieState ? 'state mismatch' : 'state cookie missing (login started on a different address than BASE_URL?)', REASONS.state);
+  }
   const row = db.prepare('SELECT * FROM oauth_states WHERE state = ?').get(state);
   db.prepare('DELETE FROM oauth_states WHERE state = ?').run(state); // single use
-  if (!row || row.expires_at < Date.now()) throw new GoogleAuthError('unknown or expired state');
+  if (!row || row.expires_at < Date.now()) throw new GoogleAuthError('unknown or expired state', REASONS.state);
   if (!code) throw new GoogleAuthError('missing code');
 
-  const res = await fetch(config.google.tokenUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: config.google.clientId,
-      client_secret: config.google.clientSecret,
-      redirect_uri: redirectUri(),
-      grant_type: 'authorization_code',
-      code_verifier: row.verifier,
-    }),
-  });
+  let res;
+  try {
+    res = await fetch(config.google.tokenUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: config.google.clientId,
+        client_secret: config.google.clientSecret,
+        redirect_uri: redirectUri(),
+        grant_type: 'authorization_code',
+        code_verifier: row.verifier,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    throw new GoogleAuthError(`cannot reach ${config.google.tokenUrl}: ${err.cause?.code || err.message}`, REASONS.network);
+  }
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new GoogleAuthError(`token endpoint ${res.status}: ${body.error || ''}`);
+  if (!res.ok) {
+    const detail = [body.error, body.error_description].filter(Boolean).join(': ');
+    throw new GoogleAuthError(`token endpoint ${res.status} ${detail}`.trim(), REASONS[body.error]);
+  }
 
   const claims = decodeJwtPayload(body.id_token);
   if (!ISSUERS.has(claims.iss)) throw new GoogleAuthError('wrong issuer');
@@ -76,7 +108,7 @@ async function complete({ code, state, cookieState }) {
   if (!(claims.exp * 1000 > Date.now())) throw new GoogleAuthError('expired token');
   if (claims.nonce !== row.nonce) throw new GoogleAuthError('nonce mismatch');
   if (!claims.sub || !claims.email) throw new GoogleAuthError('missing claims');
-  if (claims.email_verified !== true && claims.email_verified !== 'true') throw new GoogleAuthError('email not verified');
+  if (claims.email_verified !== true && claims.email_verified !== 'true') throw new GoogleAuthError('email not verified', REASONS.unverified);
 
   return {
     sub: String(claims.sub),
@@ -106,4 +138,24 @@ function clearSignup(token) {
   if (token) db.prepare('DELETE FROM google_signups WHERE token_hash = ?').run(sha256(token).toString('hex'));
 }
 
-module.exports = { enabled, redirectUri, begin, complete, rememberSignup, pendingSignup, clearSignup, GoogleAuthError };
+/** Setup diagnostics for the admin settings page. */
+function status() {
+  return {
+    clientIdSet: Boolean(config.google.clientId),
+    secretSet: Boolean(config.google.clientSecret),
+    clientIdLooksRight: /\.apps\.googleusercontent\.com$/.test(config.google.clientId),
+    enabled: enabled(),
+    redirectUri: redirectUri(),
+    origin: new URL(config.baseUrl).origin,
+    lastError,
+  };
+}
+
+/** Is this request on the BASE_URL address (the only one Google will send the user back to)? */
+const onPublicHost = (req) =>
+  `${req.protocol}://${req.get('x-forwarded-host') || req.get('host')}` === new URL(config.baseUrl).origin;
+
+module.exports = {
+  enabled, redirectUri, begin, complete, rememberSignup, pendingSignup, clearSignup, GoogleAuthError,
+  recordError, status, onPublicHost,
+};

@@ -60,6 +60,17 @@ npm run tunnel                                 # בחלון נוסף, כשהאפ
    GOOGLE_CLIENT_SECRET=GOCSPX-...
    ```
 
+**בדיקת ההגדרה:** ב־**הגדרות** (`/admin/settings`) יש לוח "התחברות עם Google" שמראה מה מוגדר ומה חסר, את הכתובות המדויקות שצריך להזין ב־Google Cloud Console ואת השגיאה האחרונה.
+
+| מה רואים | הסיבה והפתרון |
+|---|---|
+| אין כפתור Google | `GOOGLE_CLIENT_ID` או `GOOGLE_CLIENT_SECRET` חסרים ב־`.env` (בלי `#` בתחילת השורה), או שהשרת לא הופעל מחדש אחרי העריכה |
+| במקום כפתור יש הודעה "זמינה בכתובת…" | האתר נפתח בכתובת אחרת מ־`BASE_URL` (למשל `127.0.0.1` או IP של ה־Wi-Fi). פותחים את הכתובת שבהודעה |
+| דף שגיאה של Google: `redirect_uri_mismatch` | ב־Google Cloud Console, תחת Authorized redirect URIs, צריך להופיע בדיוק `https://localhost:3000/auth/google/callback` (או הכתובת שבלוח ההגדרות) |
+| דף שגיאה של Google: "Access blocked" / "has not completed the Google verification process" | מסך ההסכמה במצב Testing: מוסיפים את החשבון תחת **Test users**, או לוחצים **Publish app** |
+| "הגדרות Google שגויות" | ה־Client ID או ה־Client secret שגויים או הועתקו חלקית |
+| "לא ניתן להתחבר לשרתי Google" | למחשב שעליו רץ השרת אין גישה לאינטרנט, או שחומת אש חוסמת אותו |
+
 ההתחברות עם Google עובדת רק בכתובת שב־`BASE_URL`, כי Google מחזיר את המשתמש בדיוק לכתובת שנרשמה. Google לא מאפשר כתובות IP של הרשת הביתית (למשל `192.168.x.x`), אז ממכשירים ב־Wi-Fi מתחברים עם סיסמה או קוד חד־פעמי.
 
 ## מיילים אמיתיים (למשל Gmail)

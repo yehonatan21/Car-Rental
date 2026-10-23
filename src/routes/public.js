@@ -41,9 +41,8 @@ function loginPage(req, { error, email = '' } = {}) {
 <div class="narrow">
   <h1>התחברות</h1>
   ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
-  ${google.enabled() ? html`<div class="card">${googleButton(
-    '/auth/google' + (safeNext(req.query.next) ? '?next=' + encodeURIComponent(req.query.next) : ''), 'התחברות עם Google')}</div>
-    <p class="divider"><span>או</span></p>` : ''}
+  ${googleOption(req, '/auth/google' + (safeNext(req.query.next) ? '?next=' + encodeURIComponent(req.query.next) : ''), 'התחברות עם Google', '/login')}
+  ${google.enabled() ? html`<p class="divider"><span>או</span></p>` : ''}
   ${postForm(req, '/login', html`
     <input type="hidden" name="next" value="${req.query.next || req.body?.next || ''}">
     ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required autocomplete="username">`)}
@@ -75,6 +74,20 @@ const googleButton = (href, label) => html`
     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.1 1.4-4.9 2.3-8.2 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>
     ${label}</a>`;
 
+/**
+ * The Google button, when it can work from here. Google only returns users to the registered BASE_URL address,
+ * so on any other address (another host name, a Wi-Fi IP) point to the right one instead of failing later.
+ */
+function googleOption(req, href, label, page, hint) {
+  if (!google.enabled()) return '';
+  if (!google.onPublicHost(req)) {
+    const url = new URL(config.baseUrl).origin + page;
+    return html`<div class="card"><p class="muted small">ההתחברות עם Google זמינה בכתובת <a href="${url}">${url}</a>.
+      בכתובת הנוכחית אפשר להתחבר עם סיסמה או קוד חד־פעמי.</p></div>`;
+  }
+  return html`<div class="card">${googleButton(href, label)}${hint ? html`<p class="muted small">${hint}</p>` : ''}</div>`;
+}
+
 function registerPage(req, { errors = [], v = {} } = {}) {
   const policy = currentPolicy();
   const gs = google.pendingSignup(req.cookies[GOOGLE_SIGNUP_COOKIE]);
@@ -84,8 +97,8 @@ function registerPage(req, { errors = [], v = {} } = {}) {
 <p class="muted">לאחר ההרשמה המנהל יבדוק את הפרטים ואת רישיון הנהיגה. לא ניתן להזמין את הרכב עד לאישור.</p>
 ${errors.length ? html`<div class="flash flash-error"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
 ${gs ? html`<div class="flash flash-success">מתחברים עם חשבון Google <b>${gs.email}</b>. נשאר להשלים את הפרטים ולהעלות רישיון נהיגה.</div>`
-    : google.enabled() ? html`<div class="card">${googleButton('/auth/google', 'הרשמה מהירה עם Google')}
-      <p class="muted small">השם והדואר האלקטרוני יילקחו מחשבון Google. עדיין יש להשלים ת"ז, טלפון ורישיון נהיגה.</p></div>` : ''}
+    : googleOption(req, '/auth/google', 'הרשמה מהירה עם Google', '/register',
+      'השם והדואר האלקטרוני יילקחו מחשבון Google. עדיין יש להשלים ת"ז, טלפון ורישיון נהיגה.')}
 ${postForm(req, '/register', html`
   <fieldset>
     <legend>פרטים אישיים</legend>
@@ -217,7 +230,16 @@ module.exports = ({ app, licenseUpload }) => {
 
   // ---------- Sign in with Google ----------
   app.get('/auth/google', (req, res) => {
-    if (!google.enabled()) return res.status(404).page('לא נמצא', html`<h1>התחברות עם Google אינה מוגדרת</h1>`);
+    if (!google.enabled()) {
+      return res.status(404).page('לא נמצא', html`<h1>התחברות עם Google אינה מוגדרת</h1>
+        <p>מנהל המערכת יכול להפעיל אותה ב<a href="/admin/settings#google">הגדרות</a>.</p>`);
+    }
+    // The state cookie must live on the address Google sends the user back to (redirect there once).
+    if (!google.onPublicHost(req) && !req.query.moved) {
+      const target = new URL(req.originalUrl, config.baseUrl);
+      target.searchParams.set('moved', '1');
+      return res.redirect(target.href);
+    }
     const { state, url } = google.begin(safeNext(req.query.next));
     res.cookie(GOOGLE_STATE_COOKIE, state, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 10 * 60000, path: '/auth/google' });
     res.redirect(url);
@@ -228,7 +250,8 @@ module.exports = ({ app, licenseUpload }) => {
     const cookieState = req.cookies[GOOGLE_STATE_COOKIE];
     res.clearCookie(GOOGLE_STATE_COOKIE, { path: '/auth/google', secure: req.secure });
     if (req.query.error) {
-      res.flash('warning', 'ההתחברות עם Google בוטלה');
+      if (req.query.error !== 'access_denied') google.recordError(new Error(`Google returned error=${req.query.error}`));
+      res.flash('warning', req.query.error === 'access_denied' ? 'ההתחברות עם Google בוטלה' : 'Google דחה את ההתחברות. נסו שוב.');
       return res.redirect('/login');
     }
     let profile;
@@ -237,7 +260,8 @@ module.exports = ({ app, licenseUpload }) => {
     } catch (err) {
       if (!(err instanceof google.GoogleAuthError)) throw err;
       console.warn('[google] login failed:', err.message);
-      res.flash('error', 'ההתחברות עם Google נכשלה. נסו שוב.');
+      google.recordError(err);
+      res.flash('error', err.reason);
       return res.redirect('/login');
     }
 

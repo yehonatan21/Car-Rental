@@ -37,7 +37,7 @@ npm run tunnel                                 # בחלון נוסף, כשהאפ
 - **אבטחה:** הפקודה מסרבת לפרסם את האתר כל עוד קיים משתמש עם סיסמת הדמו `Password1`, שמופיעה ב־README וידועה לכולם. לפני הפרסום צריך להחליף סיסמאות (`npm run create-admin -- --email admin@example.org --password …`), או להתחיל ממסד נתונים חדש בלי נתוני דמו.
 - הכתובת משתנה בכל הפעלה. כדי שקישורים במיילים יפנו אליה, מגדירים `BASE_URL=<הכתובת>` ב־`.env` ומפעילים מחדש.
 - **לכתובת קבועה:** [Cloudflare Tunnel עם דומיין משלכם](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/), או [ngrok](https://ngrok.com) עם הדומיין הסטטי החינמי: `ngrok http https://localhost:3000 --url=<השם-שלכם>.ngrok-free.app`. בשני המקרים מגדירים את `BASE_URL` לכתובת הקבועה.
-- המחשב צריך להישאר דלוק ומחובר. לסביבה שזמינה תמיד, פורסים את ה־image `:dev` לשרת (ראו "ענפים ו־CI/CD").
+- המחשב צריך להישאר דלוק ומחובר. לסביבת פיתוח שזמינה תמיד באינטרנט, ומתעדכנת אוטומטית בכל push ל־`dev`, ראו את המדריך **[docs/dev-environment.md](docs/dev-environment.md)**.
 
 ## HTTPS
 
@@ -105,11 +105,12 @@ npm run dev        # https://localhost:3000, טעינה מחדש בכל שמיר
 
 ב־**Settings → Environments** יוצרים שתי סביבות, `development` ו־`production`, ובכל אחת מגדירים:
 
-- **Secret** `DEPLOY_HOOK_URL`: כתובת ה־deploy hook של פלטפורמת האחסון (Render, Railway, Coolify וכדומה, או webhook בשרת שלכם שמריץ `docker compose -f docker-compose.prod.yml pull && … up -d`).
+- **שרת משלכם (מומלץ):** Secrets בשם `DEPLOY_SSH_HOST`, `DEPLOY_SSH_KEY` ו־`DEPLOY_SSH_KNOWN_HOSTS`. ה־pipeline מתחבר בשרת ב־SSH, מושך את ה־image החדש ומפעיל מחדש. ההקמה המלאה, כולל סקריפט התקנה לשרת, מתוארת ב־[docs/dev-environment.md](docs/dev-environment.md).
+- **או פלטפורמת אחסון:** Secret בשם `DEPLOY_HOOK_URL` עם כתובת ה־deploy hook (Render, Railway, Coolify וכדומה).
 - **Variable** `APP_URL`: הכתובת הציבורית של הסביבה, לבדיקת התקינות אחרי הפריסה.
 - ב־`production` מומלץ להוסיף **Required reviewers**, כדי שכל פריסה לייצור תדרוש אישור ידני.
 
-כל עוד הם לא הוגדרו, ה־image מתפרסם אבל שלב הפריסה מדלג בהודעה ולא נכשל.
+כל עוד אף אחת מהאפשרויות לא הוגדרה, ה־image מתפרסם אבל שלב הפריסה מדלג בהודעה ולא נכשל.
 
 מומלץ גם להגדיר **Branch protection** ל־`main` (ב־Settings → Branches): לחייב Pull Request ולחייב מעבר של בדיקות ה־CI (Lint ו־Tests).
 
@@ -162,7 +163,8 @@ src/
   routes/          public (הרשמה/התחברות), user (אזור אישי, יומן, הזמנות), admin (ממשק מנהל)
   views/           תבניות HTML (עם escaping אוטומטי) ויומן יום/שבוע/חודש
 public/            CSS ו־JS (שיפורים בלבד: הכל עובד גם בלי JavaScript)
-scripts/           create-admin, seed (נתוני דמו)
+scripts/           create-admin, seed (נתוני דמו), tunnel, server-setup.sh (הקמת שרת)
+docs/              dev-environment.md: סביבת פיתוח זמינה באינטרנט
 test/
   helpers.js       מסד נתונים זמני לכל קובץ בדיקה, לקוח HTTP עם עוגיות ו־CSRF, קריאת outbox
   unit/            בדיקות יחידה

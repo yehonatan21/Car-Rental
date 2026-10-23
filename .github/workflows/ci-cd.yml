@@ -157,6 +157,12 @@ jobs:
       - name: Trigger deployment
         env:
           DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          DEPLOY_SSH_USER: ${{ vars.DEPLOY_SSH_USER }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           IMAGE: ${{ needs.docker.outputs.image }}:dev
         run: .github/scripts/deploy.sh
       - name: Verify deployment
@@ -178,6 +184,12 @@ jobs:
       - name: Trigger deployment
         env:
           DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          DEPLOY_SSH_USER: ${{ vars.DEPLOY_SSH_USER }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           IMAGE: ${{ needs.docker.outputs.image }}:latest
         run: .github/scripts/deploy.sh
       - name: Verify deployment

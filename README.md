@@ -39,6 +39,46 @@ npm run tunnel                                 # בחלון נוסף, כשהאפ
 - **לכתובת קבועה:** [Cloudflare Tunnel עם דומיין משלכם](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/), או [ngrok](https://ngrok.com) עם הדומיין הסטטי החינמי: `ngrok http https://localhost:3000 --url=<השם-שלכם>.ngrok-free.app`. בשני המקרים מגדירים את `BASE_URL` לכתובת הקבועה.
 - המחשב צריך להישאר דלוק ומחובר. לסביבת פיתוח שזמינה תמיד באינטרנט, ומתעדכנת אוטומטית בכל push ל־`dev`, ראו את המדריך **[docs/dev-environment.md](docs/dev-environment.md)**. לאחסון בחינם (Oracle Cloud Always Free) ראו **[docs/free-hosting.md](docs/free-hosting.md)**.
 
+## התחברות עם Google
+
+כשמוגדרים `GOOGLE_CLIENT_ID` ו־`GOOGLE_CLIENT_SECRET`, מופיע כפתור "התחברות עם Google" בדפי ההתחברות וההרשמה.
+
+- **משתמש קיים** מתחבר עם חשבון Google שכתובת הדואר שלו זהה לזו הרשומה במערכת. החשבון מקושר אוטומטית.
+- **משתמש חדש** מגיע לטופס ההרשמה עם השם והדואר האלקטרוני מ־Google. עדיין צריך להשלים ת"ז, טלפון ורישיון נהיגה, ולחכות לאישור מנהל.
+- מנהל עם אימות דו־שלבי עדיין יתבקש להזין את הקוד.
+
+**הגדרה (פעם אחת):**
+
+1. נכנסים ל־[Google Cloud Console](https://console.cloud.google.com/) ויוצרים פרויקט.
+2. ב־**APIs & Services ← OAuth consent screen** (או **Google Auth Platform**) בוחרים **External**, ממלאים שם אפליקציה ודוא"ל תמיכה. כל עוד האפליקציה במצב **Testing**, רק משתמשים שמוסיפים ב־**Test users** יכולים להתחבר. כדי לפתוח לכולם לוחצים **Publish app**.
+3. ב־**Credentials ← Create credentials ← OAuth client ID** בוחרים **Web application**, ותחת **Authorized redirect URIs** מוסיפים כל כתובת שבה המערכת רצה:
+   - `https://localhost:3000/auth/google/callback` (פיתוח על המחשב)
+   - `https://<הכתובת-בשרת>/auth/google/callback` (למשל `https://dev.129-146-10-20.sslip.io/auth/google/callback`)
+4. מעתיקים את ה־Client ID וה־Client secret לקובץ `.env` ומפעילים מחדש:
+   ```
+   GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=GOCSPX-...
+   ```
+
+ההתחברות עם Google עובדת רק בכתובת שב־`BASE_URL`, כי Google מחזיר את המשתמש בדיוק לכתובת שנרשמה. Google לא מאפשר כתובות IP של הרשת הביתית (למשל `192.168.x.x`), אז ממכשירים ב־Wi-Fi מתחברים עם סיסמה או קוד חד־פעמי.
+
+## מיילים אמיתיים (למשל Gmail)
+
+בלי SMTP, המיילים לא נשלחים אלא נשמרים ב־`data/outbox`. כדי שהמשתמשים והמנהלים יקבלו אותם בפועל, כולל אישורי ההזמנה, מגדירים SMTP. לדוגמה עם Gmail:
+
+1. בחשבון Google מפעילים **אימות דו־שלבי**, ואז יוצרים **App password** בכתובת https://myaccount.google.com/apppasswords.
+2. מוסיפים לקובץ `.env` ומפעילים מחדש:
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=465
+   SMTP_SECURE=true
+   SMTP_USER=your.address@gmail.com
+   SMTP_PASS=abcd efgh ijkl mnop
+   MAIL_FROM=your.address@gmail.com
+   ```
+
+**מה נשלח כשהזמנה מאושרת:** המשתמש מקבל "ההזמנה אושרה" עם פרטי הרכב, המועדים וההנחיות. כל המנהלים הפעילים מקבלים "אישור הזמנה" עם פרטי המזמין ומי אישר. לשני המיילים מצורף זימון ליומן (`.ics`) שנפתח ב־Google Calendar, Outlook ו־iPhone.
+
 ## HTTPS
 
 - **פיתוח:** השרת מגיש HTTPS בעצמו בפורט 3000, עם תעודה עצמית ל־localhost שנוצרת אוטומטית ב־`data/certs`. בקשת `http://` לאותו פורט מועברת ל־`https://`. כדי להימנע מאזהרת הדפדפן אפשר ליצור תעודה מהימנה עם [mkcert](https://github.com/FiloSottile/mkcert) (`mkcert -install && mkcert localhost 127.0.0.1`) ולהגדיר `HTTPS_CERT_FILE` ו־`HTTPS_KEY_FILE` בקובץ `.env`.
@@ -137,6 +177,7 @@ docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js 
 | `HTTPS_CERT_FILE`, `HTTPS_KEY_FILE` | תעודה ומפתח ל־HTTPS ישיר. בלעדיהם נוצרת תעודה עצמית ל־localhost |
 | `DOMAIN` | הדומיין לייצור, ש־Caddy מנפיק עבורו תעודה |
 | `FORCE_HTTPS=false` | ביטול ההפניה ל־HTTPS בייצור (לא מומלץ) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | התחברות עם Google (ראו למעלה) |
 | `NODE_ENV=production` | מפעיל עוגיות `Secure` ו־HSTS (חובה מאחורי HTTPS) |
 | `DATA_DIR` | תיקיית הנתונים: מסד הנתונים, צילומי הרישיונות ו־outbox (ברירת מחדל `./data`) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | שרת דואר יוצא |
@@ -189,7 +230,7 @@ docker-compose.yml סביבת פיתוח (אפליקציה + Mailpit) · docker-
 | 5.2 ניהול משתמשים | רשימה וחיפוש, כרטיס משתמש, צפייה ברישיון, אישור/דחייה/חסימה, בקשת רישיון חדש, היסטוריה, מינוי מנהלים נוספים |
 | 5.3 ניהול הזמנות | אישור/דחייה עם הערה, בדיקת התנגשויות, הזמנה ידנית, ביטול, חסימת מועדים, היסטוריית שינויים |
 | 5.4 ניהול רכב | מספר רישוי, יצרן ודגם, סטטוס, ביטוח, רישיון רכב, טיפול, הערות, הנחיות לנהג (נכללות במייל האישור) |
-| 6 מיילים | כל האירועים בטבלה. מייל אישור סופי נשלח רק אחרי אישור מנהל |
+| 6 מיילים | כל האירועים בטבלה. מייל אישור סופי נשלח רק אחרי אישור מנהל, גם למשתמש וגם למנהלים, עם זימון ליומן |
 | 7 סטטוסי הזמנה | ממתינה, מאושרת, נדחתה, בוטלה, הסתיימה (אוטומטית כשמועד ההחזרה עבר). כל שינוי נשמר עם מבצע הפעולה |
 | 8.1 תוקף רישיון | תזכורת למשתמש, העברה אוטומטית ל"ממתין לעדכון רישיון" והתראה למנהל, חסימת הזמנה שחורגת מתוקף הרישיון |
 | 8.3, 8.4, 8.5 | חסימות תחזוקה; חיפוש וסינון לפי שם, תאריך, סטטוס ורכב; תזכורות איסוף והחזרה; התראה על בקשות שממתינות זמן רב |

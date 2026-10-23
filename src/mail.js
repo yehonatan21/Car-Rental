@@ -24,13 +24,13 @@ function wrap(title, paragraphs, link) {
 <p style="color:#888;font-size:12px;margin-top:24px">${esc(config.appName)} – הודעה אוטומטית</p></div>`;
 }
 
-async function send(to, subject, paragraphs, link) {
+async function send(to, subject, paragraphs, link, { attachments } = {}) {
   const recipients = [].concat(to).filter(Boolean);
   if (!recipients.length) return;
   const html = wrap(subject, paragraphs, link);
   const text = paragraphs.map((p) => p.replace(/<[^>]+>/g, '')).join('\n\n') + (link ? `\n\n${config.baseUrl}${link.href}` : '');
   try {
-    const info = await transport.sendMail({ from: config.mailFrom, to: recipients.join(', '), subject, html, text });
+    const info = await transport.sendMail({ from: config.mailFrom, to: recipients.join(', '), subject, html, text, attachments });
     if (!config.smtp) {
       fs.mkdirSync(config.outboxDir, { recursive: true });
       const file = path.join(config.outboxDir, `${Date.now()}-${Math.random().toString(36).slice(2, 7)}.eml`);
@@ -42,6 +42,40 @@ async function send(to, subject, paragraphs, link) {
   }
 }
 
+// ---------- Calendar invite (.ics) for confirmed bookings ----------
+const icsText = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+const icsUtc = (local) => time.parse(local).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+
+/** RFC 5545 line folding: lines longer than 75 octets continue on the next line after a space. */
+function icsFold(line) {
+  const out = [];
+  let cur = '';
+  for (const ch of line) {
+    if (Buffer.byteLength(cur + ch) > (out.length ? 74 : 75)) { out.push(cur); cur = ''; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.join('\r\n ');
+}
+
+function bookingIcs(b) {
+  const host = new URL(config.baseUrl).hostname;
+  const car = [b.make, b.model].filter(Boolean).join(' ');
+  const lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//${icsText(config.appName)}//car-rental//HE`, 'METHOD:PUBLISH', 'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:booking-${b.id}@${host}`,
+    `DTSTAMP:${icsUtc(time.now())}`,
+    `DTSTART:${icsUtc(b.start_at)}`,
+    `DTEND:${icsUtc(b.end_at)}`,
+    `SUMMARY:${icsText(`הזמנת רכב: ${car} (${b.plate})`)}`,
+    `DESCRIPTION:${icsText([b.purpose && `מטרה: ${b.purpose}`, b.instructions && `הנחיות: ${b.instructions}`, `${config.baseUrl}/me/bookings`].filter(Boolean).join('\n'))}`,
+    'STATUS:CONFIRMED',
+    'END:VEVENT', 'END:VCALENDAR',
+  ];
+  return { filename: `booking-${b.id}.ics`, content: lines.map(icsFold).join('\r\n') + '\r\n', contentType: 'text/calendar; charset=utf-8; method=PUBLISH' };
+}
+
 const adminEmails = () =>
   db.prepare("SELECT email FROM users WHERE role = 'admin' AND status = 'active'").all().map((r) => r.email);
 
@@ -51,6 +85,7 @@ const vehicleLine = (b) => `<b>רכב:</b> ${esc([b.make, b.model].filter(Boolea
 
 module.exports = {
   send,
+  bookingIcs,
   loginCode: (u, code) => send(u.email, 'קוד התחברות', [
     `קוד ההתחברות שלך: <b style="font-size:20px;letter-spacing:3px">${esc(code)}</b>`, 'הקוד תקף ל־10 דקות.',
   ]),
@@ -96,11 +131,22 @@ module.exports = {
       `${esc(fullName(b))} ביקש/ה את הרכב:`, range(b), b.purpose ? `<b>מטרה:</b> ${esc(b.purpose)}` : '',
     ].filter(Boolean), { href: `/admin/bookings/${b.id}`, label: 'לטיפול בבקשה' }),
   ]),
-  bookingApproved: (b) => send(b.email, 'ההזמנה אושרה', [
-    `שלום ${esc(b.first_name)},`, 'הזמנת הרכב שלך <b>אושרה סופית</b>.', vehicleLine(b), range(b),
-    b.instructions ? `<b>הנחיות:</b><br>${esc(b.instructions).replace(/\n/g, '<br>')}` : '',
-    'יש להחזיר את הרכב בזמן ובהתאם לנהלי ההשאלה.',
-  ].filter(Boolean), { href: '/me/bookings', label: 'להזמנות שלי' }),
+  /** Final confirmation: to the user (unless notifyUser is false) and to all admins, each with a calendar invite. */
+  bookingApproved: (b, { approvedBy, notifyUser = true } = {}) => Promise.all([
+    notifyUser && send(b.email, 'ההזמנה אושרה', [
+      `שלום ${esc(b.first_name)},`, 'הזמנת הרכב שלך <b>אושרה סופית</b>.', vehicleLine(b), range(b),
+      b.purpose ? `<b>מטרה:</b> ${esc(b.purpose)}` : '',
+      b.instructions ? `<b>הנחיות:</b><br>${esc(b.instructions).replace(/\n/g, '<br>')}` : '',
+      'יש להחזיר את הרכב בזמן ובהתאם לנהלי ההשאלה. מצורף זימון ליומן.',
+    ].filter(Boolean), { href: '/me/bookings', label: 'להזמנות שלי' }, { attachments: [bookingIcs(b)] }),
+    send(adminEmails(), `אישור הזמנה: ${fullName(b)}`, [
+      `ההזמנה של <b>${esc(fullName(b))}</b> אושרה${approvedBy ? ` על ידי ${esc(approvedBy)}` : ''}.`,
+      vehicleLine(b), range(b),
+      `<b>טלפון:</b> ${esc(b.phone)} · <b>דוא"ל:</b> ${esc(b.email)}`,
+      b.purpose ? `<b>מטרה:</b> ${esc(b.purpose)}` : '',
+      notifyUser ? 'נשלח מייל אישור למשתמש.' : 'לא נשלח מייל למשתמש.',
+    ].filter(Boolean), { href: `/admin/bookings/${b.id}`, label: 'לפרטי ההזמנה' }, { attachments: [bookingIcs(b)] }),
+  ]),
   bookingRejected: (b, note) => send(b.email, 'בקשת ההזמנה לא אושרה', [
     `שלום ${esc(b.first_name)},`, 'בקשת ההזמנה הבאה לא אושרה:', range(b), note ? `הערת המנהל: ${esc(note)}` : '',
   ].filter(Boolean), { href: '/calendar', label: 'לבחירת מועד אחר' }),

@@ -124,11 +124,34 @@ CREATE TABLE IF NOT EXISTS audit_log (
   at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
+CREATE TABLE IF NOT EXISTS oauth_states (
+  state TEXT PRIMARY KEY,
+  verifier TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  next TEXT,
+  expires_at INTEGER NOT NULL
+);
+
+-- A Google identity that has no account yet, waiting for the registration form to be completed.
+CREATE TABLE IF NOT EXISTS google_signups (
+  token_hash TEXT PRIMARY KEY,
+  sub TEXT NOT NULL,
+  email TEXT NOT NULL,
+  first_name TEXT,
+  last_name TEXT,
+  expires_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 `);
+
+// Columns added after the first release (existing databases are upgraded in place).
+const userColumns = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
+if (!userColumns.has('google_sub')) db.exec('ALTER TABLE users ADD COLUMN google_sub TEXT');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
 
 const DEFAULT_SETTINGS = {
   buffer_minutes: '0',            // זמן התארגנות בין הזמנות

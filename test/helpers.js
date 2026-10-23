@@ -74,8 +74,10 @@ function outbox() {
 
 /** Decoded text of all MIME parts (base64 and quoted-printable). */
 function decodeBody(raw) {
-  const boundary = /boundary="?([^";\r\n]+)"?/i.exec(raw)?.[1];
-  const chunks = boundary ? raw.split('--' + boundary).slice(1, -1) : [raw];
+  // Split on every MIME boundary (messages with attachments nest multipart/alternative inside multipart/mixed).
+  const boundaries = [...raw.matchAll(/boundary="?([^";\r\n]+)"?/gi)].map((m) => m[1]);
+  const escapeRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const chunks = boundaries.length ? raw.split(new RegExp(boundaries.map((b) => '--' + escapeRe(b)).join('|'))).slice(1) : [raw];
   return chunks.map((chunk) => {
     const sep = chunk.search(/\r?\n\r?\n/);
     const headers = chunk.slice(0, sep);

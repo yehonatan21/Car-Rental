@@ -333,6 +333,7 @@ ${accepted?.policy_version === policy.version ? html`<p>✓ הגרסה הנוכ�
     ${u.password_hash ? field('סיסמה נוכחית', html`<input type="password" name="current" required autocomplete="current-password">`) : ''}
     ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password">`)}
     <button class="btn btn-primary">שמירה</button>`, 'class="card"')}
+  ${u.google_sub ? html`<section class="card"><h2>חשבון Google</h2><p>${badge('active', 'מקושר')} ניתן להתחבר עם חשבון Google של ${u.email}.</p></section>` : ''}
   <section class="card">
     <h2>אימות דו־שלבי</h2>
     ${u.role === 'admin' && !u.totp_enabled ? html`<div class="flash flash-warning">מומלץ מאוד להפעיל אימות דו־שלבי לחשבונות מנהל.</div>` : ''}

@@ -10,6 +10,9 @@ services:
       dockerfile: Dockerfile.dev
     ports:
       - "3000:3000"
+    env_file:
+      - path: .env          # optional: GOOGLE_*, SMTP_* … (see .env.development.example)
+        required: false
     environment:
       BASE_URL: https://localhost:3000   # HTTPS with a self-signed cert generated into the dev-data volume
       APP_NAME: הזמנת רכב (פיתוח)

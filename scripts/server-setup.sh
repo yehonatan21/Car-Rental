@@ -89,6 +89,9 @@ BASE_URL=https://${DOMAIN}
 APP_ENV=${ENV_NAME}
 APP_NAME=הזמנת רכב$([[ "$ENV_NAME" == dev ]] && echo ' (פיתוח)')
 MAIL_FROM=car-rental@${DOMAIN}
+# Sign in with Google: authorized redirect URI https://${DOMAIN}/auth/google/callback
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
 # Without SMTP settings e-mails are stored as files in the app-data volume (outbox/).
 # SMTP_HOST=
 # SMTP_PORT=587

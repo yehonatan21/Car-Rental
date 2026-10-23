@@ -412,7 +412,7 @@ ${bookingsTable(list)}`);
       vehicleId: defaultVehicle().id, userId: Number(req.body.user_id), start: String(req.body.start || ''), end: String(req.body.end || ''),
       purpose: String(req.body.purpose || '').trim(), notes: String(req.body.notes || '').trim(),
     });
-    if (req.body.notify === '1') await mail.bookingApproved(b);
+    await mail.bookingApproved(b, { approvedBy: fullName(req.user), notifyUser: req.body.notify === '1' });
     res.flash('success', 'ההזמנה נוצרה ואושרה');
     res.redirect(`/admin/bookings/${b.id}`);
   }));
@@ -499,11 +499,11 @@ ${bookingsTable(list)}`);
 
   app.post('/admin/bookings/:id/approve', requireAdmin, guarded((req) => `/admin/bookings/${req.params.id}`, async (req, res) => {
     const b = bookings.approve(Number(req.params.id), req.user.id);
-    await mail.bookingApproved(b);
+    await mail.bookingApproved(b, { approvedBy: fullName(req.user) });
     const competing = bookings.findPendingOverlaps(b.vehicle_id, b.start_at, b.end_at, b.id);
     res.flash(competing.length ? 'warning' : 'success', competing.length
       ? `ההזמנה אושרה ונשלח מייל למשתמש. יש ${competing.length} בקשות ממתינות נוספות לאותו מועד שכבר לא ניתן לאשר – מומלץ לדחות אותן.`
-      : 'ההזמנה אושרה ונשלח מייל אישור למשתמש');
+      : 'ההזמנה אושרה ונשלחו מיילי אישור למשתמש ולמנהלים');
     res.redirect(`/admin/bookings/${b.id}`);
   }));
 

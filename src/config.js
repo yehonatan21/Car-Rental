@@ -34,5 +34,12 @@ module.exports = {
     auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
   } : null,
   mailFrom: process.env.MAIL_FROM || 'car-booking@localhost',
+  // "Sign in with Google" is shown only when both are set (Google Cloud Console → APIs & Services → Credentials).
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    authUrl: process.env.GOOGLE_AUTH_URL || 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token',
+  },
   sessionDays: 14,
 };

@@ -52,7 +52,17 @@ else
 fi
 
 echo "==> Firewall: allow SSH, HTTP, HTTPS"
-if command -v ufw >/dev/null; then
+if [[ -f /etc/iptables/rules.v4 ]] && grep -q 'REJECT' /etc/iptables/rules.v4; then
+  # Oracle Cloud Ubuntu images ship iptables rules that reject everything but SSH (ufw is not used there).
+  # Insert the ACCEPT rules just before the first REJECT rule.
+  pos=$(iptables -L INPUT --line-numbers -n | awk '$2 == "REJECT" {print $1; exit}')
+  for rule in "-p tcp --dport 80" "-p tcp --dport 443" "-p udp --dport 443"; do
+    # shellcheck disable=SC2086
+    iptables -C INPUT $rule -j ACCEPT 2>/dev/null || iptables -I INPUT "${pos:-1}" $rule -j ACCEPT
+  done
+  command -v netfilter-persistent >/dev/null && netfilter-persistent save >/dev/null
+  echo "    (Oracle Cloud: also open TCP 80/443 in the VCN security list, see docs/free-hosting.md)"
+elif command -v ufw >/dev/null; then
   ufw allow OpenSSH >/dev/null
   ufw allow 80/tcp >/dev/null
   ufw allow 443/tcp >/dev/null

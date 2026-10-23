@@ -15,8 +15,9 @@ browser ──► https://dev.<your-domain> ──► Caddy (Let's Encrypt HTTPS
 
 ## What you need
 
-- A Linux server (VPS) with a public IP: **Ubuntu 24.04**, 1 vCPU / 1 GB RAM is plenty.
-  Any provider works: Hetzner (CX22, ~€4/month), DigitalOcean ($6/month), Linode, Vultr, AWS Lightsail, or the Oracle Cloud free tier.
+- A Linux server (VPS) with a public IP: **Ubuntu 24.04**, 1 vCPU / 1 GB RAM is plenty (x86 or ARM).
+  Any provider works: Hetzner (CX22, ~€4/month), DigitalOcean ($6/month), Linode, Vultr, AWS Lightsail.
+  **For free:** Oracle Cloud Always Free. See **[free-hosting.md](free-hosting.md)** for a step-by-step guide.
 - Optional: a domain name. Without one, the setup script uses a free `sslip.io` address
   (e.g. `dev.203-0-113-10.sslip.io`), which still gets a real HTTPS certificate.
 

@@ -80,7 +80,7 @@ jobs:
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Build development image (Dockerfile.dev)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.dev
@@ -90,7 +90,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=dev
 
       - name: Build production image (Dockerfile)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -136,7 +136,7 @@ jobs:
 
       - name: Push production image (amd64 + arm64)
         if: github.event_name == 'push'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile

@@ -1,10 +1,8 @@
 'use strict';
 // Access control, CSRF, XSS, upload restrictions and HTTP hardening.
-const { db, createUser, startServer, Client, registrationForm, inDays, dataDir } = require('../helpers');
+const { db, createUser, startServer, Client, registrationForm, inDays, putStoredFile } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const bookings = require('../../src/bookings');
 
 let srv, admin, user, adminUser, plainUser;
@@ -14,7 +12,7 @@ before(async () => {
   srv = await startServer();
   adminUser = createUser({ role: 'admin', email: 'admin@sec.test' });
   plainUser = createUser({ email: 'user@sec.test', license_file: 'secret.png' });
-  fs.writeFileSync(path.join(dataDir, 'licenses', 'secret.png'), 'PNGDATA');
+  putStoredFile('secret.png', 'PNGDATA');
   admin = client();
   user = client();
   await admin.login('admin@sec.test');
@@ -203,4 +201,10 @@ test('a blocked admin loses all admin powers, even after logging in again', asyn
   assert.doesNotMatch(cal, /בדיקה משתמש/, 'calendar does not reveal who booked');
   await c.post(`/me/bookings/${booking}/cancel`, {}, '/me/bookings');
   assert.equal(db.prepare('SELECT status FROM bookings WHERE id = ?').get(booking).status, 'approved', 'cannot cancel other users\' bookings');
+});
+
+test('no third-party or Vercel scripts outside Vercel; CSP allows only same-origin scripts', async () => {
+  const r = await client().get('/login');
+  assert.doesNotMatch(r.text, /_vercel\/insights/);
+  assert.match(r.headers.get('content-security-policy'), /script-src 'self'/);
 });

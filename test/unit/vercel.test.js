@@ -70,6 +70,8 @@ test('the Vercel entry point serves the app without writing next to the code', a
     const login = await get('/login');
     assert.equal(login.status, 200);
     assert.match(login.body, /סביבת הדגמה/);
+    assert.match(login.body, /<script defer src="\/_vercel\/insights\/script.js"><\/script>/, 'Vercel Web Analytics on every page');
+    assert.match((await get('/privacy')).body, /Vercel Web Analytics/);
     assert.equal((await get('/static/style.css')).status, 200);
     assert.ok(fs.existsSync(path.join(tmp, 'car-rental', 'app.db')), 'database in the temp dir');
   } finally {
@@ -81,7 +83,21 @@ test('the Vercel entry point serves the app without writing next to the code', a
 test('vercel.json routes everything to the function and does not publish the source code', () => {
   const v = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
   assert.equal(v.outputDirectory, 'public', 'only public/ is served as static files');
-  assert.deepEqual(v.rewrites, [{ source: '/(.*)', destination: '/api/index' }]);
+  assert.equal(v.rewrites.length, 1);
+  assert.equal(v.rewrites[0].destination, '/api/index');
+  const routed = new RegExp(`^${v.rewrites[0].source.replace('/(', '/(?:').replace(/\)$/, ')')}$`);
+  assert.ok(routed.test('/login') && routed.test('/') && routed.test('/admin/users/1'), 'app pages go to the function');
+  assert.ok(!routed.test('/_vercel/insights/script.js') && !routed.test('/_vercel/insights/view'), 'Vercel Analytics paths are left to Vercel');
   assert.match(v.functions['api/index.js'].includeFiles, /src/);
   assert.match(v.functions['api/index.js'].includeFiles, /public/);
+  assert.match(v.functions['api/index.js'].includeFiles, /node_modules\/@libsql/, 'native libsql binary (loaded by computed name) is bundled');
+  assert.deepEqual(v.crons.map((c) => c.path), ['/internal/cron']);
+});
+
+test('the analytics script is only added on Vercel and can be turned off', () => {
+  const flag = (env) => JSON.parse(execFileSync(process.execPath, ['--no-warnings', '-e', 'console.log(require("./src/config").vercelAnalytics)'],
+    { cwd: root, env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' }));
+  assert.equal(flag({}), false, 'not off Vercel (the script would 404)');
+  assert.equal(flag({ VERCEL: '1' }), true);
+  assert.equal(flag({ VERCEL: '1', VERCEL_ANALYTICS: 'false' }), false);
 });

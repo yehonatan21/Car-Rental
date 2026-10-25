@@ -96,6 +96,7 @@ ${config.ephemeral ? html`<div class="demo-banner" role="note">סביבת הדג
   ${body}
 </main>
 <script src="/static/app.js" defer></script>
+${config.vercelAnalytics ? raw('<script defer src="/_vercel/insights/script.js"></script>') : ''}
 </body>
 </html>`.toString();
 }

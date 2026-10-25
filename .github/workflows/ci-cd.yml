@@ -61,9 +61,31 @@ jobs:
           path: lcov.info
           if-no-files-found: ignore
 
+  test-libsql:
+    name: Tests (hosted libSQL database)
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Jerusalem
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Get libsql-server (sqld), the server Turso runs
+        run: |
+          mkdir -p "$RUNNER_TEMP/sqld" && cd "$RUNNER_TEMP/sqld"
+          npm pack @sqld/linux-x64@0.24.1-pre.42 --silent
+          tar xzf sqld-linux-x64-*.tgz
+          chmod +x package/sqld && package/sqld --version
+          echo "SQLD_BIN=$RUNNER_TEMP/sqld/package/sqld" >> "$GITHUB_ENV"
+      - name: All tests against a hosted-style database (each test file gets its own sqld)
+        run: npm run test:libsql
+
   docker:
     name: Docker images
-    needs: [lint, test]
+    needs: [lint, test, test-libsql]
     runs-on: ubuntu-latest
     permissions:
       contents: read

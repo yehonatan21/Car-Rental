@@ -28,6 +28,9 @@ function isValidDate(s) {
 }
 
 const now = () => toLocal(new Date());
+/** "YYYY-MM-DD HH:MM:SS" in local time, for created/updated columns. Computed here rather than with SQLite's
+ * datetime('now','localtime'), which would use the database server's clock zone (UTC on hosted databases). */
+const stamp = (d = new Date()) => `${toDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 const today = () => toDate(new Date());
 
 function addMinutes(s, minutes) {
@@ -61,6 +64,6 @@ function fmtLong(s) {
 }
 
 module.exports = {
-  toLocal, toDate, parse, isValidLocal, isValidDate, now, today,
+  toLocal, toDate, parse, isValidLocal, isValidDate, now, stamp, today,
   addMinutes, addDays, hoursBetween, fmt, fmtLong, HE_DAYS, HE_MONTHS,
 };

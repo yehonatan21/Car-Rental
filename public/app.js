@@ -1,6 +1,10 @@
 'use strict';
 // Progressive enhancements only: every page works without JavaScript.
 
+// Vercel Web Analytics queue (same as @vercel/analytics' inject()): lets window.va('event', …) calls made before
+// /_vercel/insights/script.js loads be delivered once it does. Harmless where analytics is not enabled.
+window.va = window.va || function va(...params) { (window.vaq = window.vaq || []).push(params); };
+
 // Confirmation prompts on destructive buttons.
 document.addEventListener('submit', (e) => {
   const btn = e.submitter || e.target.querySelector('[data-confirm]');

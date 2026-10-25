@@ -1,5 +1,4 @@
 'use strict';
-const fs = require('node:fs');
 const { db, audit, currentPolicy } = require('../db');
 const auth = require('../auth');
 const mail = require('../mail');
@@ -7,6 +6,7 @@ const time = require('../time');
 const config = require('../config');
 const { html, raw, markdown, postForm, field } = require('../views/html');
 const google = require('../google');
+const storage = require('../storage');
 
 const GOOGLE_STATE_COOKIE = 'gstate';
 const GOOGLE_SIGNUP_COOKIE = 'gsignup';
@@ -324,19 +324,21 @@ module.exports = ({ app, licenseUpload }) => {
       errors.push('קיים כבר משתמש עם כתובת דואר אלקטרוני או תעודת זהות זו');
     }
     if (errors.length) {
-      if (req.file) fs.rmSync(req.file.path, { force: true });
+      storage.discard(req.file);
       return res.status(400).page('הרשמה', registerPage(req, { errors, v }));
     }
 
+    storage.keep(req.file);
+    const now = time.stamp();
     const id = Number(db.prepare(`INSERT INTO users (first_name, last_name, id_number, phone, email, password_hash,
-        license_file, license_expiry, google_sub, privacy_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`)
+        license_file, license_expiry, google_sub, privacy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(v.first_name, v.last_name, v.id_number, v.phone, v.email, b.password ? auth.hashPassword(String(b.password)) : null,
-        req.file.filename, v.license_expiry, gs ? gs.sub : null).lastInsertRowid);
+        req.file.filename, v.license_expiry, gs ? gs.sub : null, now, now, now).lastInsertRowid);
     if (gs) {
       google.clearSignup(req.cookies[GOOGLE_SIGNUP_COOKIE]);
       res.clearCookie(GOOGLE_SIGNUP_COOKIE, { path: '/', secure: req.secure });
     }
-    db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, ip) VALUES (?, ?, ?)').run(id, Number(b.policy_version), req.ip);
+    db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, ip, accepted_at) VALUES (?, ?, ?, ?)').run(id, Number(b.policy_version), req.ip, now);
     audit(id, 'user.register', 'user', id);
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
     await mail.newRegistration(user);
@@ -366,6 +368,8 @@ ${req.user ? raw(`<p><a href="/policy/accept">לאישור הנהלים</a></p>`
   <p>המידע נגיש לך ולמנהלי המערכת המורשים בלבד. משתמשים אחרים רואים ביומן שהרכב תפוס, אך לא מי הזמין אותו. צילום הרישיון נשמר באזור אחסון מוגן ואינו נגיש לציבור.</p>
   <h2>שמירה ומחיקה</h2>
   <p>המידע נשמר כל עוד החשבון פעיל ולפי הנדרש בדין. ניתן לבקש מהמנהל לעיין במידע, לתקן אותו או למחוק את החשבון.</p>
+  ${config.vercelAnalytics ? html`<h2>סטטיסטיקת שימוש</h2>
+  <p>לספירת צפיות בדפים אנחנו משתמשים ב־Vercel Web Analytics. הכלי אינו משתמש בעוגיות ואינו שומר מידע מזהה אישי.</p>` : ''}
   <h2>יצירת קשר</h2>
   <p>בכל שאלה ניתן לפנות למנהל המערכת: ${config.mailFrom}</p>
 </article>`);

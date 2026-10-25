@@ -32,12 +32,14 @@ const users = [
 ];
 
 const insertUser = db.prepare(`INSERT OR IGNORE INTO users (first_name, last_name, id_number, phone, email, password_hash, role, status,
-  license_expiry, license_verified, privacy_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`);
+  license_expiry, license_verified, privacy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+const NOW = time.stamp();
 const ids = {};
 for (const [first, last, id, phone, email, role, status, days] of users) {
-  insertUser.run(first, last, id, phone, email, PASSWORD, role, status, time.addDays(time.today(), days), status === 'pending' ? 0 : 1);
+  insertUser.run(first, last, id, phone, email, PASSWORD, role, status, time.addDays(time.today(), days), status === 'pending' ? 0 : 1,
+    NOW, NOW, NOW);
   ids[email] = db.prepare('SELECT id FROM users WHERE email = ?').get(email).id;
-  db.prepare('INSERT INTO policy_acceptances (user_id, policy_version) VALUES (?, ?)').run(ids[email], policyVersion);
+  db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, accepted_at) VALUES (?, ?, ?)').run(ids[email], policyVersion, NOW);
 }
 
 db.prepare(`UPDATE vehicles SET plate = '12-345-67', make = 'טויוטה', model = 'קורולה היברידית',
@@ -45,9 +47,10 @@ db.prepare(`UPDATE vehicles SET plate = '12-345-67', make = 'טויוטה', mode
   instructions = 'הרכב חונה בחניון הבניין, קומה 1-. המפתח בתיבה ליד הכניסה.' WHERE id = 1`)
   .run(time.addDays(time.today(), 12), time.addDays(time.today(), 120), time.addDays(time.today(), 5));
 
-const insertBooking = db.prepare(`INSERT INTO bookings (vehicle_id, user_id, kind, start_at, end_at, purpose, block_reason, status, created_by)
-  VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`);
-const history = db.prepare('INSERT INTO booking_history (booking_id, from_status, to_status, actor_id, note) VALUES (?, ?, ?, ?, ?)');
+const insertBooking = db.prepare(`INSERT INTO bookings (vehicle_id, user_id, kind, start_at, end_at, purpose, block_reason, status, created_by,
+  created_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+const history = db.prepare(`INSERT INTO booking_history (booking_id, from_status, to_status, actor_id, note, at)
+  VALUES (?, ?, ?, ?, ?, ?)`);
 const admin = ids['admin@example.org'];
 const bookings = [
   [ids['noa@example.org'], 'booking', day(1, '08:00'), day(1, '12:00'), 'פגישה בירושלים', null, 'approved'],
@@ -58,9 +61,9 @@ const bookings = [
   [ids['noa@example.org'], 'booking', day(-7, '09:00'), day(-7, '17:00'), 'טיול', null, 'completed'],
 ];
 for (const [userId, kind, start, end, purpose, reason, status] of bookings) {
-  const id = insertBooking.run(userId, kind, start, end, purpose, reason, status, userId ?? admin).lastInsertRowid;
-  history.run(id, null, 'pending', userId ?? admin, 'נתוני דמו');
-  if (status !== 'pending') history.run(id, 'pending', status, admin, null);
+  const id = insertBooking.run(userId, kind, start, end, purpose, reason, status, userId ?? admin, NOW).lastInsertRowid;
+  history.run(id, null, 'pending', userId ?? admin, 'נתוני דמו', NOW);
+  if (status !== 'pending') history.run(id, 'pending', status, admin, null, NOW);
 }
 
 console.log('Demo data created. Log in as admin@example.org / Password1 (or noa@example.org, yossi@example.org).');

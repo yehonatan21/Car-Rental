@@ -14,13 +14,15 @@
     "test": "node --no-warnings --test --test-concurrency=4 \"test/**/*.test.js\"",
     "test:unit": "node --no-warnings --test \"test/unit/*.test.js\"",
     "test:e2e": "node --no-warnings --test \"test/e2e/*.test.js\"",
-    "test:coverage": "node --no-warnings --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=80 \"test/**/*.test.js\""
+    "test:coverage": "node --no-warnings --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=80 \"test/**/*.test.js\"",
+    "test:libsql": "node --no-warnings --test --test-concurrency=4 \"test/**/*.test.js\""
   },
   "engines": {
     "node": ">=22.13"
   },
   "dependencies": {
     "express": "^5.3.0",
+    "libsql": "^0.5.29",
     "multer": "^2.5.0",
     "nodemailer": "^10.2.0",
     "qrcode": "^1.5.4",

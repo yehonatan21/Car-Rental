@@ -1,5 +1,4 @@
 'use strict';
-const fs = require('node:fs');
 const path = require('node:path');
 const { db, audit, getSettings, setSetting, currentPolicy, defaultVehicle } = require('../db');
 const auth = require('../auth');
@@ -8,6 +7,7 @@ const time = require('../time');
 const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
+const storage = require('../storage');
 const { html, markdown, postForm, actionButton, field, badge, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 
 const SETTING_LABELS = {
@@ -302,11 +302,12 @@ ${permissionsCard(req, u, isSelf)}
   app.get('/admin/users/:id/license', requireAdmin, (req, res) => {
     const u = getUser(req.params.id);
     const file = u && (req.query.pending ? u.pending_license_file : u.license_file);
-    const full = file && path.join(config.uploadsDir, path.basename(file));
-    if (!full || !fs.existsSync(full)) return res.sendStatus(404);
+    const data = storage.read(file);
+    if (!data) return res.sendStatus(404);
     audit(req.user.id, 'license.view', 'user', u.id);
     res.set('Cache-Control', 'private, no-store');
-    res.sendFile(full, { headers: { 'Content-Disposition': 'inline' } });
+    res.set('Content-Disposition', 'inline');
+    res.type(path.extname(file)).send(data);
   });
 
   const userAction = (name, handler) => app.post(`/admin/users/:id/${name}`, requireAdmin, async (req, res) => {
@@ -325,7 +326,7 @@ ${permissionsCard(req, u, isSelf)}
   userAction('approve', async (u, req) => {
     const expiry = String(req.body.license_expiry || '');
     if (!time.isValidDate(expiry) || expiry < time.today()) return { type: 'error', text: 'לא ניתן לאשר: תוקף הרישיון אינו עתידי' };
-    db.prepare("UPDATE users SET status = 'active', license_verified = 1, license_expiry = ?, updated_at = datetime('now','localtime') WHERE id = ?").run(expiry, u.id);
+    db.prepare("UPDATE users SET status = 'active', license_verified = 1, license_expiry = ?, updated_at = ? WHERE id = ?").run(expiry, time.stamp(), u.id);
     audit(req.user.id, 'user.approve', 'user', u.id, `רישיון עד ${expiry}`);
     await mail.userApproved(u);
     return 'המשתמש אושר';
@@ -358,7 +359,7 @@ ${permissionsCard(req, u, isSelf)}
     const expiry = String(req.body.license_expiry || '');
     if (!u.pending_license_file) return { type: 'error', text: 'אין רישיון חדש לאישור' };
     if (!time.isValidDate(expiry) || expiry < time.today()) return { type: 'error', text: 'תוקף הרישיון אינו עתידי' };
-    if (u.license_file) fs.rmSync(path.join(config.uploadsDir, u.license_file), { force: true });
+    storage.remove(u.license_file);
     const status = u.status === 'license_update' ? 'active' : u.status;
     db.prepare(`UPDATE users SET license_file = pending_license_file, license_expiry = ?, license_verified = 1,
       pending_license_file = NULL, pending_license_expiry = NULL, status = ? WHERE id = ?`).run(expiry, status, u.id);
@@ -368,7 +369,7 @@ ${permissionsCard(req, u, isSelf)}
   });
 
   userAction('license/reject', async (u, req, note) => {
-    if (u.pending_license_file) fs.rmSync(path.join(config.uploadsDir, u.pending_license_file), { force: true });
+    storage.remove(u.pending_license_file);
     db.prepare('UPDATE users SET pending_license_file = NULL, pending_license_expiry = NULL WHERE id = ?').run(u.id);
     audit(req.user.id, 'user.license_reject', 'user', u.id, note);
     await mail.licenseRequested(u, note || 'הרישיון שהועלה לא אושר');
@@ -378,7 +379,7 @@ ${permissionsCard(req, u, isSelf)}
   userAction('make-admin', async (u, req) => {
     if (u.role === 'admin') return { type: 'warning', text: 'המשתמש כבר מנהל' };
     if (u.status !== 'active') return { type: 'error', text: 'ניתן למנות למנהל רק משתמש פעיל. יש לאשר את המשתמש קודם' };
-    db.prepare("UPDATE users SET role = 'admin', updated_at = datetime('now','localtime') WHERE id = ?").run(u.id);
+    db.prepare("UPDATE users SET role = 'admin', updated_at = ? WHERE id = ?").run(time.stamp(), u.id);
     audit(req.user.id, 'user.make_admin', 'user', u.id);
     await mail.roleChanged(u, true);
     return `${fullName(u)} מונה למנהל ונשלחה אליו הודעה`;
@@ -386,7 +387,7 @@ ${permissionsCard(req, u, isSelf)}
 
   userAction('remove-admin', async (u, req) => {
     if (u.role !== 'admin') return { type: 'warning', text: 'המשתמש אינו מנהל' };
-    db.prepare("UPDATE users SET role = 'user', updated_at = datetime('now','localtime') WHERE id = ?").run(u.id);
+    db.prepare("UPDATE users SET role = 'user', updated_at = ? WHERE id = ?").run(time.stamp(), u.id);
     audit(req.user.id, 'user.remove_admin', 'user', u.id);
     await mail.roleChanged(u, false);
     return `הרשאת המנהל של ${fullName(u)} הוסרה`;
@@ -639,8 +640,8 @@ ${bookingsTable(list)}`);
     const content = String(req.body.content || '').trim();
     if (!content) { res.flash('error', 'התוכן ריק'); return res.redirect('/admin/policies'); }
     const version = currentPolicy().version + 1;
-    db.prepare('INSERT INTO policies (version, content, requires_reaccept, created_by) VALUES (?, ?, ?, ?)')
-      .run(version, content, req.body.requires_reaccept === '1' ? 1 : 0, req.user.id);
+    db.prepare('INSERT INTO policies (version, content, requires_reaccept, created_by, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(version, content, req.body.requires_reaccept === '1' ? 1 : 0, req.user.id, time.stamp());
     audit(req.user.id, 'policy.publish', 'policy', version, req.body.requires_reaccept === '1' ? 'requires reaccept' : '');
     res.flash('success', `גרסה ${version} פורסמה`);
     res.redirect('/admin/policies');

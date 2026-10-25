@@ -7,6 +7,7 @@ const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
 const bookings = require('../bookings');
+const google = require('../google');
 const { html, markdown, postForm, actionButton, field, badge, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 
 const SETTING_LABELS = {
@@ -48,6 +49,82 @@ function bookingsTable(list, { showUser = true } = {}) {
   <td data-label="סטטוס">${b.kind === 'block' ? badge('block', 'חסימה') : ''} ${bookingBadge(b.status)}</td>
   <td><a href="/admin/bookings/${b.id}">פרטים</a></td>
 </tr>`)}</tbody></table>`;
+}
+
+/** "Permissions" section of the user card: current role, what it allows, and the button to change it. */
+function permissionsCard(req, u, isSelf) {
+  const isAdmin = u.role === 'admin';
+  let action;
+  if (isSelf) {
+    action = html`<p class="muted">לא ניתן לשנות את ההרשאות של עצמך. מנהל אחר יכול לעשות זאת.</p>`;
+  } else if (isAdmin) {
+    action = actionButton(req, `/admin/users/${u.id}/remove-admin`, 'הסרת הרשאת מנהל', {
+      cls: 'btn-danger', confirm: `להסיר את הרשאת המנהל של ${fullName(u)}? הוא/היא יחזרו להיות משתמש/ת רגיל/ה.`,
+    });
+  } else if (u.status !== 'active') {
+    action = html`<p class="muted">ניתן למנות למנהל רק משתמש פעיל. יש לאשר את המשתמש קודם.</p>`;
+  } else {
+    action = actionButton(req, `/admin/users/${u.id}/make-admin`, 'הפיכה למנהל', {
+      cls: 'btn-primary', confirm: `לתת ל־${fullName(u)} הרשאות מנהל מלאות? מנהל יכול לאשר משתמשים והזמנות, לצפות ברישיונות נהיגה ולשנות הגדרות.`,
+    });
+  }
+  return html`<section class="card" id="permissions">
+  <h2>הרשאות</h2>
+  <p>תפקיד נוכחי: ${isAdmin ? badge('admin', 'מנהל מערכת') : badge('completed', 'משתמש רגיל')}</p>
+  <p class="muted small">${isAdmin
+    ? 'גישה מלאה לממשק הניהול: אישור משתמשים והזמנות, צפייה ברישיונות נהיגה, ניהול הרכב, הנהלים וההגדרות. מקבל את התראות המנהל במייל.'
+    : 'יכול להזמין את הרכב ולנהל את ההזמנות והפרטים שלו בלבד.'}</p>
+  ${isAdmin && !u.totp_enabled ? html`<p class="small">⚠️ למנהל זה אין אימות דו־שלבי. מומלץ לבקש ממנו להפעיל אותו (אזור אישי ← סיסמה ואבטחה).</p>` : ''}
+  ${action}
+</section>`;
+}
+
+/** Settings page: how e-mail is sent, the last delivery error, and a test button. */
+function emailStatusCard(req) {
+  const m = mail.status();
+  return html`<section class="card" id="email">
+  <h2>שליחת מיילים</h2>
+  ${m.configured
+    ? html`<p>${m.verified === false ? badge('blocked', 'שגיאה') : badge('active', 'מוגדר')}
+        שרת: <code>${m.host}:${m.port}</code> ${m.secure ? '(TLS)' : '(STARTTLS)'} · משתמש: <code>${m.user || '—'}</code> · שולח: <code>${m.from}</code></p>`
+    : html`<p>${badge('pending', 'לא מוגדר')} לא הוגדר שרת דואר (<code>SMTP_HOST</code>), ולכן מיילים <b>לא נשלחים</b>:
+        הם נשמרים בתיקייה <code>data/outbox</code>, וקודי התחברות מודפסים בחלון השרת. להגדרה (למשל Gmail) ראו README ← "מיילים אמיתיים".</p>`}
+  ${m.lastError ? html`<div class="flash flash-error small"><b>שגיאה אחרונה (${time.fmt(time.toLocal(m.lastError.at))}):</b> <code>${m.lastError.message}</code>
+    ${/Invalid login|Username and Password not accepted|535/i.test(m.lastError.message) ? html`<br>שם המשתמש או הסיסמה נדחו. ב־Gmail יש להשתמש ב־App password (לא בסיסמה הרגילה).` : ''}
+    ${/ETIMEDOUT|ECONNREFUSED|ENOTFOUND|Greeting never received|timeout/i.test(m.lastError.message) ? html`<br>אין חיבור לשרת הדואר: בדקו את SMTP_HOST ו־SMTP_PORT (ב־Gmail: 465), ושחומת האש מאפשרת יציאה.` : ''}</div>` : ''}
+  ${m.lastSentAt ? html`<p class="muted small">מייל אחרון נשלח בהצלחה: ${time.fmt(time.toLocal(m.lastSentAt))}</p>` : ''}
+  ${postForm(req, '/admin/settings/test-email', html`<button class="btn btn-light btn-sm">שליחת מייל בדיקה אל ${req.user.email}</button>`)}
+</section>`;
+}
+
+/** Settings page: is "Sign in with Google" set up, and what exactly to enter in Google Cloud Console. */
+function googleStatusCard(req) {
+  const g = google.status();
+  const check = (ok, text) => html`<li>${ok ? '✅' : '❌'} ${text}</li>`;
+  const here = `${req.protocol}://${req.get('host')}`;
+  return html`<section class="card" id="google">
+  <h2>התחברות עם Google</h2>
+  <p>${g.enabled ? badge('active', 'מופעלת') : badge('blocked', 'לא מופעלת')}
+    ${g.enabled ? 'הכפתור מוצג בדפי ההתחברות וההרשמה.' : 'הכפתור מוסתר עד שההגדרה תושלם.'}</p>
+  <ul class="plain">
+    ${check(g.clientIdSet, html`<code>GOOGLE_CLIENT_ID</code> מוגדר ב־.env`)}
+    ${g.clientIdSet && !g.clientIdLooksRight ? html`<li>⚠️ ה־Client ID אמור להסתיים ב־<code>.apps.googleusercontent.com</code></li>` : ''}
+    ${check(g.secretSet, html`<code>GOOGLE_CLIENT_SECRET</code> מוגדר ב־.env`)}
+    ${check(here === g.origin, html`האתר פתוח בכתובת שב־<code>BASE_URL</code> (${g.origin})`)}
+  </ul>
+  ${here !== g.origin ? html`<p class="small">⚠️ פתחת את האתר בכתובת <code>${here}</code>. Google יחזיר את המשתמשים רק לכתובת <code>${g.origin}</code>,
+    ולכן כפתור Google יפעל רק שם. כדי להשתמש בכתובת אחרת, יש לעדכן את <code>BASE_URL</code> ב־.env.</p>` : ''}
+  <h3>מה להזין ב־Google Cloud Console</h3>
+  <p class="small">APIs &amp; Services ← Credentials ← OAuth client ID (Web application):</p>
+  <dl class="dl small">
+    <dt>Authorized JavaScript origins</dt><dd><code>${g.origin}</code></dd>
+    <dt>Authorized redirect URIs</dt><dd><code>${g.redirectUri}</code></dd>
+  </dl>
+  <p class="muted small">כל עוד מסך ההסכמה (OAuth consent screen) במצב <b>Testing</b>, רק חשבונות שהוספו ב־<b>Test users</b> יכולים להתחבר.
+    אחרי עריכת .env יש להפעיל מחדש את השרת.</p>
+  ${g.lastError ? html`<div class="flash flash-error small"><b>שגיאה אחרונה (${time.fmt(time.toLocal(g.lastError.at))}):</b>
+    <code>${g.lastError.message}</code></div>` : ''}
+</section>`;
 }
 
 function userOptions(selected) {
@@ -114,9 +191,11 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2>התראות רכב</h
   app.get('/admin/users', requireAdmin, (req, res) => {
     const status = USER_STATUS[req.query.status] ? req.query.status : '';
     const q = String(req.query.q || '').trim();
+    const role = ['admin', 'user'].includes(req.query.role) ? req.query.role : '';
     const where = [];
     const args = [];
     if (status) { where.push('status = ?'); args.push(status); }
+    if (role) { where.push('role = ?'); args.push(role); }
     if (q) { where.push("(first_name || ' ' || last_name LIKE ? OR email LIKE ? OR phone LIKE ? OR id_number LIKE ?)"); args.push(...Array(4).fill(`%${q}%`)); }
     const users = db.prepare(`SELECT * FROM users ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY
       CASE status WHEN 'pending' THEN 0 WHEN 'license_update' THEN 1 ELSE 2 END, created_at DESC`).all(...args);
@@ -126,8 +205,12 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2>התראות רכב</h
   <input name="q" value="${q}" placeholder="חיפוש לפי שם, מייל, טלפון או ת״ז">
   <select name="status"><option value="">כל הסטטוסים</option>
     ${Object.entries(USER_STATUS).map(([k, l]) => html`<option value="${k}" ${k === status ? 'selected' : ''}>${l}</option>`)}</select>
+  <select name="role"><option value="">כל התפקידים</option>
+    <option value="admin" ${role === 'admin' ? 'selected' : ''}>מנהלים</option>
+    <option value="user" ${role === 'user' ? 'selected' : ''}>משתמשים רגילים</option></select>
   <button class="btn btn-light">סינון</button>
 </form>
+<p class="muted small">למינוי מנהל: פותחים את כרטיס המשתמש ← "הרשאות" ← "הפיכה למנהל".</p>
 <table class="table">
 <thead><tr><th>שם</th><th>דואר אלקטרוני</th><th>טלפון</th><th>תוקף רישיון</th><th>סטטוס</th><th></th></tr></thead>
 <tbody>${users.map((u) => html`<tr>
@@ -200,9 +283,10 @@ ${users.length ? '' : html`<p class="muted">לא נמצאו משתמשים.</p>`
     ${u.status === 'pending' ? actionButton(req, `/admin/users/${u.id}/reject`, 'דחיית ההרשמה', { cls: 'btn-danger', note: true, confirm: 'לדחות את המשתמש?' }) : ''}
     ${['active', 'pending'].includes(u.status) ? actionButton(req, `/admin/users/${u.id}/request-license`, 'בקשת רישיון חדש', { cls: 'btn-light', note: true }) : ''}
     ${u.status !== 'blocked' ? actionButton(req, `/admin/users/${u.id}/block`, 'חסימת המשתמש', { cls: 'btn-danger', note: true, confirm: 'לחסום את המשתמש? הזמנות עתידיות לא יבוטלו אוטומטית.' }) : ''}
-    ${u.status === 'active' ? actionButton(req, `/admin/users/${u.id}/role`, u.role === 'admin' ? 'הסרת הרשאת מנהל' : 'הפיכה למנהל', { cls: 'btn-light', confirm: 'לשנות את הרשאות המשתמש?' }) : ''}
   </div>`}
 </section>
+
+${permissionsCard(req, u, isSelf)}
 
 <section class="card">
   <h2>היסטוריית הזמנות</h2>
@@ -291,11 +375,21 @@ ${users.length ? '' : html`<p class="muted">לא נמצאו משתמשים.</p>`
     return 'הרישיון נדחה והמשתמש התבקש להעלות רישיון אחר';
   });
 
-  userAction('role', async (u, req) => {
-    const role = u.role === 'admin' ? 'user' : 'admin';
-    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, u.id);
-    audit(req.user.id, 'user.role', 'user', u.id, role);
-    return role === 'admin' ? 'המשתמש הוגדר כמנהל' : 'הרשאת המנהל הוסרה';
+  userAction('make-admin', async (u, req) => {
+    if (u.role === 'admin') return { type: 'warning', text: 'המשתמש כבר מנהל' };
+    if (u.status !== 'active') return { type: 'error', text: 'ניתן למנות למנהל רק משתמש פעיל. יש לאשר את המשתמש קודם' };
+    db.prepare("UPDATE users SET role = 'admin', updated_at = datetime('now','localtime') WHERE id = ?").run(u.id);
+    audit(req.user.id, 'user.make_admin', 'user', u.id);
+    await mail.roleChanged(u, true);
+    return `${fullName(u)} מונה למנהל ונשלחה אליו הודעה`;
+  });
+
+  userAction('remove-admin', async (u, req) => {
+    if (u.role !== 'admin') return { type: 'warning', text: 'המשתמש אינו מנהל' };
+    db.prepare("UPDATE users SET role = 'user', updated_at = datetime('now','localtime') WHERE id = ?").run(u.id);
+    audit(req.user.id, 'user.remove_admin', 'user', u.id);
+    await mail.roleChanged(u, false);
+    return `הרשאת המנהל של ${fullName(u)} הוסרה`;
   });
 
   userAction('note', async (u, req) => {
@@ -352,8 +446,8 @@ ${bookingsTable(list)}`);
   ${postForm(req, '/admin/bookings/new', html`
     ${field('משתמש', html`<select name="user_id" required><option value="">בחירה…</option>${userOptions(req.query.user)}</select>`)}
     <div class="grid2">
-      ${field('איסוף', html`<input type="datetime-local" name="start" value="${start}" required step="900">`)}
-      ${field('החזרה', html`<input type="datetime-local" name="end" value="${end}" required step="900">`)}
+      ${field('איסוף', html`<input type="datetime-local" name="start" value="${start}" required>`)}
+      ${field('החזרה', html`<input type="datetime-local" name="end" value="${end}" required>`)}
     </div>
     ${field('מטרה', html`<input name="purpose" maxlength="200">`)}
     ${field('הערות', html`<textarea name="notes" rows="2"></textarea>`)}
@@ -367,7 +461,7 @@ ${bookingsTable(list)}`);
       vehicleId: defaultVehicle().id, userId: Number(req.body.user_id), start: String(req.body.start || ''), end: String(req.body.end || ''),
       purpose: String(req.body.purpose || '').trim(), notes: String(req.body.notes || '').trim(),
     });
-    if (req.body.notify === '1') await mail.bookingApproved(b);
+    await mail.bookingApproved(b, { approvedBy: fullName(req.user), notifyUser: req.body.notify === '1' });
     res.flash('success', 'ההזמנה נוצרה ואושרה');
     res.redirect(`/admin/bookings/${b.id}`);
   }));
@@ -380,8 +474,8 @@ ${bookingsTable(list)}`);
   <p class="muted">סימון שהרכב אינו זמין (טיפול, תקלה, שימוש פנימי) ללא יצירת הזמנה בשם משתמש.</p>
   ${postForm(req, '/admin/blocks/new', html`
     <div class="grid2">
-      ${field('מ־', html`<input type="datetime-local" name="start" value="${start}" required step="900">`)}
-      ${field('עד', html`<input type="datetime-local" name="end" required step="900">`)}
+      ${field('מ־', html`<input type="datetime-local" name="start" value="${start}" required>`)}
+      ${field('עד', html`<input type="datetime-local" name="end" required>`)}
     </div>
     ${field('סיבה', html`<input name="reason" required maxlength="200" list="reasons" placeholder="טיפול תקופתי">`)}
     <datalist id="reasons"><option value="טיפול תקופתי"><option value="תקלה"><option value="שימוש פנימי"><option value="טסט"></datalist>
@@ -454,11 +548,11 @@ ${bookingsTable(list)}`);
 
   app.post('/admin/bookings/:id/approve', requireAdmin, guarded((req) => `/admin/bookings/${req.params.id}`, async (req, res) => {
     const b = bookings.approve(Number(req.params.id), req.user.id);
-    await mail.bookingApproved(b);
+    await mail.bookingApproved(b, { approvedBy: fullName(req.user) });
     const competing = bookings.findPendingOverlaps(b.vehicle_id, b.start_at, b.end_at, b.id);
     res.flash(competing.length ? 'warning' : 'success', competing.length
       ? `ההזמנה אושרה ונשלח מייל למשתמש. יש ${competing.length} בקשות ממתינות נוספות לאותו מועד שכבר לא ניתן לאשר – מומלץ לדחות אותן.`
-      : 'ההזמנה אושרה ונשלח מייל אישור למשתמש');
+      : 'ההזמנה אושרה ונשלחו מיילי אישור למשתמש ולמנהלים');
     res.redirect(`/admin/bookings/${b.id}`);
   }));
 
@@ -561,8 +655,18 @@ ${bookingsTable(list)}`);
   ${postForm(req, '/admin/settings', html`
     ${Object.entries(SETTING_LABELS).map(([k, [label, hint]]) => field(label, html`<input type="number" name="${k}" value="${s[k]}" min="0" step="1" required>`, hint))}
     <button class="btn btn-primary btn-block">שמירה</button>`, 'class="card"')}
+  ${emailStatusCard(req)}
+  ${googleStatusCard(req)}
   <p><a href="/admin/audit">יומן פעולות מנהלים</a></p>
 </div>`);
+  });
+
+  app.post('/admin/settings/test-email', requireAdmin, async (req, res) => {
+    const ok = await mail.test(req.user.email);
+    res.flash(ok ? 'success' : 'error', ok
+      ? (config.smtp ? `מייל בדיקה נשלח אל ${req.user.email}. אם לא הגיע תוך דקה, בדקו בספאם.` : 'מייל הבדיקה נשמר ב־data/outbox (לא הוגדר שרת דואר).')
+      : 'שליחת מייל הבדיקה נכשלה. פרטי השגיאה מופיעים למטה.');
+    res.redirect('/admin/settings#email');
   });
 
   app.post('/admin/settings', requireAdmin, (req, res) => {

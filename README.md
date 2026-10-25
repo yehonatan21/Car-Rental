@@ -5,16 +5,186 @@
 
 ## הפעלה
 
-דרישות: Node.js 22.5 ומעלה (המערכת משתמשת ב־SQLite המובנה ב־Node, בלי שרת מסד נתונים נפרד).
+דרישות: Node.js 22.13 ומעלה (המערכת משתמשת ב־SQLite המובנה ב־Node, בלי שרת מסד נתונים נפרד), או Docker.
+
+### הפעלה מהירה על המחשב שלך
+
+- **Windows:** לחיצה כפולה על `start.cmd`
+- **Mac/Linux:** `./start.sh`
+
+הסקריפט מתקין תלויות, יוצר נתוני דמו, מפעיל את השרת ופותח את **https://localhost:3000**. בפעם הראשונה הדפדפן יזהיר על התעודה, כי היא תעודה עצמית ל־localhost: בוחרים "מתקדם" ואז "המשך ל־localhost". כניסה: `admin@example.org` / `Password1`.
+
+## גישה מהרשת הביתית (Wi-Fi) ומהאינטרנט
+
+### מכשירים באותה רשת Wi-Fi
+
+1. מפעילים את האפליקציה (`start.cmd` או `npm run dev`). בהפעלה מוצגת כתובת הרשת, למשל:
+   ```
+   Network:    https://192.168.1.23:3000   (other devices on the same Wi-Fi)
+   ```
+2. **Windows, פעם אחת:** לחיצה כפולה על `allow-wifi.cmd`. הקובץ פותח את פורט 3000 ב־Firewall לרשתות פרטיות בלבד ומציג את הכתובות. רשת ה־Wi-Fi צריכה להיות מוגדרת כ־"Private": הגדרות ← רשת ואינטרנט ← Wi-Fi ← הרשת שלך ← רשת פרטית.
+3. בטלפון או במחשב אחר באותה רשת פותחים את הכתובת. בפעם הראשונה יש לאשר את אזהרת התעודה. התעודה העצמית כוללת אוטומטית את כתובות ה־IP של המחשב, ונוצרת מחדש אם הכתובת משתנה.
+
+### גישה מהאינטרנט (Cloudflare Tunnel)
+
+```bash
+winget install --id Cloudflare.cloudflared     # פעם אחת (macOS: brew install cloudflared)
+npm run tunnel                                 # בחלון נוסף, כשהאפליקציה רצה
+```
+
+מוצגת כתובת `https://<אקראי>.trycloudflare.com` שנגישה מכל מקום, כל עוד שני החלונות פתוחים. אין צורך בחשבון ואין צורך לפתוח פורטים בראוטר.
+
+- **אבטחה:** הפקודה מסרבת לפרסם את האתר כל עוד קיים משתמש עם סיסמת הדמו `Password1`, שמופיעה ב־README וידועה לכולם. לפני הפרסום צריך להחליף סיסמאות (`npm run create-admin -- --email admin@example.org --password …`), או להתחיל ממסד נתונים חדש בלי נתוני דמו.
+- הכתובת משתנה בכל הפעלה. כדי שקישורים במיילים יפנו אליה, מגדירים `BASE_URL=<הכתובת>` ב־`.env` ומפעילים מחדש.
+- **לכתובת קבועה:** [Cloudflare Tunnel עם דומיין משלכם](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/), או [ngrok](https://ngrok.com) עם הדומיין הסטטי החינמי: `ngrok http https://localhost:3000 --url=<השם-שלכם>.ngrok-free.app`. בשני המקרים מגדירים את `BASE_URL` לכתובת הקבועה.
+- המחשב צריך להישאר דלוק ומחובר. לסביבת פיתוח שזמינה תמיד באינטרנט, ומתעדכנת אוטומטית בכל push ל־`dev`, ראו את המדריך **[docs/dev-environment.md](docs/dev-environment.md)**. לאחסון בחינם (Oracle Cloud Always Free) ראו **[docs/free-hosting.md](docs/free-hosting.md)**.
+
+## התחברות עם Google
+
+כשמוגדרים `GOOGLE_CLIENT_ID` ו־`GOOGLE_CLIENT_SECRET`, מופיע כפתור "התחברות עם Google" בדפי ההתחברות וההרשמה.
+
+- **משתמש קיים** מתחבר עם חשבון Google שכתובת הדואר שלו זהה לזו הרשומה במערכת. החשבון מקושר אוטומטית.
+- **משתמש חדש** מגיע לטופס ההרשמה עם השם והדואר האלקטרוני מ־Google. עדיין צריך להשלים ת"ז, טלפון ורישיון נהיגה, ולחכות לאישור מנהל.
+- מנהל עם אימות דו־שלבי עדיין יתבקש להזין את הקוד.
+
+**הגדרה (פעם אחת):**
+
+1. נכנסים ל־[Google Cloud Console](https://console.cloud.google.com/) ויוצרים פרויקט.
+2. ב־**APIs & Services ← OAuth consent screen** (או **Google Auth Platform**) בוחרים **External**, ממלאים שם אפליקציה ודוא"ל תמיכה. כל עוד האפליקציה במצב **Testing**, רק משתמשים שמוסיפים ב־**Test users** יכולים להתחבר. כדי לפתוח לכולם לוחצים **Publish app**.
+3. ב־**Credentials ← Create credentials ← OAuth client ID** בוחרים **Web application**, ותחת **Authorized redirect URIs** מוסיפים כל כתובת שבה המערכת רצה:
+   - `https://localhost:3000/auth/google/callback` (פיתוח על המחשב)
+   - `https://<הכתובת-בשרת>/auth/google/callback` (למשל `https://dev.129-146-10-20.sslip.io/auth/google/callback`)
+4. מעתיקים את ה־Client ID וה־Client secret לקובץ `.env` ומפעילים מחדש:
+   ```
+   GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=GOCSPX-...
+   ```
+
+**בדיקת ההגדרה:** ב־**הגדרות** (`/admin/settings`) יש לוח "התחברות עם Google" שמראה מה מוגדר ומה חסר, את הכתובות המדויקות שצריך להזין ב־Google Cloud Console ואת השגיאה האחרונה.
+
+| מה רואים | הסיבה והפתרון |
+|---|---|
+| אין כפתור Google | `GOOGLE_CLIENT_ID` או `GOOGLE_CLIENT_SECRET` חסרים ב־`.env` (בלי `#` בתחילת השורה), או שהשרת לא הופעל מחדש אחרי העריכה |
+| במקום כפתור יש הודעה "זמינה בכתובת…" | האתר נפתח בכתובת אחרת מ־`BASE_URL` (למשל `127.0.0.1` או IP של ה־Wi-Fi). פותחים את הכתובת שבהודעה |
+| דף שגיאה של Google: `redirect_uri_mismatch` | ב־Google Cloud Console, תחת Authorized redirect URIs, צריך להופיע בדיוק `https://localhost:3000/auth/google/callback` (או הכתובת שבלוח ההגדרות) |
+| דף שגיאה של Google: "Access blocked" / "has not completed the Google verification process" | מסך ההסכמה במצב Testing: מוסיפים את החשבון תחת **Test users**, או לוחצים **Publish app** |
+| "הגדרות Google שגויות" | ה־Client ID או ה־Client secret שגויים או הועתקו חלקית |
+| "לא ניתן להתחבר לשרתי Google" | למחשב שעליו רץ השרת אין גישה לאינטרנט, או שחומת אש חוסמת אותו |
+
+ההתחברות עם Google עובדת רק בכתובת שב־`BASE_URL`, כי Google מחזיר את המשתמש בדיוק לכתובת שנרשמה. Google לא מאפשר כתובות IP של הרשת הביתית (למשל `192.168.x.x`), אז ממכשירים ב־Wi-Fi מתחברים עם סיסמה או קוד חד־פעמי.
+
+## מיילים אמיתיים (למשל Gmail)
+
+בלי SMTP, המיילים לא נשלחים אלא נשמרים ב־`data/outbox`. כדי שהמשתמשים והמנהלים יקבלו אותם בפועל, כולל אישורי ההזמנה, מגדירים SMTP. לדוגמה עם Gmail:
+
+1. בחשבון Google מפעילים **אימות דו־שלבי**, ואז יוצרים **App password** בכתובת https://myaccount.google.com/apppasswords.
+2. מוסיפים לקובץ `.env` ומפעילים מחדש:
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=465
+   SMTP_SECURE=true
+   SMTP_USER=your.address@gmail.com
+   SMTP_PASS=abcd efgh ijkl mnop
+   MAIL_FROM=your.address@gmail.com
+   ```
+
+**בדיקה:** ב־**הגדרות** (`/admin/settings`) יש לוח "שליחת מיילים" שמראה את ההגדרה, את השגיאה האחרונה וכפתור **שליחת מייל בדיקה**. גם בהפעלת השרת מודפס בחלון אם החיבור לשרת הדואר הצליח (`[mail] SMTP OK`) או נכשל, ומה הסיבה.
+
+| מה קורה | הסיבה והפתרון |
+|---|---|
+| קוד ההתחברות לא מגיע, ובדף מופיע "מצב פיתוח" | לא הוגדר SMTP, ולכן המייל לא נשלח בפועל. **הקוד מודפס בחלון השרת** (`>>> Login code for …`). כדי לקבל אותו במייל, מגדירים SMTP כמו למעלה |
+| "שליחת המייל נכשלה" | הגדרת ה־SMTP שגויה. הסיבה מופיעה בלוח "שליחת מיילים" ובחלון השרת |
+| `Username and Password not accepted` / `535` | ב־Gmail צריך **App password**, לא הסיסמה הרגילה, ואימות דו־שלבי בחשבון חייב להיות מופעל. רווחים בסיסמה לא משנים |
+| `ETIMEDOUT` / `Greeting never received` | פורט שגוי או חסום. ב־Gmail משתמשים ב־465 (`SMTP_SECURE` נקבע אוטומטית) |
+| המייל נשלח אבל לא נמצא | לבדוק בספאם ובלשונית "קידומי מכירות". מבקשים קוד חדש, והקוד הקודם ממשיך לעבוד עד שיפוג (10 דקות) |
+
+**מה נשלח כשהזמנה מאושרת:** המשתמש מקבל "ההזמנה אושרה" עם פרטי הרכב, המועדים וההנחיות. כל המנהלים הפעילים מקבלים "אישור הזמנה" עם פרטי המזמין ומי אישר. לשני המיילים מצורף זימון ליומן (`.ics`) שנפתח ב־Google Calendar, Outlook ו־iPhone.
+
+## HTTPS
+
+- **פיתוח:** השרת מגיש HTTPS בעצמו בפורט 3000, עם תעודה עצמית ל־localhost שנוצרת אוטומטית ב־`data/certs`. בקשת `http://` לאותו פורט מועברת ל־`https://`. כדי להימנע מאזהרת הדפדפן אפשר ליצור תעודה מהימנה עם [mkcert](https://github.com/FiloSottile/mkcert) (`mkcert -install && mkcert localhost 127.0.0.1`) ולהגדיר `HTTPS_CERT_FILE` ו־`HTTPS_KEY_FILE` בקובץ `.env`.
+- **ייצור:** `docker-compose.prod.yml` מריץ את [Caddy](https://caddyserver.com) לפני האפליקציה. Caddy מנפיק ומחדש תעודת Let's Encrypt לדומיין שב־`DOMAIN` ומעביר כל HTTP ל־HTTPS. האפליקציה עצמה מפנה ל־HTTPS כל בקשה שלא הגיעה דרך HTTPS (חוץ מ־`/healthz`), שולחת HSTS ומסמנת את עוגיית הסשן כ־`Secure`.
+- `HTTPS=true/false` עוקף את ברירת המחדל: HTTPS ישיר בפיתוח, מאחורי proxy בייצור.
+
+## סביבת פיתוח
+
+### עם Docker (מומלץ)
+
+```bash
+docker compose up --build                  # האפליקציה: https://localhost:3000
+                                           # תיבת דואר לבדיקות (Mailpit): http://localhost:8025
+docker compose exec app npm run seed       # משתמשי ונתוני דמו
+docker compose exec app npm test           # הרצת הבדיקות בתוך הקונטיינר
+docker compose down -v                     # עצירה ומחיקת מסד הנתונים של הפיתוח
+```
+
+הקוד ממופה לתוך הקונטיינר, והשרת נטען מחדש בכל שמירה. כל המיילים שהמערכת שולחת נתפסים ב־Mailpit ומוצגים בתיבת דואר בדפדפן.
+
+### בלי Docker
 
 ```bash
 npm install
-npm run create-admin -- --email admin@example.org --password 'סיסמה-חזקה' --first דנה --last כהן --phone 0501234567
-npm start            # http://localhost:3000
-npm test             # בדיקות קצה לקצה
+cp .env.development.example .env
+npm run seed       # נתוני דמו
+npm run dev        # https://localhost:3000, טעינה מחדש בכל שמירה
 ```
 
-ללא הגדרת SMTP, המיילים לא נשלחים אלא נשמרים כקבצי `.eml` בתיקייה `data/outbox` (נוח לבדיקות).
+בלי הגדרת SMTP, המיילים לא נשלחים אלא נשמרים כקבצי `.eml` בתיקייה `data/outbox`.
+
+**משתמשי דמו** (סיסמה `Password1`): `admin@example.org` (מנהלת), `noa@example.org`, `yossi@example.org` (פעילים), `roni@example.org` (ממתין לאישור), `michal@example.org` (רישיון פג).
+
+### פקודות
+
+| פקודה | תיאור |
+|---|---|
+| `npm run dev` | שרת פיתוח עם טעינה מחדש |
+| `npm run seed` | נתוני דמו (רק על מסד ריק, `-- --force` להוספה בכל מקרה, חסום ב־production) |
+| `npm run lint` | ESLint |
+| `npm test` | כל הבדיקות |
+| `npm run test:unit` | בדיקות יחידה: כללי הזמנה, זמנים ושעון קיץ, אימות, מיילים, משימות רקע |
+| `npm run test:e2e` | בדיקות קצה לקצה מול שרת אמיתי: תהליכי משתמש ומנהל, אבטחה והרשאות |
+| `npm run test:coverage` | בדיקות עם דוח כיסוי (נכשל מתחת ל־80% שורות) |
+| `npm run create-admin -- --email … --password …` | יצירת מנהל או קידום משתמש קיים למנהל |
+
+## ענפים ו־CI/CD
+
+| ענף | תפקיד | מה קורה ב־push |
+|---|---|---|
+| `dev` | פיתוח שוטף. כל שינוי נכנס לכאן קודם | Lint, בדיקות, בניית Docker, פרסום `ghcr.io/yehonatan21/car-rental:dev` ופריסה לסביבת `development` |
+| `main` | גרסת ייצור. מתעדכן רק ב־Pull Request מ־`dev` | Lint, בדיקות, בניית Docker, פרסום `ghcr.io/yehonatan21/car-rental:latest` ופריסה לסביבת `production` |
+
+ה־workflow נמצא ב־`.github/workflows/ci-cd.yml`:
+
+1. **Lint**: ESLint.
+2. **Tests**: כל הבדיקות על Node 22 ו־24, עם סף כיסוי של 80%. דוח הכיסוי (lcov) נשמר כ־artifact.
+3. **Docker**: בניית שני ה־images (`Dockerfile`, `Dockerfile.dev`) ובדיקת smoke ל־image של הייצור: עלייה, `/healthz`, דף התחברות, וריצה כמשתמש שאינו root. ב־push ה־image נדחף ל־GitHub Container Registry.
+4. **Deploy**: קריאה ל־deploy hook של סביבת האחסון, ובדיקת `/healthz` בכתובת שנפרסה.
+
+ב־Pull Request רצים רק שלבים 1 עד 3, בלי פרסום ובלי פריסה.
+
+### הגדרת הפריסה ב־GitHub
+
+ב־**Settings → Environments** יוצרים שתי סביבות, `development` ו־`production`, ובכל אחת מגדירים:
+
+- **שרת משלכם (מומלץ):** Secrets בשם `DEPLOY_SSH_HOST`, `DEPLOY_SSH_KEY` ו־`DEPLOY_SSH_KNOWN_HOSTS`. ה־pipeline מתחבר בשרת ב־SSH, מושך את ה־image החדש ומפעיל מחדש. ההקמה המלאה, כולל סקריפט התקנה לשרת, מתוארת ב־[docs/dev-environment.md](docs/dev-environment.md).
+- **או פלטפורמת אחסון:** Secret בשם `DEPLOY_HOOK_URL` עם כתובת ה־deploy hook (Render, Railway, Coolify וכדומה).
+- **Variable** `APP_URL`: הכתובת הציבורית של הסביבה, לבדיקת התקינות אחרי הפריסה.
+- ב־`production` מומלץ להוסיף **Required reviewers**, כדי שכל פריסה לייצור תדרוש אישור ידני.
+
+כל עוד אף אחת מהאפשרויות לא הוגדרה, ה־image מתפרסם אבל שלב הפריסה מדלג בהודעה ולא נכשל.
+
+מומלץ גם להגדיר **Branch protection** ל־`main` (ב־Settings → Branches): לחייב Pull Request ולחייב מעבר של בדיקות ה־CI (Lint ו־Tests).
+
+### Docker לייצור
+
+```bash
+docker build -t car-rental .                                    # image ייצור (Dockerfile)
+cp .env.example .env                                            # DOMAIN, BASE_URL=https://<DOMAIN>, SMTP_* וכו׳
+docker compose -f docker-compose.prod.yml up -d                 # Caddy (HTTPS בפורטים 80/443) + האפליקציה
+docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js --email … --password …
+```
+
+ה־image של הייצור כולל רק תלויות ריצה, רץ כמשתמש `node` (לא root) עם מערכת קבצים לקריאה בלבד, שומר את הנתונים ב־volume `/data`, וכולל healthcheck.
 
 ### משתני סביבה
 
@@ -24,6 +194,11 @@ npm test             # בדיקות קצה לקצה
 |---|---|
 | `PORT` | פורט השרת (ברירת מחדל 3000) |
 | `BASE_URL` | הכתובת הציבורית, משמשת לקישורים במיילים, למשל `https://car.example.org` |
+| `HTTPS` | `true` כדי שהשרת יגיש TLS בעצמו (ברירת מחדל בפיתוח), `false` מאחורי proxy (ברירת מחדל בייצור) |
+| `HTTPS_CERT_FILE`, `HTTPS_KEY_FILE` | תעודה ומפתח ל־HTTPS ישיר. בלעדיהם נוצרת תעודה עצמית ל־localhost |
+| `DOMAIN` | הדומיין לייצור, ש־Caddy מנפיק עבורו תעודה |
+| `FORCE_HTTPS=false` | ביטול ההפניה ל־HTTPS בייצור (לא מומלץ) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | התחברות עם Google (ראו למעלה) |
 | `NODE_ENV=production` | מפעיל עוגיות `Secure` ו־HSTS (חובה מאחורי HTTPS) |
 | `DATA_DIR` | תיקיית הנתונים: מסד הנתונים, צילומי הרישיונות ו־outbox (ברירת מחדל `./data`) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | שרת דואר יוצא |
@@ -32,7 +207,7 @@ npm test             # בדיקות קצה לקצה
 
 ### העלאה לאוויר
 
-- להריץ מאחורי reverse proxy עם HTTPS (Nginx/Caddy) או בפלטפורמה שמספקת HTTPS. השרת מוגדר עם `trust proxy`.
+- להריץ מאחורי reverse proxy עם HTTPS: `docker-compose.prod.yml` כולל את Caddy עם תעודות אוטומטיות, או בפלטפורמה שמספקת HTTPS. השרת מוגדר עם `trust proxy`.
 - **גיבוי:** כל הנתונים נמצאים ב־`DATA_DIR`. יש לגבות את התיקייה באופן תקופתי (למשל `sqlite3 app.db ".backup backup.db"` יחד עם תיקיית `licenses`).
 - התיקייה `data/licenses` אינה נגישה ישירות מהרשת. הקבצים מוגשים רק דרך נתיב שבודק הרשאת מנהל, וכל צפייה נרשמת ביומן הפעולות.
 
@@ -50,8 +225,15 @@ src/
   routes/          public (הרשמה/התחברות), user (אזור אישי, יומן, הזמנות), admin (ממשק מנהל)
   views/           תבניות HTML (עם escaping אוטומטי) ויומן יום/שבוע/חודש
 public/            CSS ו־JS (שיפורים בלבד: הכל עובד גם בלי JavaScript)
-scripts/           create-admin
-test/              בדיקות קצה לקצה
+scripts/           create-admin, seed (נתוני דמו), tunnel, server-setup.sh (הקמת שרת)
+docs/              dev-environment.md: סביבת פיתוח זמינה באינטרנט · free-hosting.md: אחסון בחינם
+test/
+  helpers.js       מסד נתונים זמני לכל קובץ בדיקה, לקוח HTTP עם עוגיות ו־CSRF, קריאת outbox
+  unit/            בדיקות יחידה
+  e2e/             בדיקות קצה לקצה
+.github/           CI/CD, סקריפטי פריסה, Dependabot
+Dockerfile         image ייצור · Dockerfile.dev: image פיתוח
+docker-compose.yml סביבת פיתוח (אפליקציה + Mailpit) · docker-compose.prod.yml: ייצור
 ```
 
 ## מה מומש מתוך האפיון
@@ -69,7 +251,7 @@ test/              בדיקות קצה לקצה
 | 5.2 ניהול משתמשים | רשימה וחיפוש, כרטיס משתמש, צפייה ברישיון, אישור/דחייה/חסימה, בקשת רישיון חדש, היסטוריה, מינוי מנהלים נוספים |
 | 5.3 ניהול הזמנות | אישור/דחייה עם הערה, בדיקת התנגשויות, הזמנה ידנית, ביטול, חסימת מועדים, היסטוריית שינויים |
 | 5.4 ניהול רכב | מספר רישוי, יצרן ודגם, סטטוס, ביטוח, רישיון רכב, טיפול, הערות, הנחיות לנהג (נכללות במייל האישור) |
-| 6 מיילים | כל האירועים בטבלה. מייל אישור סופי נשלח רק אחרי אישור מנהל |
+| 6 מיילים | כל האירועים בטבלה. מייל אישור סופי נשלח רק אחרי אישור מנהל, גם למשתמש וגם למנהלים, עם זימון ליומן |
 | 7 סטטוסי הזמנה | ממתינה, מאושרת, נדחתה, בוטלה, הסתיימה (אוטומטית כשמועד ההחזרה עבר). כל שינוי נשמר עם מבצע הפעולה |
 | 8.1 תוקף רישיון | תזכורת למשתמש, העברה אוטומטית ל"ממתין לעדכון רישיון" והתראה למנהל, חסימת הזמנה שחורגת מתוקף הרישיון |
 | 8.3, 8.4, 8.5 | חסימות תחזוקה; חיפוש וסינון לפי שם, תאריך, סטטוס ורכב; תזכורות איסוף והחזרה; התראה על בקשות שממתינות זמן רב |

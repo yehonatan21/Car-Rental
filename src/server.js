@@ -1,5 +1,6 @@
 'use strict';
 const path = require('node:path');
+const net = require('node:net');
 const crypto = require('node:crypto');
 const express = require('express');
 const multer = require('multer');
@@ -9,10 +10,21 @@ const auth = require('./auth');
 const { layout, html } = require('./views/html');
 const { BookingError } = require('./bookings');
 const { startJobs } = require('./jobs');
+const { listenHttps, lanAddresses } = require('./tls');
+
+// HSTS applies to a whole host name (all ports), so it is never sent for localhost or raw IP addresses:
+// pinning them would force every other local/LAN dev server on that host onto HTTPS.
+const pinnable = (hostname) => hostname !== 'localhost' && !net.isIP(hostname.replace(/^\[|\]$/g, ''));
 
 const app = express();
-app.set('trust proxy', 1); // HTTPS is terminated at the reverse proxy / hosting platform
+app.set('trust proxy', 1); // in production HTTPS is terminated by the reverse proxy, which sets X-Forwarded-Proto
 app.disable('x-powered-by');
+
+// HTTPS only: redirect plain-HTTP requests that reach the app behind a proxy in production.
+app.use((req, res, next) => {
+  if (!config.forceHttps || req.secure || req.path === '/healthz') return next();
+  res.redirect(301, `https://${req.get('host')}${req.originalUrl}`);
+});
 
 app.use((req, res, next) => {
   res.set({
@@ -21,11 +33,17 @@ app.use((req, res, next) => {
     'Referrer-Policy': 'same-origin',
     'X-Frame-Options': 'DENY',
   });
-  if (config.production) res.set('Strict-Transport-Security', 'max-age=31536000');
+  if (req.secure && pinnable(req.hostname)) res.set('Strict-Transport-Security', 'max-age=31536000');
   next();
 });
 
 app.use('/static', express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
+
+// Liveness/readiness probe for Docker, CI smoke tests and the hosting platform.
+app.get('/healthz', (req, res) => {
+  db.prepare('SELECT 1').get();
+  res.json({ status: 'ok', env: process.env.APP_ENV || process.env.NODE_ENV || 'development' });
+});
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 
 // Session, user and flash message loading.
@@ -37,7 +55,9 @@ app.use((req, res, next) => {
     if (user) {
       req.session = session;
       // A session waiting for the 2FA code is not yet logged in.
-      if (!session.needs_2fa) req.user = user;
+      // Admin rights require an active account: a blocked/suspended admin is treated as a regular user everywhere.
+      const effective = user.role === 'admin' && user.status !== 'active' ? { ...user, role: 'user' } : user;
+      if (!session.needs_2fa) req.user = effective;
       else req.pendingUser = user;
     }
   }
@@ -46,15 +66,18 @@ app.use((req, res, next) => {
     res.clearCookie('flash', { path: '/' });
   }
   res.flash = (type, text) => res.cookie('flash', Buffer.from(JSON.stringify({ type, text })).toString('base64url'),
-    { httpOnly: true, sameSite: 'lax', secure: config.production, path: '/' });
+    { httpOnly: true, sameSite: 'lax', secure: req.secure, path: '/' });
   res.page = (title, body) => res.send(layout(req, title, body));
   next();
 });
 
+const PUBLIC_ORIGIN = new URL(config.baseUrl).origin;
+
 // CSRF: every POST must come from our own origin; logged-in POSTs must also carry the session token.
 function verifyCsrf(req, res, next) {
   const origin = req.get('origin');
-  if (origin && origin !== `${req.protocol}://${req.get('host')}`) return res.status(403).send('Forbidden');
+  // Our own origin as this request sees it, or the configured public URL (a tunnel/proxy may rewrite Host).
+  if (origin && origin !== `${req.protocol}://${req.get('host')}` && origin !== PUBLIC_ORIGIN) return res.status(403).send('Forbidden');
   if (req.session) {
     const token = String(req.body?._csrf || '');
     const ok = token.length === req.session.csrf.length &&
@@ -87,7 +110,10 @@ const requireLogin = (req, res, next) => {
 };
 const requireAdmin = (req, res, next) => {
   if (!req.user) return requireLogin(req, res, next);
-  if (req.user.role !== 'admin') return res.status(403).page('אין הרשאה', html`<h1>אין הרשאה לעמוד זה</h1>`);
+  // A blocked/suspended admin keeps role=admin in the database but loses all admin access.
+  if (req.user.role !== 'admin' || req.user.status !== 'active') {
+    return res.status(403).page('אין הרשאה', html`<h1>אין הרשאה לעמוד זה</h1>`);
+  }
   next();
 };
 
@@ -98,7 +124,7 @@ require('./routes/admin')(ctx);
 
 app.use((req, res) => res.status(404).page('לא נמצא', html`<h1>העמוד לא נמצא</h1><p><a href="/">חזרה לדף הבית</a></p>`));
 
-app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     res.flash('error', err.code === 'LIMIT_FILE_SIZE' ? 'הקובץ גדול מדי (עד 8MB)' : 'שגיאה בהעלאת הקובץ');
     return res.redirect(req.get('referer') || '/');
@@ -107,9 +133,31 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   res.status(500).page('שגיאה', html`<h1>אירעה שגיאה</h1><p>נסו שוב מאוחר יותר.</p>`);
 });
 
-module.exports = { app, BookingError };
+/** Starts the web server (HTTPS or plain HTTP, see config.https) and the background jobs. */
+async function start({ port = config.port, host, jobs = true } = {}) {
+  const server = config.https.enabled
+    ? await listenHttps(app, port, host)
+    : await new Promise((resolve, reject) => { const s = app.listen(port, host, () => resolve(s)).once('error', reject); });
+  const scheme = config.https.enabled ? 'https' : 'http';
+  const p = server.address().port;
+  const lines = [`${config.appName} is running`, `  Local:      ${scheme}://localhost:${p}`];
+  if (!host || host === '0.0.0.0' || host === '::') {
+    for (const ip of lanAddresses()) lines.push(`  Network:    ${scheme}://${ip}:${p}   (other devices on the same Wi-Fi)`);
+  }
+  lines.push(`  Public URL: ${config.baseUrl}   (BASE_URL, used in e-mail links)`);
+  console.log(lines.join('\n'));
+  if (jobs) {
+    require('./mail').verifyTransport();
+    startJobs();
+  }
+  return server;
+}
+
+module.exports = { app, start, BookingError };
 
 if (require.main === module) {
-  app.listen(config.port, () => console.log(`${config.appName} listening on ${config.baseUrl} (port ${config.port})`));
-  startJobs();
+  start().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }

@@ -10,7 +10,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const { renderCalendar, windowFor } = require('../views/calendar');
 const { html, markdown, postForm, actionButton, field, badge, USER_STATUS } = require('../views/html');
-const { normalizePhone, validPhone } = require('./public');
+const { normalizePhone, validPhone, safeNext } = require('./public');
 
 const STATUS_HELP = {
   pending: 'החשבון ממתין לבדיקת המנהל. תישלח הודעה בדואר האלקטרוני לאחר האישור.',
@@ -215,15 +215,15 @@ ${canBook ? html`<p class="muted small">לחיצה על משבצת פנויה ב
   ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
   ${postForm(req, '/bookings/new', html`
     <div class="grid2">
-      ${field('איסוף הרכב', html`<input type="datetime-local" name="start" value="${start}" required step="900" min="${time.now()}">`)}
-      ${field('החזרת הרכב', html`<input type="datetime-local" name="end" value="${end}" required step="900" min="${time.now()}">`)}
+      ${field('איסוף הרכב', html`<input type="datetime-local" name="start" value="${start}" required min="${time.now()}">`)}
+      ${field('החזרת הרכב', html`<input type="datetime-local" name="end" value="${end}" required min="${time.now()}">`)}
     </div>
     <div id="availability" class="availability" aria-live="polite"></div>
     ${field('מטרת הנסיעה (אופציונלי)', html`<input name="purpose" value="${v.purpose}" maxlength="200">`)}
     ${field('הערות מיוחדות (אופציונלי)', html`<textarea name="notes" rows="3" maxlength="1000">${v.notes}</textarea>`)}
     <label class="check"><input type="checkbox" name="accept_rules" value="1" required> <span>אני מתחייב/ת לפעול לפי <a href="/policy" target="_blank">נהלי השאלת הרכב</a></span></label>
     <button class="btn btn-primary btn-block">שליחת בקשה</button>
-    <p class="muted small">${s.max_booking_hours ? `משך הזמנה מקסימלי: ${s.max_booking_hours} שעות. ` : ''}${s.buffer_minutes ? `נדרשות ${s.buffer_minutes} דקות התארגנות בין הזמנות. ` : ''}הבקשה תישלח לאישור המנהל.</p>
+    <p class="muted small">${s.max_booking_hours ? `משך הזמנה מקסימלי: ${bookings.durationLabel(s.max_booking_hours)}. ` : ''}${s.buffer_minutes ? `נדרשות ${s.buffer_minutes} דקות התארגנות בין הזמנות. ` : ''}הבקשה תישלח לאישור המנהל.</p>
   `, 'class="card" data-availability="/api/availability"')}
 </div>`;
   }
@@ -271,7 +271,13 @@ ${canBook ? html`<p class="muted small">לחיצה על משבצת פנויה ב
   // Live availability check for the booking form (no personal details returned).
   app.get('/api/availability', requireLogin, (req, res) => {
     const { start, end } = req.query;
-    if (!time.isValidLocal(start) || !time.isValidLocal(end) || end <= start) return res.json({ ok: false, message: '' });
+    if (!time.isValidLocal(start) || !time.isValidLocal(end)) return res.json({ ok: false, message: '' });
+    try {
+      bookings.validateRequestRange(start, end);
+    } catch (err) {
+      if (!(err instanceof bookings.BookingError)) throw err;
+      return res.json({ ok: false, message: err.message });
+    }
     const conflicts = bookings.findConflicts(defaultVehicle().id, start, end);
     if (conflicts.length) {
       return res.json({ ok: false, message: `הרכב תפוס בחלק מהזמן (${time.fmt(conflicts[0].start_at)}–${time.fmt(conflicts[0].end_at)})` });
@@ -301,7 +307,7 @@ ${accepted?.policy_version === policy.version ? html`<p>✓ הגרסה הנוכ�
     }
     db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, ip) VALUES (?, ?, ?)').run(req.user.id, version, req.ip);
     res.flash('success', 'הנהלים אושרו');
-    res.redirect(/^\/(?!\/)/.test(req.body.next || '') ? req.body.next : '/me');
+    res.redirect(safeNext(req.body.next) || '/me');
   });
 
   app.get('/me/security', requireLogin, async (req, res) => {
@@ -327,6 +333,7 @@ ${accepted?.policy_version === policy.version ? html`<p>✓ הגרסה הנוכ�
     ${u.password_hash ? field('סיסמה נוכחית', html`<input type="password" name="current" required autocomplete="current-password">`) : ''}
     ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password">`)}
     <button class="btn btn-primary">שמירה</button>`, 'class="card"')}
+  ${u.google_sub ? html`<section class="card"><h2>חשבון Google</h2><p>${badge('active', 'מקושר')} ניתן להתחבר עם חשבון Google של ${u.email}.</p></section>` : ''}
   <section class="card">
     <h2>אימות דו־שלבי</h2>
     ${u.role === 'admin' && !u.totp_enabled ? html`<div class="flash flash-warning">מומלץ מאוד להפעיל אימות דו־שלבי לחשבונות מנהל.</div>` : ''}

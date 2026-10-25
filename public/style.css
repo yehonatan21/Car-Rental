@@ -245,3 +245,10 @@ a.tg-slot:hover { background: var(--primary-soft); }
   .ev { font-size: 0; height: 6px; padding: 0; border-width: 1px; }
   .m-head { font-size: .7rem; }
 }
+
+/* ---------- Sign in with Google ---------- */
+.btn-google { background: #fff; color: #1f1f1f; border: 1px solid #747775; gap: .6rem; }
+.btn-google:hover { background: #f8f9fa; filter: none; }
+@media (prefers-color-scheme: dark) { .btn-google { background: #131314; color: #e3e3e3; border-color: #8e918f; } }
+.divider { display: flex; align-items: center; gap: .8rem; color: var(--muted); margin: .2rem 0 1rem; }
+.divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }

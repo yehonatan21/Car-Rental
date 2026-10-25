@@ -79,14 +79,26 @@ function checkVehicle(vehicleId) {
   return v;
 }
 
+/** "7 ימים (168 שעות)" / "36 שעות" */
+function durationLabel(hours) {
+  if (hours >= 24 && hours % 24 === 0) return `${hours / 24 === 1 ? 'יום אחד' : hours / 24 + ' ימים'} (${hours} שעות)`;
+  return `${hours} שעות`;
+}
+
+/** Date rules for a user's request, shared by the live availability check and the actual submission. */
+function validateRequestRange(start, end) {
+  validateRange(start, end);
+  if (start < time.now()) throw new BookingError('לא ניתן להזמין מועד שכבר עבר');
+  const max = getSettings().max_booking_hours;
+  if (max > 0 && time.hoursBetween(start, end) > max) {
+    throw new BookingError(`משך הזמנה מקסימלי הוא ${durationLabel(max)}. יש לבחור מועד החזרה מוקדם יותר`);
+  }
+}
+
 /** A user's own request. Always lands as "pending"; the admin decides. */
 function createRequest(user, { vehicleId, start, end, purpose, notes }) {
-  validateRange(start, end);
+  validateRequestRange(start, end);
   const s = getSettings();
-  if (start < time.now()) throw new BookingError('לא ניתן להזמין מועד שכבר עבר');
-  if (s.max_booking_hours > 0 && time.hoursBetween(start, end) > s.max_booking_hours) {
-    throw new BookingError(`משך הזמנה מקסימלי הוא ${s.max_booking_hours} שעות`);
-  }
   const problems = eligibilityProblems(user, end);
   if (problems.length) throw new BookingError(problems.join('. '));
   checkVehicle(vehicleId);
@@ -201,6 +213,6 @@ function inRange(vehicleId, from, to, statuses = ['approved']) {
 
 module.exports = {
   BookingError, STATUS_LABELS, findConflicts, findPendingOverlaps, eligibilityProblems,
-  createRequest, approve, reject, cancel, createManual, createBlock, completeFinished,
+  createRequest, validateRequestRange, durationLabel, approve, reject, cancel, createManual, createBlock, completeFinished,
   getBooking, inRange, addHistory,
 };

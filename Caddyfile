@@ -1,0 +1,5 @@
+# Reverse proxy with automatic HTTPS (Let's Encrypt) for docker-compose.prod.yml.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

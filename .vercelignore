@@ -1,0 +1,11 @@
+data
+coverage
+test
+docs
+*.cmd
+*.sh
+Dockerfile*
+docker-compose*.yml
+Caddyfile
+.env
+.env.*

@@ -16,6 +16,8 @@ const { listenHttps, lanAddresses } = require('./tls');
 // pinning them would force every other local/LAN dev server on that host onto HTTPS.
 const pinnable = (hostname) => hostname !== 'localhost' && !net.isIP(hostname.replace(/^\[|\]$/g, ''));
 
+require('./bootstrap').ensureAdminFromEnv();
+
 const app = express();
 app.set('trust proxy', 1); // in production HTTPS is terminated by the reverse proxy, which sets X-Forwarded-Proto
 app.disable('x-powered-by');

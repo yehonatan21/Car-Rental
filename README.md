@@ -37,7 +37,7 @@ npm run tunnel                                 # בחלון נוסף, כשהאפ
 - **אבטחה:** הפקודה מסרבת לפרסם את האתר כל עוד קיים משתמש עם סיסמת הדמו `Password1`, שמופיעה ב־README וידועה לכולם. לפני הפרסום צריך להחליף סיסמאות (`npm run create-admin -- --email admin@example.org --password …`), או להתחיל ממסד נתונים חדש בלי נתוני דמו.
 - הכתובת משתנה בכל הפעלה. כדי שקישורים במיילים יפנו אליה, מגדירים `BASE_URL=<הכתובת>` ב־`.env` ומפעילים מחדש.
 - **לכתובת קבועה:** [Cloudflare Tunnel עם דומיין משלכם](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/), או [ngrok](https://ngrok.com) עם הדומיין הסטטי החינמי: `ngrok http https://localhost:3000 --url=<השם-שלכם>.ngrok-free.app`. בשני המקרים מגדירים את `BASE_URL` לכתובת הקבועה.
-- המחשב צריך להישאר דלוק ומחובר. לסביבת פיתוח שזמינה תמיד באינטרנט, ומתעדכנת אוטומטית בכל push ל־`dev`, ראו את המדריך **[docs/dev-environment.md](docs/dev-environment.md)**. לאחסון בחינם (Oracle Cloud Always Free) ראו **[docs/free-hosting.md](docs/free-hosting.md)**.
+- המחשב צריך להישאר דלוק ומחובר. לסביבת פיתוח שזמינה תמיד באינטרנט, ומתעדכנת אוטומטית בכל push ל־`dev`, ראו את המדריך **[docs/dev-environment.md](docs/dev-environment.md)**. לאחסון בחינם (Oracle Cloud Always Free) ראו **[docs/free-hosting.md](docs/free-hosting.md)**. לפריסה ב־Vercel, להדגמה בלבד כי הנתונים שם זמניים, ראו **[docs/vercel.md](docs/vercel.md)**.
 
 ## התחברות עם Google
 

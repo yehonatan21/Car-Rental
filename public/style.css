@@ -255,3 +255,4 @@ a.tg-slot:hover { background: var(--primary-soft); }
 
 /* Temporary-data warning (e.g. Vercel demo deployments) */
 .demo-banner { background: var(--warning-soft); color: var(--warning); text-align: center; padding: .45rem 1rem; font-size: .9rem; border-bottom: 1px solid var(--border); }
+.field small .saved { color: var(--success); font-weight: 600; }

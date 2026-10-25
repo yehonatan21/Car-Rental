@@ -1,4 +1,5 @@
 'use strict';
+const crypto = require('node:crypto');
 const { db, audit, currentPolicy } = require('../db');
 const auth = require('../auth');
 const mail = require('../mail');
@@ -48,6 +49,7 @@ function loginPage(req, { error, email = '' } = {}) {
     ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required autocomplete="username">`)}
     ${field('סיסמה', html`<input type="password" name="password" required autocomplete="current-password">`)}
     <button class="btn btn-primary btn-block">כניסה</button>
+    <p class="small"><a href="/password/forgot${email ? '?email=' + encodeURIComponent(email) : ''}">שכחתי סיסמה</a></p>
   `, 'class="card"')}
   <div class="card">
     <h2>כניסה עם קוד חד־פעמי</h2>
@@ -88,7 +90,7 @@ function googleOption(req, href, label, page, hint) {
   return html`<div class="card">${googleButton(href, label)}${hint ? html`<p class="muted small">${hint}</p>` : ''}</div>`;
 }
 
-function registerPage(req, { errors = [], v = {} } = {}) {
+function registerPage(req, { errors = [], v = {}, draft = null } = {}) {
   const policy = currentPolicy();
   const gs = google.pendingSignup(req.cookies[GOOGLE_SIGNUP_COOKIE]);
   if (gs) v = { first_name: gs.first_name, last_name: gs.last_name, ...v, email: gs.email };
@@ -100,6 +102,7 @@ ${gs ? html`<div class="flash flash-success">מתחברים עם חשבון Goog
     : googleOption(req, '/auth/google', 'הרשמה מהירה עם Google', '/register',
       'השם והדואר האלקטרוני יילקחו מחשבון Google. עדיין יש להשלים ת"ז, טלפון ורישיון נהיגה.')}
 ${postForm(req, '/register', html`
+  ${draft ? html`<input type="hidden" name="draft" value="${draft.token}">` : ''}
   <fieldset>
     <legend>פרטים אישיים</legend>
     <div class="grid2">
@@ -111,26 +114,94 @@ ${postForm(req, '/register', html`
     ${gs
       ? field('דואר אלקטרוני', html`<input type="email" value="${gs.email}" readonly>`, 'מחשבון Google')
       : field('דואר אלקטרוני', html`<input type="email" name="email" value="${v.email}" required autocomplete="email">`)}
-    ${field(gs ? 'סיסמה (אופציונלי)' : 'סיסמה', html`<input type="password" name="password" minlength="8" autocomplete="new-password">`,
-      gs ? 'לא חובה: אפשר להתחבר תמיד עם Google.' : 'לפחות 8 תווים. ניתן להשאיר ריק ולהתחבר תמיד באמצעות קוד חד־פעמי שיישלח לדואר האלקטרוני.')}
+    ${draft?.hasPassword
+      ? field('סיסמה', html`<input type="password" name="password" minlength="8" autocomplete="new-password" placeholder="••••••••">`,
+        html`<span class="saved">✓ הסיסמה שהזנת נשמרה. אפשר להשאיר ריק, או להקליד סיסמה אחרת.</span>`)
+      : field(gs ? 'סיסמה (אופציונלי)' : 'סיסמה', html`<input type="password" name="password" minlength="8" autocomplete="new-password">`,
+        gs ? 'לא חובה: אפשר להתחבר תמיד עם Google.' : 'לפחות 8 תווים. ניתן להשאיר ריק ולהתחבר תמיד באמצעות קוד חד־פעמי שיישלח לדואר האלקטרוני.')}
   </fieldset>
   <fieldset>
     <legend>רישיון נהיגה</legend>
-    ${field('צילום רישיון נהיגה בתוקף', html`<input type="file" name="license" accept="image/*,application/pdf" required>`,
-      'תמונה או PDF, עד 8MB. הקובץ נשמר באזור מוגן ונגיש למנהלים בלבד.')}
+    ${draft?.licenseName
+      ? field('צילום רישיון נהיגה (להחלפה בלבד)', html`<input type="file" name="license" accept="image/*,application/pdf">`,
+        html`<span class="saved">✓ הקובץ <b dir="auto">${draft.licenseName}</b> נשמר. אין צורך להעלות אותו שוב.</span>`)
+      : field('צילום רישיון נהיגה בתוקף', html`<input type="file" name="license" accept="image/*,application/pdf" required>`,
+        'תמונה או PDF, עד 8MB. הקובץ נשמר באזור מוגן ונגיש למנהלים בלבד.')}
     ${field('תאריך פקיעת תוקף הרישיון', html`<input type="date" name="license_expiry" value="${v.license_expiry}" required min="${time.today()}">`)}
   </fieldset>
   <fieldset>
     <legend>אישורים</legend>
     <details class="policy-box"><summary>נהלי השאלת הרכב (גרסה ${policy.version}) – לחצו לקריאה</summary>
       <div class="prose">${markdown(policy.content)}</div></details>
-    <label class="check"><input type="checkbox" name="accept_policy" value="1" required> <span>קראתי ואני מסכים/ה לנהלי השאלת הרכב (גרסה ${policy.version})</span></label>
-    <label class="check"><input type="checkbox" name="accept_privacy" value="1" required> <span>קראתי ואני מסכים/ה ל<a href="/privacy" target="_blank">מדיניות הפרטיות</a></span></label>
+    <label class="check"><input type="checkbox" name="accept_policy" value="1" required ${v.accept_policy ? raw('checked') : ''}> <span>קראתי ואני מסכים/ה לנהלי השאלת הרכב (גרסה ${policy.version})</span></label>
+    <label class="check"><input type="checkbox" name="accept_privacy" value="1" required ${v.accept_privacy ? raw('checked') : ''}> <span>קראתי ואני מסכים/ה ל<a href="/privacy" target="_blank">מדיניות הפרטיות</a></span></label>
     <input type="hidden" name="policy_version" value="${policy.version}">
   </fieldset>
   <button class="btn btn-primary btn-block">שליחת הרשמה</button>
 `, 'enctype="multipart/form-data" class="card"')}`;
 }
+
+// ---------- Registration drafts: keep the upload and password after a failed attempt ----------
+const DRAFT_TTL_MS = 2 * 3600000;
+
+/** Multer reports file names as latin1; decode them back to UTF-8 (e.g. Hebrew names). */
+function uploadName(file) {
+  const decoded = Buffer.from(file.originalname, 'latin1').toString('utf8');
+  return (decoded.includes('\uFFFD') ? file.originalname : decoded).slice(0, 120);
+}
+
+function loadDraft(token) {
+  if (typeof token !== 'string' || !token) return null;
+  const row = db.prepare('SELECT * FROM registration_drafts WHERE token_hash = ? AND expires_at > ?').get(auth.sha256(token), Date.now());
+  return row ? { ...row, token } : null;
+}
+
+/** Creates or updates the draft; returns its token (only the hash is stored). */
+function saveDraft(token, { licenseFile, licenseName, passwordHash }) {
+  const t = token || crypto.randomBytes(24).toString('base64url');
+  db.prepare(`INSERT INTO registration_drafts (token_hash, license_file, license_name, password_hash, expires_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(token_hash) DO UPDATE SET license_file = excluded.license_file, license_name = excluded.license_name,
+      password_hash = excluded.password_hash, expires_at = excluded.expires_at`)
+    .run(auth.sha256(t), licenseFile, licenseName, passwordHash, Date.now() + DRAFT_TTL_MS);
+  return t;
+}
+
+/** Forgets the draft once the account exists (its license file now belongs to the user). */
+const dropDraft = (token) => db.prepare('DELETE FROM registration_drafts WHERE token_hash = ?').run(auth.sha256(token));
+
+function forgotPage(req, { email = '', error } = {}) {
+  return html`
+<div class="narrow">
+  <h1>שכחתי סיסמה</h1>
+  ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
+  ${postForm(req, '/password/forgot', html`
+    <p>נשלח לכתובת הדואר האלקטרוני שלך קישור לבחירת סיסמה חדשה.</p>
+    ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required autocomplete="email" autofocus>`)}
+    <button class="btn btn-primary btn-block">שליחת קישור לאיפוס</button>`, 'class="card"')}
+  <p class="muted small">אפשר גם להתחבר בלי סיסמה עם <a href="/login">קוד חד־פעמי במייל</a>.</p>
+</div>`;
+}
+
+function resetPage(req, { token, error } = {}) {
+  return html`
+<div class="narrow">
+  <h1>בחירת סיסמה חדשה</h1>
+  ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
+  ${postForm(req, '/password/reset', html`
+    <input type="hidden" name="token" value="${token}">
+    ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password" autofocus>`, 'לפחות 8 תווים')}
+    ${field('אימות הסיסמה', html`<input type="password" name="confirm" minlength="8" required autocomplete="new-password">`)}
+    <button class="btn btn-primary btn-block">שמירת הסיסמה</button>
+    <p class="muted small">לאחר השמירה תנותק מכל המכשירים ותצטרך להתחבר מחדש.</p>`, 'class="card"')}
+</div>`;
+}
+
+const invalidResetPage = () => html`
+<div class="narrow card">
+  <h1>הקישור אינו תקף</h1>
+  <p>קישור האיפוס פג תוקף (שעה), כבר נוצל, או שהוחלף בקישור חדש יותר.</p>
+  <p><a class="btn btn-primary" href="/password/forgot">בקשת קישור חדש</a></p>
+</div>`;
 
 module.exports = ({ app, licenseUpload }) => {
   app.get('/', (req, res) => {
@@ -308,32 +379,51 @@ module.exports = ({ app, licenseUpload }) => {
       phone: normalizePhone(b.phone),
       email: String(b.email || '').trim().toLowerCase(),
       license_expiry: String(b.license_expiry || ''),
+      accept_policy: b.accept_policy === '1',
+      accept_privacy: b.accept_privacy === '1',
     };
     const errors = [];
+
+    // The license image and password from an earlier failed attempt are kept in a draft (see saveDraft).
+    const draft = loadDraft(b.draft);
+    let licenseFile = draft?.license_file || null;
+    let licenseName = draft?.license_name || null;
+    if (req.file) {
+      storage.keep(req.file); // stored right away, so a failed attempt doesn't lose it
+      if (licenseFile) storage.remove(licenseFile);
+      licenseFile = req.file.filename;
+      licenseName = uploadName(req.file);
+    }
+    let passwordHash = draft?.password_hash || null;
+    const password = String(b.password || '');
+    if (password && password.length < 8) errors.push('הסיסמה חייבת להכיל לפחות 8 תווים');
+    else if (password) passwordHash = auth.hashPassword(password);
+
     if (!v.first_name || !v.last_name) errors.push('יש למלא שם פרטי ושם משפחה');
     if (!validIsraeliId(v.id_number)) errors.push('מספר תעודת הזהות אינו תקין');
     if (!validPhone(v.phone)) errors.push('מספר הטלפון הנייד אינו תקין');
     if (!validEmail(v.email)) errors.push('כתובת הדואר האלקטרוני אינה תקינה');
-    if (b.password && String(b.password).length < 8) errors.push('הסיסמה חייבת להכיל לפחות 8 תווים');
-    if (!req.file) errors.push('יש להעלות צילום רישיון נהיגה (תמונה או PDF)');
+    if (!licenseFile) errors.push('יש להעלות צילום רישיון נהיגה (תמונה או PDF)');
     if (!time.isValidDate(v.license_expiry) || v.license_expiry < time.today()) errors.push('יש להזין תאריך תוקף רישיון עתידי');
-    if (b.accept_policy !== '1') errors.push('יש לאשר את נהלי השאלת הרכב');
-    if (b.accept_privacy !== '1') errors.push('יש לאשר את מדיניות הפרטיות');
+    if (!v.accept_policy) errors.push('יש לאשר את נהלי השאלת הרכב');
+    if (!v.accept_privacy) errors.push('יש לאשר את מדיניות הפרטיות');
     if (Number(b.policy_version) !== currentPolicy().version) errors.push('הנהלים עודכנו בזמן ההרשמה. יש לקרוא ולאשר אותם מחדש');
     if (db.prepare('SELECT 1 FROM users WHERE email = ? OR id_number = ?').get(v.email, v.id_number)) {
       errors.push('קיים כבר משתמש עם כתובת דואר אלקטרוני או תעודת זהות זו');
     }
     if (errors.length) {
-      storage.discard(req.file);
-      return res.status(400).page('הרשמה', registerPage(req, { errors, v }));
+      const token = saveDraft(draft?.token, { licenseFile, licenseName, passwordHash });
+      return res.status(400).page('הרשמה', registerPage(req, {
+        errors, v, draft: { token, licenseName, hasPassword: Boolean(passwordHash) },
+      }));
     }
 
-    storage.keep(req.file);
     const now = time.stamp();
     const id = Number(db.prepare(`INSERT INTO users (first_name, last_name, id_number, phone, email, password_hash,
         license_file, license_expiry, google_sub, privacy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(v.first_name, v.last_name, v.id_number, v.phone, v.email, b.password ? auth.hashPassword(String(b.password)) : null,
-        req.file.filename, v.license_expiry, gs ? gs.sub : null, now, now, now).lastInsertRowid);
+      .run(v.first_name, v.last_name, v.id_number, v.phone, v.email, passwordHash,
+        licenseFile, v.license_expiry, gs ? gs.sub : null, now, now, now).lastInsertRowid);
+    if (draft) dropDraft(draft.token);
     if (gs) {
       google.clearSignup(req.cookies[GOOGLE_SIGNUP_COOKIE]);
       res.clearCookie(GOOGLE_SIGNUP_COOKIE, { path: '/', secure: req.secure });
@@ -345,6 +435,65 @@ module.exports = ({ app, licenseUpload }) => {
     auth.createSession(res, id);
     res.flash('success', 'ההרשמה התקבלה! החשבון ממתין לאישור המנהל. תישלח הודעה בדואר האלקטרוני לאחר הבדיקה.');
     res.redirect('/me');
+  });
+
+  // ---------- Forgot / reset password ----------
+  const noStore = (res) => res.set('Cache-Control', 'no-store');
+
+  app.get('/password/forgot', (req, res) => {
+    res.page('שכחתי סיסמה', forgotPage(req, { email: String(req.query.email || '') }));
+  });
+
+  app.post('/password/forgot', async (req, res) => {
+    const email = String(req.body.email || '').trim();
+    if (auth.throttled('reset:' + req.ip, 5)) {
+      return res.status(429).page('שכחתי סיסמה', forgotPage(req, { email, error: 'יותר מדי בקשות. נסו שוב בעוד מספר דקות.' }));
+    }
+    if (!validEmail(email)) return res.status(400).page('שכחתי סיסמה', forgotPage(req, { email, error: 'כתובת הדואר האלקטרוני אינה תקינה' }));
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    // Same answer whether or not the address is registered.
+    const sent = user ? await mail.passwordReset(user, auth.createPasswordReset(user.id)) : true;
+    if (!sent) {
+      return res.status(503).page('שכחתי סיסמה', forgotPage(req, {
+        email, error: 'שליחת המייל נכשלה. נסו שוב בעוד כמה דקות, או פנו למנהל המערכת.',
+      }));
+    }
+    if (user) audit(user.id, 'user.password_reset_requested', 'user', user.id);
+    res.page('שכחתי סיסמה', html`
+<div class="narrow card">
+  <h1>בדקו את תיבת הדואר</h1>
+  <p>אם הכתובת <b dir="ltr">${email}</b> רשומה במערכת, נשלח אליה קישור לבחירת סיסמה חדשה. הקישור תקף לשעה.</p>
+  ${!config.smtp && !config.production ? html`<div class="flash flash-warning small">
+    מצב פיתוח: לא הוגדר שרת דואר (SMTP), ולכן המייל לא נשלח בפועל. <b>הקישור מודפס בחלון השרת</b>.</div>` : ''}
+  <p class="muted small">לא הגיע? בדקו בתיקיית הספאם, או <a href="/password/forgot?email=${encodeURIComponent(email)}">בקשו קישור חדש</a>.</p>
+  <p><a href="/login">חזרה להתחברות</a></p>
+</div>`);
+  });
+
+  app.get('/password/reset', (req, res) => {
+    noStore(res);
+    const token = String(req.query.token || '');
+    if (!auth.checkPasswordReset(token)) return res.status(400).page('איפוס סיסמה', invalidResetPage());
+    res.page('איפוס סיסמה', resetPage(req, { token }));
+  });
+
+  app.post('/password/reset', async (req, res) => {
+    noStore(res);
+    const token = String(req.body.token || '');
+    const password = String(req.body.password || '');
+    if (auth.throttled('reset-set:' + req.ip, 10)) return res.status(429).page('איפוס סיסמה', invalidResetPage());
+    if (!auth.checkPasswordReset(token)) return res.status(400).page('איפוס סיסמה', invalidResetPage());
+    if (password.length < 8) return res.status(400).page('איפוס סיסמה', resetPage(req, { token, error: 'הסיסמה חייבת להכיל לפחות 8 תווים' }));
+    if (password !== String(req.body.confirm || '')) {
+      return res.status(400).page('איפוס סיסמה', resetPage(req, { token, error: 'הסיסמאות אינן זהות' }));
+    }
+    const userId = auth.resetPassword(token, password);
+    if (!userId) return res.status(400).page('איפוס סיסמה', invalidResetPage());
+    audit(userId, 'user.password_reset', 'user', userId);
+    await mail.passwordChanged(db.prepare('SELECT * FROM users WHERE id = ?').get(userId));
+    res.clearCookie(auth.COOKIE, { path: '/', secure: req.secure });
+    res.flash('success', 'הסיסמה עודכנה. אפשר להתחבר עם הסיסמה החדשה.');
+    res.redirect('/login');
   });
 
   app.get('/policy', (req, res) => {

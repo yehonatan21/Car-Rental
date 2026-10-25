@@ -57,7 +57,11 @@ module.exports = ({ app, requireLogin, licenseUpload }) => {
 <div class="card status-card status-${u.status}">
   <div>סטטוס החשבון: ${badge(u.status, USER_STATUS[u.status])}</div>
   <p>${STATUS_HELP[u.status]}</p>
-  ${u.pending_license_file ? html`<p>📄 רישיון חדש שהעלית ממתין לבדיקת המנהל.</p>` : ''}
+  ${u.pending_license_file ? (u.role === 'admin'
+    ? html`<p>📄 העלית רישיון חדש. <a href="/admin/users/${u.id}#license">לאישור הרישיון שלך</a></p>`
+    : html`<p>📄 רישיון חדש שהעלית ממתין לבדיקת המנהל.</p>`) : ''}
+  ${u.role === 'admin' && !u.license_verified && !u.pending_license_file
+    ? html`<p>🚗 כדי להזמין את הרכב גם מנהל צריך רישיון נהיגה מאושר: <a href="/me/license">העלאת רישיון</a> ואז אישור בכרטיס שלך.</p>` : ''}
   ${needsPolicy ? html`<p>⚠️ נהלי השאלת הרכב עודכנו. <a href="/policy/accept">יש לקרוא ולאשר אותם</a> לפני הזמנה נוספת.</p>` : ''}
   ${u.status === 'license_update' && !u.pending_license_file ? html`<a class="btn btn-primary" href="/me/license">העלאת רישיון</a>` : ''}
   ${u.status === 'active' && !needsPolicy ? html`<a class="btn btn-primary" href="/bookings/new">הזמנה חדשה</a>` : ''}
@@ -132,6 +136,10 @@ module.exports = ({ app, requireLogin, licenseUpload }) => {
       .run(req.file.filename, expiry, time.stamp(), u.id);
     audit(u.id, 'user.license_upload', 'user', u.id, expiry);
     await mail.newLicenseUploaded(u);
+    if (u.role === 'admin') {
+      res.flash('success', 'הרישיון הועלה. כמנהל, אפשר לאשר אותו כאן.');
+      return res.redirect(`/admin/users/${u.id}#license`);
+    }
     res.flash('success', 'הרישיון נשלח לבדיקת המנהל');
     res.redirect('/me');
   });

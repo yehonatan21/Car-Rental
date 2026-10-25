@@ -257,10 +257,14 @@ ${users.length ? '' : html`<p class="muted">לא נמצאו משתמשים.</p>`
     ${postForm(req, `/admin/users/${u.id}/note`, html`
       ${field('הערת מנהל (פנימית)', html`<textarea name="admin_note" rows="2">${u.admin_note}</textarea>`)}
       <button class="btn btn-light btn-sm">שמירת הערה</button>`)}
+    ${actionButton(req, `/admin/users/${u.id}/send-reset`, 'שליחת קישור לאיפוס סיסמה', { cls: 'btn-light btn-sm', confirm: `לשלוח אל ${u.email} קישור לאיפוס הסיסמה?` })}
   </section>
 
   <section class="card">
-    <h2>רישיון נהיגה</h2>
+    <h2 id="license">רישיון נהיגה</h2>
+    ${isSelf ? html`<p class="small">${u.pending_license_file
+      ? 'זה הרישיון שלך: כמנהל ניתן לאשר אותו כאן. האישור נרשם ביומן הפעולות.'
+      : html`זה החשבון שלך. כדי להזמין את הרכב גם אתה צריך רישיון מאושר: <a href="/me/license">העלאת רישיון</a>, ואז אישור כאן.`}</p>` : ''}
     <p>תוקף: <b>${time.fmt(u.license_expiry)}</b> ${u.license_verified ? badge('active', 'אומת') : badge('pending', 'טרם אומת')}
       ${u.license_expiry && u.license_expiry < time.today() ? badge('blocked', 'פג תוקף') : ''}</p>
     ${preview(false)}
@@ -310,10 +314,13 @@ ${permissionsCard(req, u, isSelf)}
     res.type(path.extname(file)).send(data);
   });
 
+  const SELF_ALLOWED = new Set(['note', 'license/approve', 'license/reject', 'send-reset']);
   const userAction = (name, handler) => app.post(`/admin/users/:id/${name}`, requireAdmin, async (req, res) => {
     const u = getUser(req.params.id);
     if (!u) return res.sendStatus(404);
-    if (u.id === req.user.id && name !== 'note') {
+    // On your own account you may verify your own driving license, keep notes and get a reset link,
+    // but never change your own status or role.
+    if (u.id === req.user.id && !SELF_ALLOWED.has(name)) {
       res.flash('error', 'לא ניתן לבצע פעולה זו על החשבון שלך');
       return res.redirect(`/admin/users/${u.id}`);
     }
@@ -363,7 +370,7 @@ ${permissionsCard(req, u, isSelf)}
     const status = u.status === 'license_update' ? 'active' : u.status;
     db.prepare(`UPDATE users SET license_file = pending_license_file, license_expiry = ?, license_verified = 1,
       pending_license_file = NULL, pending_license_expiry = NULL, status = ? WHERE id = ?`).run(expiry, status, u.id);
-    audit(req.user.id, 'user.license_approve', 'user', u.id, expiry);
+    audit(req.user.id, 'user.license_approve', 'user', u.id, u.id === req.user.id ? `${expiry} (self)` : expiry);
     if (status === 'active' && u.status !== 'active') await mail.userApproved(u);
     return status === 'pending' ? 'הרישיון אושר. יש לאשר גם את המשתמש' : 'הרישיון החדש אושר';
   });
@@ -391,6 +398,12 @@ ${permissionsCard(req, u, isSelf)}
     audit(req.user.id, 'user.remove_admin', 'user', u.id);
     await mail.roleChanged(u, false);
     return `הרשאת המנהל של ${fullName(u)} הוסרה`;
+  });
+
+  userAction('send-reset', async (u, req) => {
+    const sent = await mail.passwordReset(u, auth.createPasswordReset(u.id));
+    audit(req.user.id, 'user.password_reset_sent', 'user', u.id);
+    return sent ? `נשלח אל ${u.email} קישור לאיפוס סיסמה (תקף לשעה)` : { type: 'error', text: 'שליחת המייל נכשלה (ראו הגדרות ← שליחת מיילים)' };
   });
 
   userAction('note', async (u, req) => {

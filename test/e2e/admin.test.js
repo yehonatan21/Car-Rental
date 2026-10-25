@@ -335,3 +335,33 @@ test('profile: phone can be updated, invalid phone rejected', async () => {
   assert.match(c.flash().text, /אינו תקין/);
   assert.equal(getUser(u.id).phone, '0529998877');
 });
+
+test('an admin can upload and approve their own driving license, then book', async () => {
+  const me = db.prepare("SELECT * FROM users WHERE email = 'admin@adm.test'").get();
+  db.prepare('UPDATE users SET license_verified = 0, license_file = NULL, license_expiry = NULL WHERE id = ?').run(me.id);
+  assert.match((await admin.get('/me')).text, /גם מנהל צריך רישיון נהיגה מאושר/);
+  assert.match((await admin.get(`/admin/users/${me.id}`)).text, /זה החשבון שלך/);
+
+  const up = await admin.post('/me/license', licenseForm(time.addDays(time.today(), 500)), '/me/license');
+  assert.equal(up.location, `/admin/users/${me.id}#license`, 'admins go straight to approving it');
+  assert.match((await admin.get(`/admin/users/${me.id}`)).text, /כמנהל ניתן לאשר אותו כאן/);
+
+  await admin.post(`/admin/users/${me.id}/license/approve`, { license_expiry: time.addDays(time.today(), 500) }, `/admin/users/${me.id}`);
+  const row = getUser(me.id);
+  assert.equal(row.license_verified, 1);
+  assert.equal(row.license_expiry, time.addDays(time.today(), 500));
+  assert.ok(storedFile(row.license_file));
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'user.license_approve' AND target_id = ? AND details LIKE '%(self)'").get(me.id));
+  assert.equal((await admin.get('/bookings/new')).status, 200, 'can book now');
+});
+
+test('admins still cannot change their own status or role', async () => {
+  const me = db.prepare("SELECT * FROM users WHERE email = 'admin@adm.test'").get();
+  for (const action of ['block', 'remove-admin', 'request-license', 'reject']) {
+    await admin.post(`/admin/users/${me.id}/${action}`, {}, `/admin/users/${me.id}`);
+    assert.match(admin.flash().text, /לא ניתן לבצע פעולה זו על החשבון שלך/, action);
+  }
+  const row = getUser(me.id);
+  assert.equal(row.status, 'active');
+  assert.equal(row.role, 'admin');
+});

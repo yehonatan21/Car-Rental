@@ -138,6 +138,18 @@ module.exports = {
       'אם לא ביקשת להתחבר, אפשר להתעלם מהודעה זו.',
     ]);
   },
+  passwordReset: (u, token) => {
+    const href = `/password/reset?token=${encodeURIComponent(token)}`;
+    if (!config.smtp && !config.production) console.log(`\n  >>> Password reset link for ${u.email}: ${config.baseUrl}${href}  (valid 1 hour)\n`);
+    return send(u.email, 'איפוס סיסמה', [
+      `שלום ${esc(u.first_name)},`, 'התקבלה בקשה לאיפוס הסיסמה שלך. הקישור תקף לשעה ולשימוש אחד בלבד.',
+      'אם לא ביקשת לאפס את הסיסמה, אפשר להתעלם מהודעה זו: הסיסמה הנוכחית לא תשתנה.',
+    ], { href, label: 'בחירת סיסמה חדשה' });
+  },
+  passwordChanged: (u) => send(u.email, 'הסיסמה שלך שונתה', [
+    `שלום ${esc(u.first_name)},`, 'הסיסמה לחשבון שלך שונתה, וכל החיבורים הפעילים נותקו.',
+    'אם לא אתה שינית אותה, פנה מיד למנהל המערכת.',
+  ], { href: '/login', label: 'להתחברות' }),
   newRegistration: (u) => send(adminEmails(), 'משתמש חדש ממתין לאישור', [
     `${esc(fullName(u))} נרשם/ה למערכת וממתין/ה לבדיקת פרטים ורישיון נהיגה.`,
   ], { href: `/admin/users/${u.id}`, label: 'לבדיקת המשתמש' }),

@@ -96,6 +96,35 @@ function consumeLoginCode(userId, code) {
   return true;
 }
 
+// --- "Forgot password" links ---
+const RESET_TTL_MS = 60 * 60000;
+
+/** New single-use reset token for the user (earlier ones are cancelled). Only its hash is stored. */
+function createPasswordReset(userId) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  db.prepare('DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?').run(userId, Date.now());
+  db.prepare('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
+    .run(sha256(token), userId, Date.now() + RESET_TTL_MS);
+  return token;
+}
+
+/** The user id a reset token belongs to, if it is valid (does not use it up). */
+function checkPasswordReset(token) {
+  if (typeof token !== 'string' || !token) return null;
+  const row = db.prepare('SELECT * FROM password_resets WHERE token_hash = ?').get(sha256(token));
+  return row && row.expires_at > Date.now() ? row.user_id : null;
+}
+
+/** Sets the new password with a valid token: the token is used up and every session of the user is ended. */
+function resetPassword(token, password) {
+  const userId = checkPasswordReset(token);
+  if (!userId) return null;
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId);
+  db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(userId);
+  destroyAllSessions(userId);
+  return userId;
+}
+
 // --- TOTP (RFC 6238), compatible with Google Authenticator and similar apps ---
 const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
@@ -153,5 +182,5 @@ const resetThrottle = (key) => attempts.delete(key);
 module.exports = {
   hashPassword, verifyPassword, createSession, destroySession, destroyAllSessions, loadSession,
   completeTwoFactor, parseCookies, createLoginCode, consumeLoginCode, newTotpSecret, verifyTotp,
-  totpAt, throttled, resetThrottle, COOKIE,
+  totpAt, throttled, resetThrottle, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256,
 };

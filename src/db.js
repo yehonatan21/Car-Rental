@@ -145,6 +145,23 @@ CREATE TABLE IF NOT EXISTS google_signups (
   expires_at INTEGER NOT NULL
 );
 
+-- "Forgot password" links: only a hash of the token is stored; single use, short expiry.
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL
+);
+
+-- A registration form that failed validation keeps its uploaded license and password here, so the person
+-- does not have to provide them again. Referenced by a random token in the form (only its hash is stored).
+CREATE TABLE IF NOT EXISTS registration_drafts (
+  token_hash TEXT PRIMARY KEY,
+  license_file TEXT,
+  license_name TEXT,
+  password_hash TEXT,
+  expires_at INTEGER NOT NULL
+);
+
 -- Uploaded files (license images) when they are stored in the database, split into chunks
 -- (hosted databases limit the size of a single value).
 CREATE TABLE IF NOT EXISTS files (

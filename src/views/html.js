@@ -90,6 +90,7 @@ function layout(req, title, body) {
     <nav>${items}</nav>
   </details>
 </header>
+${config.ephemeral ? html`<div class="demo-banner" role="note">סביבת הדגמה: הנתונים (משתמשים, הזמנות וקבצים) זמניים ונמחקים מעת לעת.</div>` : ''}
 <main class="container">
   ${flash ? html`<div class="flash flash-${flash.type}" role="status">${flash.text}</div>` : ''}
   ${body}

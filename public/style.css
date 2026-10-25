@@ -252,3 +252,6 @@ a.tg-slot:hover { background: var(--primary-soft); }
 @media (prefers-color-scheme: dark) { .btn-google { background: #131314; color: #e3e3e3; border-color: #8e918f; } }
 .divider { display: flex; align-items: center; gap: .8rem; color: var(--muted); margin: .2rem 0 1rem; }
 .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+
+/* Temporary-data warning (e.g. Vercel demo deployments) */
+.demo-banner { background: var(--warning-soft); color: var(--warning); text-align: center; padding: .45rem 1rem; font-size: .9rem; border-bottom: 1px solid var(--border); }

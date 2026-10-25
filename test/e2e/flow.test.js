@@ -1,6 +1,6 @@
 'use strict';
 // Main user journey: register → admin approval → booking request → admin decision → cancellation.
-const { db, createUser, getUser, getBooking, inDays, startServer, Client, registrationForm, outbox, storedFile, storedFileCount } = require('../helpers');
+const { db, createUser, getUser, getBooking, inDays, startServer, Client, registrationForm, outbox, storedFile, storedFileCount, calendarSection } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { setSetting } = require('../../src/db');
@@ -59,7 +59,11 @@ test('registration rejects invalid data and duplicates', async () => {
   r = await c.post('/register', registrationForm({ password: 'short' }));
   assert.match(r.text, /לפחות 8 תווים/);
   assert.ok(r.text.includes('value="ישראל"'), 'form keeps entered values');
-  assert.equal(storedFileCount(), 1, 'uploads from failed registrations are deleted');
+  // Failed attempts keep their upload in a draft (so it needn't be re-uploaded); abandoned drafts are cleaned up.
+  db.prepare('UPDATE registration_drafts SET expires_at = ?').run(Date.now() - 1);
+  await require('../../src/jobs').runJobs();
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM registration_drafts').get().n, 0);
+  assert.equal(storedFileCount(), 1, 'uploads from abandoned registrations are deleted');
 });
 
 test('admin approves the user, who can then book', async () => {
@@ -160,10 +164,10 @@ test('privacy: users see "busy" but not who booked; admin sees names', async () 
     const page = await alice.get(`/calendar?view=${view}&date=${date}`);
     assert.equal(page.status, 200);
     assert.match(page.text, /תפוס/);
-    assert.doesNotMatch(page.text, /bob@test.org|ישראל ישראלי/, view);
+    assert.doesNotMatch(calendarSection(page.text), /bob@test.org|ישראל ישראלי/, view);
     assert.doesNotMatch(page.text, /admin\/bookings\//, 'no links to other bookings');
   }
-  assert.match((await admin.get(`/calendar?view=day&date=${date}`)).text, /ישראל ישראלי/);
+  assert.match(calendarSection((await admin.get(`/calendar?view=day&date=${date}`)).text), /ישראל ישראלי/);
 });
 
 test('users cannot see or cancel other users\' bookings', async () => {

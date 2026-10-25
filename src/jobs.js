@@ -4,6 +4,7 @@ const { db, getSettings, audit } = require('./db');
 const bookings = require('./bookings');
 const mail = require('./mail');
 const time = require('./time');
+const storage = require('./storage');
 
 const withUser = `SELECT b.*, u.first_name, u.last_name, u.email, v.plate, v.make, v.model
   FROM bookings b JOIN users u ON u.id = b.user_id JOIN vehicles v ON v.id = b.vehicle_id`;
@@ -51,6 +52,12 @@ async function runJobs() {
     await mail.licenseExpiring(u);
   }
 
+  // Abandoned registration attempts: delete the kept license image too.
+  for (const d of db.prepare('SELECT * FROM registration_drafts WHERE expires_at < ?').all(Date.now())) {
+    storage.remove(d.license_file);
+    db.prepare('DELETE FROM registration_drafts WHERE token_hash = ?').run(d.token_hash);
+  }
+  db.prepare('DELETE FROM password_resets WHERE expires_at < ?').run(Date.now());
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   db.prepare('DELETE FROM login_codes WHERE expires_at < ?').run(Date.now());
 }

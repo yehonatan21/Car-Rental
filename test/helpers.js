@@ -191,6 +191,9 @@ class Client {
   }
 }
 
+/** Just the calendar section of a page (the header shows the viewer's own name). */
+const calendarSection = (page) => /<section class="calendar">[\s\S]*?<\/section>/.exec(page)?.[0] ?? '';
+
 /** Registration form with a license file attached. */
 function registrationForm({ license, licenseBlob, licenseName, ...fields } = {}) {
   const fd = new FormData();
@@ -208,5 +211,5 @@ function registrationForm({ license, licenseBlob, licenseName, ...fields } = {})
 
 module.exports = {
   dataDir, db, PNG, createUser, getUser, getBooking, inDays, outbox, clearOutbox, startServer, Client,
-  registrationForm, nextIdNumber, putStoredFile, storedFile, storedFileCount,
+  registrationForm, nextIdNumber, putStoredFile, storedFile, storedFileCount, calendarSection,
 };

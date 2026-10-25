@@ -126,7 +126,7 @@ jobs:
       - name: Image tags
         if: github.event_name == 'push'
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.vars.outputs.image }}
           tags: |

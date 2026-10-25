@@ -79,6 +79,24 @@ function permissionsCard(req, u, isSelf) {
 </section>`;
 }
 
+/** Settings page: how e-mail is sent, the last delivery error, and a test button. */
+function emailStatusCard(req) {
+  const m = mail.status();
+  return html`<section class="card" id="email">
+  <h2>שליחת מיילים</h2>
+  ${m.configured
+    ? html`<p>${m.verified === false ? badge('blocked', 'שגיאה') : badge('active', 'מוגדר')}
+        שרת: <code>${m.host}:${m.port}</code> ${m.secure ? '(TLS)' : '(STARTTLS)'} · משתמש: <code>${m.user || '—'}</code> · שולח: <code>${m.from}</code></p>`
+    : html`<p>${badge('pending', 'לא מוגדר')} לא הוגדר שרת דואר (<code>SMTP_HOST</code>), ולכן מיילים <b>לא נשלחים</b>:
+        הם נשמרים בתיקייה <code>data/outbox</code>, וקודי התחברות מודפסים בחלון השרת. להגדרה (למשל Gmail) ראו README ← "מיילים אמיתיים".</p>`}
+  ${m.lastError ? html`<div class="flash flash-error small"><b>שגיאה אחרונה (${time.fmt(time.toLocal(m.lastError.at))}):</b> <code>${m.lastError.message}</code>
+    ${/Invalid login|Username and Password not accepted|535/i.test(m.lastError.message) ? html`<br>שם המשתמש או הסיסמה נדחו. ב־Gmail יש להשתמש ב־App password (לא בסיסמה הרגילה).` : ''}
+    ${/ETIMEDOUT|ECONNREFUSED|ENOTFOUND|Greeting never received|timeout/i.test(m.lastError.message) ? html`<br>אין חיבור לשרת הדואר: בדקו את SMTP_HOST ו־SMTP_PORT (ב־Gmail: 465), ושחומת האש מאפשרת יציאה.` : ''}</div>` : ''}
+  ${m.lastSentAt ? html`<p class="muted small">מייל אחרון נשלח בהצלחה: ${time.fmt(time.toLocal(m.lastSentAt))}</p>` : ''}
+  ${postForm(req, '/admin/settings/test-email', html`<button class="btn btn-light btn-sm">שליחת מייל בדיקה אל ${req.user.email}</button>`)}
+</section>`;
+}
+
 /** Settings page: is "Sign in with Google" set up, and what exactly to enter in Google Cloud Console. */
 function googleStatusCard(req) {
   const g = google.status();
@@ -637,9 +655,18 @@ ${bookingsTable(list)}`);
   ${postForm(req, '/admin/settings', html`
     ${Object.entries(SETTING_LABELS).map(([k, [label, hint]]) => field(label, html`<input type="number" name="${k}" value="${s[k]}" min="0" step="1" required>`, hint))}
     <button class="btn btn-primary btn-block">שמירה</button>`, 'class="card"')}
+  ${emailStatusCard(req)}
   ${googleStatusCard(req)}
   <p><a href="/admin/audit">יומן פעולות מנהלים</a></p>
 </div>`);
+  });
+
+  app.post('/admin/settings/test-email', requireAdmin, async (req, res) => {
+    const ok = await mail.test(req.user.email);
+    res.flash(ok ? 'success' : 'error', ok
+      ? (config.smtp ? `מייל בדיקה נשלח אל ${req.user.email}. אם לא הגיע תוך דקה, בדקו בספאם.` : 'מייל הבדיקה נשמר ב־data/outbox (לא הוגדר שרת דואר).')
+      : 'שליחת מייל הבדיקה נכשלה. פרטי השגיאה מופיעים למטה.');
+    res.redirect('/admin/settings#email');
   });
 
   app.post('/admin/settings', requireAdmin, (req, res) => {

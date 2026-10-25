@@ -146,7 +146,10 @@ async function start({ port = config.port, host, jobs = true } = {}) {
   }
   lines.push(`  Public URL: ${config.baseUrl}   (BASE_URL, used in e-mail links)`);
   console.log(lines.join('\n'));
-  if (jobs) startJobs();
+  if (jobs) {
+    require('./mail').verifyTransport();
+    startJobs();
+  }
   return server;
 }
 

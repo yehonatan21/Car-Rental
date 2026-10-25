@@ -8,9 +8,17 @@ const config = require('./config');
 const { db } = require('./db');
 const time = require('./time');
 
-const transport = config.smtp
-  ? nodemailer.createTransport(config.smtp)
-  : nodemailer.createTransport({ streamTransport: true, buffer: true });
+// Built from the current config (re-created if it changes, e.g. in tests).
+let transport, transportFor;
+function getTransport() {
+  if (!transport || transportFor !== config.smtp) {
+    transportFor = config.smtp;
+    transport = config.smtp
+      ? nodemailer.createTransport(config.smtp)
+      : nodemailer.createTransport({ streamTransport: true, buffer: true });
+  }
+  return transport;
+}
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -24,22 +32,55 @@ function wrap(title, paragraphs, link) {
 <p style="color:#888;font-size:12px;margin-top:24px">${esc(config.appName)} – הודעה אוטומטית</p></div>`;
 }
 
+// Delivery status for the admin settings page.
+const state = { lastError: null, lastSentAt: null, verified: null };
+
+/** Sends (or, without SMTP, saves to data/outbox). Resolves to true on success, false on failure; never throws. */
 async function send(to, subject, paragraphs, link, { attachments } = {}) {
   const recipients = [].concat(to).filter(Boolean);
-  if (!recipients.length) return;
+  if (!recipients.length) return true;
   const html = wrap(subject, paragraphs, link);
   const text = paragraphs.map((p) => p.replace(/<[^>]+>/g, '')).join('\n\n') + (link ? `\n\n${config.baseUrl}${link.href}` : '');
   try {
-    const info = await transport.sendMail({ from: config.mailFrom, to: recipients.join(', '), subject, html, text, attachments });
+    const info = await getTransport().sendMail({ from: config.mailFrom, to: recipients.join(', '), subject, html, text, attachments });
     if (!config.smtp) {
       fs.mkdirSync(config.outboxDir, { recursive: true });
       const file = path.join(config.outboxDir, `${Date.now()}-${Math.random().toString(36).slice(2, 7)}.eml`);
       fs.writeFileSync(file, info.message);
       console.log(`[mail] ${subject} → ${recipients.join(', ')} (saved to ${path.basename(file)})`);
     }
+    state.lastSentAt = new Date();
+    return true;
   } catch (err) {
-    console.error('[mail] failed to send', subject, err.message);
+    console.error(`[mail] FAILED to send "${subject}" to ${recipients.join(', ')}: ${err.message}`);
+    state.lastError = { at: new Date(), message: err.message };
+    return false;
   }
+}
+
+/** Checks the SMTP login once at startup, so configuration problems show up in the server window. */
+async function verifyTransport() {
+  if (!config.smtp) {
+    console.log('[mail] No SMTP_HOST set: e-mails are saved in data/outbox and login codes are printed here.');
+    return;
+  }
+  try {
+    await getTransport().verify();
+    state.verified = true;
+    console.log(`[mail] SMTP OK: ${config.smtp.host}:${config.smtp.port} as ${config.smtp.auth?.user || '(no login)'}`);
+  } catch (err) {
+    state.verified = false;
+    state.lastError = { at: new Date(), message: err.message };
+    console.error(`[mail] SMTP check FAILED (${config.smtp.host}:${config.smtp.port}): ${err.message}`);
+  }
+}
+
+function status() {
+  return {
+    configured: Boolean(config.smtp),
+    host: config.smtp?.host, port: config.smtp?.port, secure: config.smtp?.secure, user: config.smtp?.auth?.user,
+    from: config.mailFrom, ...state,
+  };
 }
 
 // ---------- Calendar invite (.ics) for confirmed bookings ----------
@@ -86,9 +127,17 @@ const vehicleLine = (b) => `<b>רכב:</b> ${esc([b.make, b.model].filter(Boolea
 module.exports = {
   send,
   bookingIcs,
-  loginCode: (u, code) => send(u.email, 'קוד התחברות', [
-    `קוד ההתחברות שלך: <b style="font-size:20px;letter-spacing:3px">${esc(code)}</b>`, 'הקוד תקף ל־10 דקות.',
-  ]),
+  verifyTransport,
+  status,
+  test: (to) => send(to, 'בדיקת שליחת מייל', ['זהו מייל בדיקה ממערכת הזמנת הרכב. אם קיבלת אותו, שליחת המיילים עובדת.']),
+  loginCode: (u, code) => {
+    // Without a mail server nobody would ever see the code; in development print it for the operator.
+    if (!config.smtp && !config.production) console.log(`\n  >>> Login code for ${u.email}: ${code}  (valid 10 minutes)\n`);
+    return send(u.email, `קוד התחברות: ${code}`, [
+      `קוד ההתחברות שלך: <b style="font-size:20px;letter-spacing:3px">${esc(code)}</b>`, 'הקוד תקף ל־10 דקות.',
+      'אם לא ביקשת להתחבר, אפשר להתעלם מהודעה זו.',
+    ]);
+  },
   newRegistration: (u) => send(adminEmails(), 'משתמש חדש ממתין לאישור', [
     `${esc(fullName(u))} נרשם/ה למערכת וממתין/ה לבדיקת פרטים ורישיון נהיגה.`,
   ], { href: `/admin/users/${u.id}`, label: 'לבדיקת המשתמש' }),

@@ -159,7 +159,8 @@ test('one-time code request does not reveal whether an e-mail is registered', as
   const a = await client().post('/login/code', { email: 'user@sec.test' });
   const b = await client().post('/login/code', { email: 'nobody@sec.test' });
   assert.equal(a.status, b.status);
-  assert.match(b.text, /אם הכתובת רשומה במערכת/);
+  assert.match(b.text, /רשומה במערכת, נשלח אליה קוד/);
+  assert.match(a.text, /רשומה במערכת, נשלח אליה קוד/);
 });
 
 test('logout destroys the session server-side', async () => {

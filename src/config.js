@@ -10,6 +10,24 @@ const port = Number(process.env.PORT || 3000);
 // Serve TLS from Node itself? Default: yes in development, no in production (a TLS proxy such as Caddy sits in front).
 const httpsEnabled = process.env.HTTPS ? process.env.HTTPS === 'true' : !production;
 
+function smtpConfig() {
+  const host = process.env.SMTP_HOST.trim();
+  const port = Number(process.env.SMTP_PORT || 587);
+  let pass = process.env.SMTP_PASS;
+  // Gmail shows app passwords as "abcd efgh ijkl mnop"; the spaces are not part of the password.
+  if (pass && /(^|\.)(gmail|googlemail)\.com$/i.test(host)) pass = pass.replace(/\s+/g, '');
+  return {
+    host,
+    port,
+    // Port 465 always means TLS from the first byte; 587/25 upgrade with STARTTLS.
+    secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : port === 465,
+    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER.trim(), pass } : undefined,
+    connectionTimeout: 15000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
+  };
+}
+
 module.exports = {
   port,
   baseUrl: (process.env.BASE_URL || `${httpsEnabled ? 'https' : 'http'}://localhost:${port}`).replace(/\/$/, ''),
@@ -27,12 +45,7 @@ module.exports = {
   uploadsDir: path.join(dataDir, 'licenses'),
   outboxDir: path.join(dataDir, 'outbox'),
   appName: process.env.APP_NAME || 'הזמנת רכב',
-  smtp: process.env.SMTP_HOST ? {
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
-  } : null,
+  smtp: process.env.SMTP_HOST ? smtpConfig() : null,
   mailFrom: process.env.MAIL_FROM || 'car-booking@localhost',
   // "Sign in with Google" is shown only when both are set (Google Cloud Console → APIs & Services → Credentials).
   google: {

@@ -286,12 +286,31 @@ test('one-time code login via e-mail', async () => {
   createUser({ email: 'otp@adm.test' });
   const c = client();
   await c.post('/login/code', { email: 'otp@adm.test' });
-  const mail = outbox().filter((m) => m.subject === 'קוד התחברות' && m.to.includes('otp@adm.test')).pop();
+  const mail = outbox().filter((m) => m.subject.startsWith('קוד התחברות') && m.to.includes('otp@adm.test')).pop();
   const code = /(\d{6})/.exec(mail.body)[1];
+  assert.equal(mail.subject, `קוד התחברות: ${code}`, 'code visible in phone notifications');
   const bad = await c.post('/login/code/verify', { email: 'otp@adm.test', code: code === '000000' ? '111111' : '000000' });
   assert.equal(bad.status, 401);
-  const r = await c.post('/login/code/verify', { email: 'otp@adm.test', code });
-  assert.equal(r.location, '/calendar');
+  const r = await c.post('/login/code/verify', { email: 'otp@adm.test', code: `${code.slice(0, 3)} ${code.slice(3)}` });
+  assert.equal(r.location, '/calendar', 'a code typed with a space works');
+});
+
+test('code login page: development hint when no mail server, resend button', async () => {
+  createUser({ email: 'otp2@adm.test' });
+  const page = (await client().post('/login/code', { email: 'otp2@adm.test' })).text;
+  assert.match(page, /הקוד מודפס בחלון השרת/);
+  assert.match(page, /שליחת קוד חדש/);
+  const bad = await client().post('/login/code', { email: 'not-an-email' });
+  assert.equal(bad.status, 400);
+});
+
+test('admin settings: e-mail status panel and test e-mail', async () => {
+  const page = (await admin.get('/admin/settings')).text;
+  assert.match(page, /id="email"/);
+  assert.match(page, /לא מוגדר/);
+  await admin.post('/admin/settings/test-email', {}, '/admin/settings');
+  assert.match(admin.flash().text, /נשמר ב־data\/outbox/);
+  assert.ok(outbox().some((m) => m.subject === 'בדיקת שליחת מייל' && m.to.includes('admin@adm.test')));
 });
 
 test('password change requires the current password and logs out other sessions', async () => {

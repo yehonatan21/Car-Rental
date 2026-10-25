@@ -171,17 +171,27 @@ module.exports = ({ app, licenseUpload }) => {
     if (auth.throttled('code:' + req.ip, 5)) {
       return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי בקשות. נסו שוב בעוד מספר דקות.', email }));
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).page('התחברות', loginPage(req, { error: 'כתובת הדואר האלקטרוני אינה תקינה', email }));
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     // Same response whether or not the address exists, to avoid revealing registered e-mails.
-    if (user) await mail.loginCode(user, auth.createLoginCode(user.id));
+    const sent = user ? await mail.loginCode(user, auth.createLoginCode(user.id)) : true;
+    if (!sent) {
+      return res.status(503).page('התחברות', loginPage(req, {
+        error: 'שליחת המייל נכשלה, ולכן הקוד לא נשלח. נסו שוב בעוד כמה דקות, או התחברו עם סיסמה. אם הבעיה נמשכת, פנו למנהל המערכת.', email,
+      }));
+    }
     res.page('קוד התחברות', html`
 <div class="narrow">
   <h1>הזנת קוד</h1>
-  <p>אם הכתובת רשומה במערכת, נשלח אליה קוד בן 6 ספרות. הקוד תקף ל־10 דקות.</p>
+  <p>אם הכתובת <b dir="ltr">${email}</b> רשומה במערכת, נשלח אליה קוד בן 6 ספרות. הקוד תקף ל־10 דקות.</p>
+  ${!config.smtp && !config.production ? html`<div class="flash flash-warning small">
+    מצב פיתוח: לא הוגדר שרת דואר (SMTP), ולכן המייל לא נשלח בפועל. <b>הקוד מודפס בחלון השרת</b> (החלון שבו רץ start.cmd / npm run dev).</div>` : ''}
   ${postForm(req, '/login/code/verify', html`
     <input type="hidden" name="email" value="${email}">
-    ${field('קוד', html`<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required autofocus>`)}
+    ${field('קוד', html`<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" pattern="[0-9 \-]*" required autofocus>`)}
     <button class="btn btn-primary btn-block">כניסה</button>`, 'class="card"')}
+  <p class="muted small">לא הגיע? בדקו בתיקיית הספאם / קידומי מכירות. אפשר לבקש קוד חדש; גם הקוד הקודם ימשיך לעבוד עד שיפוג.</p>
+  ${postForm(req, '/login/code', html`<input type="hidden" name="email" value="${email}"><button class="btn btn-light btn-sm">שליחת קוד חדש</button>`)}
 </div>`);
   });
 

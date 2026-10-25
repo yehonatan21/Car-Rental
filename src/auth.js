@@ -66,22 +66,33 @@ function parseCookies(header) {
 }
 
 // --- One-time login codes sent by e-mail ---
+const MAX_CODE_ATTEMPTS = 5;
+const MAX_ACTIVE_CODES = 3;
+
+/**
+ * New 6-digit code, valid 10 minutes. Earlier unexpired codes stay valid (e-mails can arrive late or out of
+ * order), up to MAX_ACTIVE_CODES; using any one of them invalidates all.
+ */
 function createLoginCode(userId) {
   const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
-  db.prepare('DELETE FROM login_codes WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM login_codes WHERE user_id = ? AND expires_at < ?').run(userId, Date.now());
+  db.prepare(`DELETE FROM login_codes WHERE user_id = ? AND id NOT IN
+    (SELECT id FROM login_codes WHERE user_id = ? ORDER BY id DESC LIMIT ?)`).run(userId, userId, MAX_ACTIVE_CODES - 1);
   db.prepare('INSERT INTO login_codes (user_id, code_hash, expires_at) VALUES (?, ?, ?)')
     .run(userId, sha256(code), Date.now() + 10 * 60000);
   return code;
 }
 
 function consumeLoginCode(userId, code) {
-  const row = db.prepare('SELECT * FROM login_codes WHERE user_id = ?').get(userId);
-  if (!row || row.expires_at < Date.now() || row.attempts >= 5) return false;
-  if (row.code_hash !== sha256(String(code).trim())) {
-    db.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE id = ?').run(row.id);
+  const rows = db.prepare('SELECT * FROM login_codes WHERE user_id = ? AND expires_at >= ? ORDER BY id DESC').all(userId, Date.now());
+  // Wrong guesses are counted across all of the user's active codes.
+  if (!rows.length || rows.reduce((n, r) => n + r.attempts, 0) >= MAX_CODE_ATTEMPTS) return false;
+  const digits = String(code ?? '').replace(/\D/g, ''); // tolerate "123 456", "123-456"
+  if (!rows.some((r) => r.code_hash === sha256(digits))) {
+    db.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE id = ?').run(rows[0].id);
     return false;
   }
-  db.prepare('DELETE FROM login_codes WHERE id = ?').run(row.id);
+  db.prepare('DELETE FROM login_codes WHERE user_id = ?').run(userId);
   return true;
 }
 

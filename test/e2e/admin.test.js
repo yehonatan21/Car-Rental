@@ -107,7 +107,7 @@ test('user card has a permissions section with the right action', async () => {
   const pending = createUser({ status: 'pending' });
   const otherAdmin = createUser({ role: 'admin' });
   let page = (await admin.get(`/admin/users/${active.id}`)).text;
-  assert.match(page, /<h2>הרשאות<\/h2>/);
+  assert.match(page, /הרשאות<\/h2>/);
   assert.match(page, /משתמש רגיל/);
   assert.match(page, new RegExp(`action="/admin/users/${active.id}/make-admin"`));
   page = (await admin.get(`/admin/users/${pending.id}`)).text;

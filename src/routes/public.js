@@ -5,7 +5,7 @@ const auth = require('../auth');
 const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
-const { html, raw, markdown, postForm, field } = require('../views/html');
+const { html, raw, markdown, postForm, field, icon, pageHead } = require('../views/html');
 const google = require('../google');
 const storage = require('../storage');
 
@@ -40,7 +40,8 @@ function homeFor(user) {
 function loginPage(req, { error, email = '' } = {}) {
   return html`
 <div class="narrow">
-  <h1>התחברות</h1>
+  <div class="auth-head"><span class="brand-mark">${icon('car', 30)}</span><h1>התחברות</h1>
+    <p class="muted">ברוכים השבים! התחברו כדי לבדוק זמינות ולהזמין את הרכב.</p></div>
   ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
   ${googleOption(req, '/auth/google' + (safeNext(req.query.next) ? '?next=' + encodeURIComponent(req.query.next) : ''), 'התחברות עם Google', '/login')}
   ${google.enabled() ? html`<p class="divider"><span>או</span></p>` : ''}
@@ -52,13 +53,13 @@ function loginPage(req, { error, email = '' } = {}) {
     <p class="small"><a href="/password/forgot${email ? '?email=' + encodeURIComponent(email) : ''}">שכחתי סיסמה</a></p>
   `, 'class="card"')}
   <div class="card">
-    <h2>כניסה עם קוד חד־פעמי</h2>
+    <h2 class="section-title">${icon('lock')} כניסה עם קוד חד־פעמי</h2>
     <p class="muted">נשלח קוד בן 6 ספרות לכתובת הדואר האלקטרוני שלך.</p>
     ${postForm(req, '/login/code', html`
       ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required>`)}
       <button class="btn btn-light btn-block">שליחת קוד</button>`)}
   </div>
-  <p>עדיין אין לך חשבון? <a href="/register">להרשמה</a></p>
+  <p class="auth-foot">עדיין אין לך חשבון? <a href="/register">להרשמה</a></p>
 </div>`;
 }
 
@@ -95,8 +96,8 @@ function registerPage(req, { errors = [], v = {}, draft = null } = {}) {
   const gs = google.pendingSignup(req.cookies[GOOGLE_SIGNUP_COOKIE]);
   if (gs) v = { first_name: gs.first_name, last_name: gs.last_name, ...v, email: gs.email };
   return html`
-<h1>הרשמה למערכת</h1>
-<p class="muted">לאחר ההרשמה המנהל יבדוק את הפרטים ואת רישיון הנהיגה. לא ניתן להזמין את הרכב עד לאישור.</p>
+<div class="narrow-wide">
+${pageHead('הרשמה למערכת', { iconName: 'userplus', sub: 'לאחר ההרשמה המנהל יבדוק את הפרטים ואת רישיון הנהיגה. לא ניתן להזמין את הרכב עד לאישור.' })}
 ${errors.length ? html`<div class="flash flash-error"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
 ${gs ? html`<div class="flash flash-success">מתחברים עם חשבון Google <b>${gs.email}</b>. נשאר להשלים את הפרטים ולהעלות רישיון נהיגה.</div>`
     : googleOption(req, '/auth/google', 'הרשמה מהירה עם Google', '/register',
@@ -104,7 +105,7 @@ ${gs ? html`<div class="flash flash-success">מתחברים עם חשבון Goog
 ${postForm(req, '/register', html`
   ${draft ? html`<input type="hidden" name="draft" value="${draft.token}">` : ''}
   <fieldset>
-    <legend>פרטים אישיים</legend>
+    <legend>${icon('user')} פרטים אישיים</legend>
     <div class="grid2">
       ${field('שם פרטי', html`<input name="first_name" value="${v.first_name}" required autocomplete="given-name">`)}
       ${field('שם משפחה', html`<input name="last_name" value="${v.last_name}" required autocomplete="family-name">`)}
@@ -121,7 +122,7 @@ ${postForm(req, '/register', html`
         gs ? 'לא חובה: אפשר להתחבר תמיד עם Google.' : 'לפחות 8 תווים. ניתן להשאיר ריק ולהתחבר תמיד באמצעות קוד חד־פעמי שיישלח לדואר האלקטרוני.')}
   </fieldset>
   <fieldset>
-    <legend>רישיון נהיגה</legend>
+    <legend>${icon('id')} רישיון נהיגה</legend>
     ${draft?.licenseName
       ? field('צילום רישיון נהיגה (להחלפה בלבד)', html`<input type="file" name="license" accept="image/*,application/pdf">`,
         html`<span class="saved">✓ הקובץ <b dir="auto">${draft.licenseName}</b> נשמר. אין צורך להעלות אותו שוב.</span>`)
@@ -130,7 +131,7 @@ ${postForm(req, '/register', html`
     ${field('תאריך פקיעת תוקף הרישיון', html`<input type="date" name="license_expiry" value="${v.license_expiry}" required min="${time.today()}">`)}
   </fieldset>
   <fieldset>
-    <legend>אישורים</legend>
+    <legend>${icon('shield')} אישורים</legend>
     <details class="policy-box"><summary>נהלי השאלת הרכב (גרסה ${policy.version}) – לחצו לקריאה</summary>
       <div class="prose">${markdown(policy.content)}</div></details>
     <label class="check"><input type="checkbox" name="accept_policy" value="1" required ${v.accept_policy ? raw('checked') : ''}> <span>קראתי ואני מסכים/ה לנהלי השאלת הרכב (גרסה ${policy.version})</span></label>
@@ -138,7 +139,9 @@ ${postForm(req, '/register', html`
     <input type="hidden" name="policy_version" value="${policy.version}">
   </fieldset>
   <button class="btn btn-primary btn-block">שליחת הרשמה</button>
-`, 'enctype="multipart/form-data" class="card"')}`;
+`, 'enctype="multipart/form-data" class="card"')}
+<p class="auth-foot">כבר יש לך חשבון? <a href="/login">להתחברות</a></p>
+</div>`;
 }
 
 // ---------- Registration drafts: keep the upload and password after a failed attempt ----------
@@ -208,16 +211,19 @@ module.exports = ({ app, licenseUpload }) => {
     if (req.user) return res.redirect(homeFor(req.user));
     res.page('ברוכים הבאים', html`
 <section class="hero">
+  <span class="hero-badge">${icon('car', 34)}</span>
   <h1>הזמנת הרכב המשותף</h1>
   <p>בודקים מתי הרכב פנוי, שולחים בקשה ומקבלים אישור מהמנהל – הכל במקום אחד.</p>
-  <div class="actions"><a class="btn btn-primary" href="/login">התחברות</a> <a class="btn btn-light" href="/register">הרשמה</a></div>
+  <div class="actions"><a class="btn btn-primary" href="/login">${icon('login')} התחברות</a> <a class="btn btn-light" href="/register">${icon('userplus')} הרשמה</a></div>
 </section>
+<h2 class="steps-title">איך זה עובד?</h2>
 <section class="steps">
-  <div class="card"><b>1. הרשמה</b><p>ממלאים פרטים, מעלים רישיון נהיגה ומאשרים את הנהלים.</p></div>
-  <div class="card"><b>2. אישור מנהל</b><p>המנהל בודק את הפרטים ומאשר את החשבון.</p></div>
-  <div class="card"><b>3. הזמנה</b><p>בוחרים מועד פנוי ביומן ושולחים בקשה.</p></div>
-  <div class="card"><b>4. אישור סופי</b><p>לאחר אישור המנהל נשלח מייל עם כל הפרטים.</p></div>
-</section>`);
+  <div class="card"><b>הרשמה</b><p>ממלאים פרטים, מעלים רישיון נהיגה ומאשרים את הנהלים.</p></div>
+  <div class="card"><b>אישור מנהל</b><p>המנהל בודק את הפרטים ומאשר את החשבון.</p></div>
+  <div class="card"><b>הזמנה</b><p>בוחרים מועד פנוי ביומן ושולחים בקשה.</p></div>
+  <div class="card"><b>אישור סופי</b><p>לאחר אישור המנהל נשלח מייל עם כל הפרטים.</p></div>
+</section>
+<p class="site-footer"><a href="/policy">נהלי השאלת הרכב</a> · <a href="/privacy">מדיניות פרטיות</a></p>`);
   });
 
   app.get('/login', (req, res) => {

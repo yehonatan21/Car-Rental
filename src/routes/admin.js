@@ -8,7 +8,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
 const storage = require('../storage');
-const { html, markdown, postForm, actionButton, field, badge, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 
 const SETTING_LABELS = {
   buffer_minutes: ['זמן התארגנות בין הזמנות (דקות)', 'מרווח חובה בין החזרת הרכב להזמנה הבאה'],
@@ -38,16 +38,16 @@ const guarded = (fallback, fn) => async (req, res) => {
 };
 
 function bookingsTable(list, { showUser = true } = {}) {
-  if (!list.length) return html`<p class="muted">אין רשומות.</p>`;
+  if (!list.length) return html`<p class="empty">${icon('calendar', 28)}<span>אין רשומות.</span></p>`;
   return html`<table class="table">
 <thead><tr>${showUser ? html`<th>משתמש</th>` : ''}<th>איסוף</th><th>החזרה</th><th>מטרה</th><th>סטטוס</th><th></th></tr></thead>
 <tbody>${list.map((b) => html`<tr>
-  ${showUser ? html`<td data-label="משתמש">${b.kind === 'block' ? html`🔧 ${b.block_reason}` : fullName(b)}</td>` : ''}
+  ${showUser ? html`<td data-label="משתמש">${b.kind === 'block' ? html`<span class="note-line">${icon('wrench', 16)} ${b.block_reason}</span>` : fullName(b)}</td>` : ''}
   <td data-label="איסוף">${time.fmt(b.start_at)}</td>
   <td data-label="החזרה">${time.fmt(b.end_at)}</td>
   <td data-label="מטרה">${b.purpose || '—'}</td>
   <td data-label="סטטוס">${b.kind === 'block' ? badge('block', 'חסימה') : ''} ${bookingBadge(b.status)}</td>
-  <td><a href="/admin/bookings/${b.id}">פרטים</a></td>
+  <td><a class="btn btn-light btn-sm" href="/admin/bookings/${b.id}">פרטים</a></td>
 </tr>`)}</tbody></table>`;
 }
 
@@ -69,12 +69,12 @@ function permissionsCard(req, u, isSelf) {
     });
   }
   return html`<section class="card" id="permissions">
-  <h2>הרשאות</h2>
+  <h2 class="section-title">${icon('shield')} הרשאות</h2>
   <p>תפקיד נוכחי: ${isAdmin ? badge('admin', 'מנהל מערכת') : badge('completed', 'משתמש רגיל')}</p>
   <p class="muted small">${isAdmin
     ? 'גישה מלאה לממשק הניהול: אישור משתמשים והזמנות, צפייה ברישיונות נהיגה, ניהול הרכב, הנהלים וההגדרות. מקבל את התראות המנהל במייל.'
     : 'יכול להזמין את הרכב ולנהל את ההזמנות והפרטים שלו בלבד.'}</p>
-  ${isAdmin && !u.totp_enabled ? html`<p class="small">⚠️ למנהל זה אין אימות דו־שלבי. מומלץ לבקש ממנו להפעיל אותו (אזור אישי ← סיסמה ואבטחה).</p>` : ''}
+  ${isAdmin && !u.totp_enabled ? html`<p class="small note-line">${icon('alert', 16)} למנהל זה אין אימות דו־שלבי. מומלץ לבקש ממנו להפעיל אותו (אזור אישי ← סיסמה ואבטחה).</p>` : ''}
   ${action}
 </section>`;
 }
@@ -83,7 +83,7 @@ function permissionsCard(req, u, isSelf) {
 function emailStatusCard(req) {
   const m = mail.status();
   return html`<section class="card" id="email">
-  <h2>שליחת מיילים</h2>
+  <h2 class="section-title">${icon('file')} שליחת מיילים</h2>
   ${m.configured
     ? html`<p>${m.verified === false ? badge('blocked', 'שגיאה') : badge('active', 'מוגדר')}
         שרת: <code>${m.host}:${m.port}</code> ${m.secure ? '(TLS)' : '(STARTTLS)'} · משתמש: <code>${m.user || '—'}</code> · שולח: <code>${m.from}</code></p>`
@@ -100,19 +100,19 @@ function emailStatusCard(req) {
 /** Settings page: is "Sign in with Google" set up, and what exactly to enter in Google Cloud Console. */
 function googleStatusCard(req) {
   const g = google.status();
-  const check = (ok, text) => html`<li>${ok ? '✅' : '❌'} ${text}</li>`;
+  const check = (ok, text) => html`<li class="note-line ${ok ? 'ok' : 'bad'}">${icon(ok ? 'check' : 'alert', 18)} <span>${text}</span></li>`;
   const here = `${req.protocol}://${req.get('host')}`;
   return html`<section class="card" id="google">
-  <h2>התחברות עם Google</h2>
+  <h2 class="section-title">${icon('login')} התחברות עם Google</h2>
   <p>${g.enabled ? badge('active', 'מופעלת') : badge('blocked', 'לא מופעלת')}
     ${g.enabled ? 'הכפתור מוצג בדפי ההתחברות וההרשמה.' : 'הכפתור מוסתר עד שההגדרה תושלם.'}</p>
   <ul class="plain">
     ${check(g.clientIdSet, html`<code>GOOGLE_CLIENT_ID</code> מוגדר ב־.env`)}
-    ${g.clientIdSet && !g.clientIdLooksRight ? html`<li>⚠️ ה־Client ID אמור להסתיים ב־<code>.apps.googleusercontent.com</code></li>` : ''}
+    ${g.clientIdSet && !g.clientIdLooksRight ? html`<li class="note-line bad">${icon('alert', 18)} ה־Client ID אמור להסתיים ב־<code>.apps.googleusercontent.com</code></li>` : ''}
     ${check(g.secretSet, html`<code>GOOGLE_CLIENT_SECRET</code> מוגדר ב־.env`)}
     ${check(here === g.origin, html`האתר פתוח בכתובת שב־<code>BASE_URL</code> (${g.origin})`)}
   </ul>
-  ${here !== g.origin ? html`<p class="small">⚠️ פתחת את האתר בכתובת <code>${here}</code>. Google יחזיר את המשתמשים רק לכתובת <code>${g.origin}</code>,
+  ${here !== g.origin ? html`<p class="small note-line">${icon('alert', 16)} פתחת את האתר בכתובת <code>${here}</code>. Google יחזיר את המשתמשים רק לכתובת <code>${g.origin}</code>,
     ולכן כפתור Google יפעל רק שם. כדי להשתמש בכתובת אחרת, יש לעדכן את <code>BASE_URL</code> ב־.env.</p>` : ''}
   <h3>מה להזין ב־Google Cloud Console</h3>
   <p class="small">APIs &amp; Services ← Credentials ← OAuth client ID (Web application):</p>
@@ -154,35 +154,38 @@ module.exports = ({ app, requireAdmin }) => {
     }
 
     res.page('לוח בקרה', html`
-<h1>לוח בקרה</h1>
+${pageHead('לוח בקרה', {
+    iconName: 'dashboard', sub: 'מה מחכה לטיפול שלך היום.',
+    actions: html`<a class="btn btn-primary" href="/admin/bookings/new">${icon('plus')} הזמנה ידנית</a> <a class="btn btn-light" href="/calendar">${icon('calendar')} יומן</a>`,
+  })}
 ${!req.user.totp_enabled ? html`<div class="flash flash-warning">מומלץ להפעיל אימות דו־שלבי לחשבון המנהל. <a href="/me/security">להפעלה</a></div>` : ''}
 <div class="stats">
-  <a class="stat ${pendingUsers.length ? 'hot' : ''}" href="/admin/users?status=pending"><b>${pendingUsers.length}</b><span>משתמשים ממתינים</span></a>
-  <a class="stat ${pendingBookings.length ? 'hot' : ''}" href="/admin/bookings?status=pending"><b>${pendingBookings.length}</b><span>בקשות ממתינות</span></a>
-  <a class="stat" href="/admin/bookings?status=approved"><b>${upcoming.length}</b><span>הזמנות ב־14 הימים הקרובים</span></a>
-  <a class="stat ${licenses.length ? 'warn' : ''}" href="/admin/users?status=license_update"><b>${licenses.length}</b><span>רישיונות שפגו / עומדים לפוג</span></a>
+  <a class="stat ${pendingUsers.length ? 'hot' : ''}" href="/admin/users?status=pending">${icon('userplus')}<b>${pendingUsers.length}</b><span>משתמשים ממתינים</span></a>
+  <a class="stat ${pendingBookings.length ? 'hot' : ''}" href="/admin/bookings?status=pending">${icon('clock')}<b>${pendingBookings.length}</b><span>בקשות ממתינות</span></a>
+  <a class="stat" href="/admin/bookings?status=approved">${icon('calendar')}<b>${upcoming.length}</b><span>הזמנות ב־14 הימים הקרובים</span></a>
+  <a class="stat ${licenses.length ? 'warn' : ''}" href="/admin/users?status=license_update">${icon('id')}<b>${licenses.length}</b><span>רישיונות שפגו / עומדים לפוג</span></a>
 </div>
 
-${vehicleAlerts.length ? html`<div class="card alert"><h2>התראות רכב</h2><ul>${vehicleAlerts.map((a) => html`<li>${a}</li>`)}</ul><a href="/admin/vehicle">לניהול הרכב</a></div>` : ''}
+${vehicleAlerts.length ? html`<div class="card alert"><h2 class="section-title">${icon('alert')} התראות רכב</h2><ul>${vehicleAlerts.map((a) => html`<li>${a}</li>`)}</ul><a href="/admin/vehicle">לניהול הרכב</a></div>` : ''}
 
 <div class="grid2">
   <section class="card">
-    <h2>בקשות הזמנה ממתינות</h2>
+    <h2 class="section-title">${icon('clock')} בקשות הזמנה ממתינות</h2>
     ${bookingsTable(pendingBookings)}
   </section>
   <section class="card">
-    <h2>משתמשים ורישיונות לבדיקה</h2>
+    <h2 class="section-title">${icon('users')} משתמשים ורישיונות לבדיקה</h2>
     ${pendingUsers.length || pendingLicenses.length ? html`<ul class="plain">
       ${pendingUsers.map((u) => html`<li><a href="/admin/users/${u.id}">${fullName(u)}</a> – הרשמה חדשה (${time.fmt(u.created_at)})</li>`)}
       ${pendingLicenses.map((u) => html`<li><a href="/admin/users/${u.id}">${fullName(u)}</a> – רישיון חדש לבדיקה</li>`)}
-    </ul>` : html`<p class="muted">אין פריטים לבדיקה.</p>`}
+    </ul>` : html`<p class="empty">${icon('check', 28)}<span>אין פריטים לבדיקה.</span></p>`}
     ${licenses.length ? html`<h3>תוקף רישיונות</h3><ul class="plain">${licenses.map((u) => html`<li>
       <a href="/admin/users/${u.id}">${fullName(u)}</a> – ${time.fmt(u.license_expiry)} ${u.license_expiry < today ? badge('blocked', 'פג') : badge('pending', 'בקרוב')}</li>`)}</ul>` : ''}
   </section>
 </div>
 <section class="card">
-  <div class="page-head"><h2>ההזמנות הקרובות</h2>
-    <div><a class="btn btn-light btn-sm" href="/admin/bookings/new">הזמנה ידנית</a> <a class="btn btn-light btn-sm" href="/admin/blocks/new">חסימת מועד</a> <a class="btn btn-light btn-sm" href="/calendar">ליומן</a></div></div>
+  <div class="page-head"><h2 class="section-title">${icon('calendar')} ההזמנות הקרובות</h2>
+    <div class="page-actions"><a class="btn btn-light btn-sm" href="/admin/blocks/new">${icon('wrench', 16)} חסימת מועד</a> <a class="btn btn-light btn-sm" href="/calendar">ליומן</a></div></div>
   ${bookingsTable(upcoming)}
 </section>`);
   });
@@ -200,7 +203,7 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2>התראות רכב</h
     const users = db.prepare(`SELECT * FROM users ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY
       CASE status WHEN 'pending' THEN 0 WHEN 'license_update' THEN 1 ELSE 2 END, created_at DESC`).all(...args);
     res.page('משתמשים', html`
-<h1>משתמשים</h1>
+${pageHead('משתמשים', { iconName: 'users', sub: 'אישור נרשמים, בדיקת רישיונות וניהול הרשאות.' })}
 <form class="filters" method="get">
   <input name="q" value="${q}" placeholder="חיפוש לפי שם, מייל, טלפון או ת״ז">
   <select name="status"><option value="">כל הסטטוסים</option>
@@ -210,7 +213,7 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2>התראות רכב</h
     <option value="user" ${role === 'user' ? 'selected' : ''}>משתמשים רגילים</option></select>
   <button class="btn btn-light">סינון</button>
 </form>
-<p class="muted small">למינוי מנהל: פותחים את כרטיס המשתמש ← "הרשאות" ← "הפיכה למנהל".</p>
+<section class="card">
 <table class="table">
 <thead><tr><th>שם</th><th>דואר אלקטרוני</th><th>טלפון</th><th>תוקף רישיון</th><th>סטטוס</th><th></th></tr></thead>
 <tbody>${users.map((u) => html`<tr>
@@ -219,9 +222,11 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2>התראות רכב</h
   <td data-label="טלפון">${u.phone}</td>
   <td data-label="רישיון">${time.fmt(u.license_expiry)} ${u.pending_license_file ? badge('pending', 'חדש לבדיקה') : ''}</td>
   <td data-label="סטטוס">${userBadge(u.status)}</td>
-  <td><a href="/admin/users/${u.id}">כרטיס משתמש</a></td>
+  <td><a class="btn btn-light btn-sm" href="/admin/users/${u.id}">כרטיס משתמש</a></td>
 </tr>`)}</tbody></table>
-${users.length ? '' : html`<p class="muted">לא נמצאו משתמשים.</p>`}`);
+${users.length ? '' : html`<p class="empty">${icon('users', 28)}<span>לא נמצאו משתמשים.</span></p>`}
+</section>
+<p class="muted small">למינוי מנהל: פותחים את כרטיס המשתמש ← "הרשאות" ← "הפיכה למנהל".</p>`);
   });
 
   app.get('/admin/users/:id', requireAdmin, (req, res) => {
@@ -240,11 +245,11 @@ ${users.length ? '' : html`<p class="muted">לא נמצאו משתמשים.</p>`
     };
     const isSelf = u.id === req.user.id;
     res.page(fullName(u), html`
-<p><a href="/admin/users">→ חזרה לרשימה</a></p>
-<div class="page-head"><h1>${fullName(u)} ${u.role === 'admin' ? badge('admin', 'מנהל') : ''}</h1>${userBadge(u.status)}</div>
+<p><a class="back" href="/admin/users">${icon('arrow', 16)} חזרה לרשימה</a></p>
+${pageHead(html`${fullName(u)} ${u.role === 'admin' ? badge('admin', 'מנהל') : ''}`, { iconName: 'user', sub: u.email, actions: userBadge(u.status) })}
 <div class="grid2">
   <section class="card">
-    <h2>פרטים</h2>
+    <h2 class="section-title">${icon('user')} פרטים</h2>
     <dl class="dl">
       <dt>ת"ז</dt><dd>${u.id_number}</dd>
       <dt>טלפון</dt><dd><a href="tel:${u.phone}">${u.phone}</a></dd>
@@ -261,7 +266,7 @@ ${users.length ? '' : html`<p class="muted">לא נמצאו משתמשים.</p>`
   </section>
 
   <section class="card">
-    <h2 id="license">רישיון נהיגה</h2>
+    <h2 class="section-title" id="license">${icon('id')} רישיון נהיגה</h2>
     ${isSelf ? html`<p class="small">${u.pending_license_file
       ? 'זה הרישיון שלך: כמנהל ניתן לאשר אותו כאן. האישור נרשם ביומן הפעולות.'
       : html`זה החשבון שלך. כדי להזמין את הרכב גם אתה צריך רישיון מאושר: <a href="/me/license">העלאת רישיון</a>, ואז אישור כאן.`}</p>` : ''}
@@ -279,7 +284,7 @@ ${users.length ? '' : html`<p class="muted">לא נמצאו משתמשים.</p>`
 </div>
 
 <section class="card">
-  <h2>פעולות</h2>
+  <h2 class="section-title">${icon('settings')} פעולות</h2>
   ${isSelf ? html`<p class="muted">לא ניתן לשנות את סטטוס החשבון שלך.</p>` : html`<div class="actions-grid">
     ${['pending', 'license_update', 'rejected', 'blocked'].includes(u.status) && !u.pending_license_file ? postForm(req, `/admin/users/${u.id}/approve`, html`
       ${field('תוקף רישיון שאומת', html`<input type="date" name="license_expiry" value="${u.license_expiry}" required>`)}
@@ -293,11 +298,11 @@ ${users.length ? '' : html`<p class="muted">לא נמצאו משתמשים.</p>`
 ${permissionsCard(req, u, isSelf)}
 
 <section class="card">
-  <h2>היסטוריית הזמנות</h2>
+  <h2 class="section-title">${icon('list')} היסטוריית הזמנות</h2>
   ${bookingsTable(list, { showUser: false })}
 </section>
 <section class="card">
-  <h2>יומן פעולות</h2>
+  <h2 class="section-title">${icon('clock')} יומן פעולות</h2>
   ${log.length ? html`<ul class="plain small">${log.map((a) => html`<li>${time.fmt(a.at)} – ${a.action} ${a.details ? '(' + a.details + ')' : ''} ${a.first_name ? '· ' + fullName(a) : ''}</li>`)}</ul>` : html`<p class="muted">אין פעולות.</p>`}
 </section>`);
   });
@@ -432,8 +437,10 @@ ${permissionsCard(req, u, isSelf)}
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
       ORDER BY CASE b.status WHEN 'pending' THEN 0 ELSE 1 END, b.start_at DESC LIMIT 500`).all(...args);
     res.page('הזמנות', html`
-<div class="page-head"><h1>הזמנות</h1>
-  <div><a class="btn btn-primary" href="/admin/bookings/new">הזמנה ידנית</a> <a class="btn btn-light" href="/admin/blocks/new">חסימת מועד</a></div></div>
+${pageHead('הזמנות', {
+    iconName: 'list', sub: 'בקשות ממתינות מופיעות ראשונות.',
+    actions: html`<a class="btn btn-primary" href="/admin/bookings/new">${icon('plus')} הזמנה ידנית</a> <a class="btn btn-light" href="/admin/blocks/new">${icon('wrench')} חסימת מועד</a>`,
+  })}
 <form class="filters" method="get">
   <input name="q" value="${q}" placeholder="שם משתמש, מייל או מטרה">
   <select name="status"><option value="">כל הסטטוסים</option>
@@ -447,7 +454,7 @@ ${permissionsCard(req, u, isSelf)}
   <label class="inline-label">עד<input type="date" name="to" value="${to}"></label>
   <button class="btn btn-light">סינון</button>
 </form>
-${bookingsTable(list)}`);
+<section class="card">${bookingsTable(list)}</section>`);
   });
 
   app.get('/admin/bookings/new', requireAdmin, (req, res) => {
@@ -455,8 +462,8 @@ ${bookingsTable(list)}`);
     const end = start ? time.addMinutes(start, 120) : '';
     res.page('הזמנה ידנית', html`
 <div class="narrow">
-  <h1>הזמנה ידנית</h1>
-  <p class="muted">הזמנה שהמנהל יוצרת עבור משתמש מאושרת מיד. לחסימת זמן לתחזוקה <a href="/admin/blocks/new?start=${start}">השתמשו בחסימת מועד</a>.</p>
+  ${pageHead('הזמנה ידנית', { iconName: 'plus', sub: 'הזמנה שהמנהל יוצר עבור משתמש מאושרת מיד.' })}
+  <p class="muted small">לחסימת זמן לתחזוקה <a href="/admin/blocks/new?start=${start}">השתמשו בחסימת מועד</a>.</p>
   ${postForm(req, '/admin/bookings/new', html`
     ${field('משתמש', html`<select name="user_id" required><option value="">בחירה…</option>${userOptions(req.query.user)}</select>`)}
     <div class="grid2">
@@ -484,8 +491,7 @@ ${bookingsTable(list)}`);
     const start = time.isValidLocal(req.query.start) ? req.query.start : '';
     res.page('חסימת מועד', html`
 <div class="narrow">
-  <h1>חסימת מועד ביומן</h1>
-  <p class="muted">סימון שהרכב אינו זמין (טיפול, תקלה, שימוש פנימי) ללא יצירת הזמנה בשם משתמש.</p>
+  ${pageHead('חסימת מועד ביומן', { iconName: 'wrench', sub: 'סימון שהרכב אינו זמין (טיפול, תקלה, שימוש פנימי) ללא יצירת הזמנה בשם משתמש.' })}
   ${postForm(req, '/admin/blocks/new', html`
     <div class="grid2">
       ${field('מ־', html`<input type="datetime-local" name="start" value="${start}" required>`)}
@@ -515,10 +521,11 @@ ${bookingsTable(list)}`);
     const user = b.user_id ? getUser(b.user_id) : null;
     const problems = user && b.status === 'pending' ? bookings.eligibilityProblems(user, b.end_at) : [];
     res.page(`הזמנה #${b.id}`, html`
-<p><a href="/admin/bookings">→ חזרה להזמנות</a></p>
-<div class="page-head"><h1>${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id}</h1>${bookingBadge(b.status)}</div>
+<p><a class="back" href="/admin/bookings">${icon('arrow', 16)} חזרה להזמנות</a></p>
+${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id}`, { iconName: b.kind === 'block' ? 'wrench' : 'calendar', sub: `${time.fmt(b.start_at)} – ${time.fmt(b.end_at)}`, actions: bookingBadge(b.status) })}
 <div class="grid2">
   <section class="card">
+    <h2 class="section-title">${icon('file')} פרטים</h2>
     <dl class="dl">
       ${user ? html`<dt>משתמש</dt><dd><a href="/admin/users/${user.id}">${fullName(user)}</a> ${userBadge(user.status)}<br>
         <a href="tel:${user.phone}">${user.phone}</a> · ${user.email}</dd>` : html`<dt>סיבה</dt><dd>${b.block_reason}</dd>`}
@@ -532,11 +539,11 @@ ${bookingsTable(list)}`);
     </dl>
   </section>
   <section class="card">
-    <h2>בדיקת זמינות</h2>
+    <h2 class="section-title">${icon('check')} בדיקת זמינות ופעולות</h2>
     ${b.status === 'pending' ? (conflicts.length
-      ? html`<div class="flash flash-error">⚠️ המועד מתנגש עם:<ul>${conflicts.map((c) => html`<li><a href="/admin/bookings/${c.id}">
-          ${c.kind === 'block' ? '🔧 ' + c.block_reason : fullName(c)}</a> ${time.fmt(c.start_at)}–${time.fmt(c.end_at)}</li>`)}</ul></div>`
-      : html`<div class="flash flash-success">✓ הרכב פנוי במועד זה</div>`) : ''}
+      ? html`<div class="flash flash-error">המועד מתנגש עם:<ul>${conflicts.map((c) => html`<li><a href="/admin/bookings/${c.id}">
+          ${c.kind === 'block' ? 'חסימה: ' + c.block_reason : fullName(c)}</a> ${time.fmt(c.start_at)}–${time.fmt(c.end_at)}</li>`)}</ul></div>`
+      : html`<div class="flash flash-success">הרכב פנוי במועד זה</div>`) : ''}
     ${problems.length ? html`<div class="flash flash-error">${problems.join('. ')}</div>` : ''}
     ${competing.length ? html`<p><b>בקשות ממתינות נוספות לאותו מועד:</b></p><ul>${competing.map((c) => html`<li>
       <a href="/admin/bookings/${c.id}">${fullName(c)}</a> ${time.fmt(c.start_at)}–${time.fmt(c.end_at)} (הוגשה ${time.fmt(c.created_at)})</li>`)}</ul>`
@@ -549,7 +556,7 @@ ${bookingsTable(list)}`);
   </section>
 </div>
 <section class="card">
-  <h2>היסטוריית שינויים</h2>
+  <h2 class="section-title">${icon('clock')} היסטוריית שינויים</h2>
   <table class="table"><thead><tr><th>מועד</th><th>שינוי</th><th>על ידי</th><th>הערה</th></tr></thead><tbody>
   ${history.map((h) => html`<tr>
     <td data-label="מועד">${time.fmt(h.at)}</td>
@@ -591,8 +598,9 @@ ${bookingsTable(list)}`);
     const v = defaultVehicle();
     res.page('ניהול הרכב', html`
 <div class="narrow">
-  <h1>ניהול הרכב</h1>
+  ${pageHead('ניהול הרכב', { iconName: 'car', sub: html`${[v.make, v.model].filter(Boolean).join(' ')} · ${v.plate} · ${VEHICLE_STATUS[v.status]}` })}
   ${postForm(req, '/admin/vehicle', html`
+    <h2 class="section-title">${icon('car')} פרטי הרכב ומועדים</h2>
     <div class="grid2">
       ${field('מספר רישוי', html`<input name="plate" value="${v.plate}" required>`)}
       ${field('סטטוס', html`<select name="status">${Object.entries(VEHICLE_STATUS).map(([k, l]) => html`<option value="${k}" ${k === v.status ? 'selected' : ''}>${l}</option>`)}</select>`,
@@ -606,7 +614,10 @@ ${bookingsTable(list)}`);
     ${field('הנחיות לנהג (יופיעו במייל האישור)', html`<textarea name="instructions" rows="3" placeholder="מיקום החניה, איסוף מפתח, כרטיס דלק…">${v.instructions}</textarea>`)}
     ${field('הערות מנהל (פנימי)', html`<textarea name="notes" rows="3">${v.notes}</textarea>`)}
     <button class="btn btn-primary btn-block">שמירה</button>`, 'class="card"')}
-  <p><a href="/admin/blocks/new">חסימת מועד לטיפול או תחזוקה</a> · <a href="/admin/bookings?kind=block">חסימות קיימות</a></p>
+  <nav class="quick" aria-label="תחזוקה">
+    <a href="/admin/blocks/new">${icon('wrench')}חסימת מועד<small>לטיפול או תחזוקה</small></a>
+    <a href="/admin/bookings?kind=block">${icon('list')}חסימות קיימות<small>צפייה וביטול</small></a>
+  </nav>
 </div>`);
   });
 
@@ -630,15 +641,15 @@ ${bookingsTable(list)}`);
     const versions = db.prepare(`SELECT p.version, p.created_at, p.requires_reaccept, COUNT(a.id) AS accepted
       FROM policies p LEFT JOIN policy_acceptances a ON a.policy_version = p.version GROUP BY p.version ORDER BY p.version DESC`).all();
     res.page('ניהול נהלים', html`
-<h1>נהלי השאלת הרכב</h1>
+${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: `גרסה נוכחית: ${p.version}. כל שמירה יוצרת גרסה חדשה.` })}
 <div class="grid2">
   ${postForm(req, '/admin/policies', html`
-    <h2>עריכה – תיצור גרסה ${p.version + 1}</h2>
+    <h2 class="section-title">${icon('file')} עריכה – תיצור גרסה ${p.version + 1}</h2>
     ${field('תוכן הנהלים', html`<textarea name="content" rows="20" class="mono" required>${p.content}</textarea>`, 'כותרות: # / ## , רשימות: - , הדגשה: **טקסט**')}
     <label class="check"><input type="checkbox" name="requires_reaccept" value="1"> <span>שינוי מהותי – לדרוש מכל המשתמשים אישור מחדש לפני ההזמנה הבאה</span></label>
     <button class="btn btn-primary">פרסום גרסה חדשה</button>`, 'class="card"')}
   <section class="card">
-    <h2>גרסאות</h2>
+    <h2 class="section-title">${icon('list')} גרסאות</h2>
     <table class="table"><thead><tr><th>גרסה</th><th>פורסמה</th><th>אישור מחדש</th><th>אישורים</th></tr></thead><tbody>
     ${versions.map((x) => html`<tr><td data-label="גרסה">${x.version}</td><td data-label="פורסמה">${time.fmt(x.created_at)}</td>
       <td data-label="אישור מחדש">${x.requires_reaccept ? 'כן' : '—'}</td><td data-label="אישורים">${x.accepted}</td></tr>`)}
@@ -665,13 +676,14 @@ ${bookingsTable(list)}`);
     const s = getSettings();
     res.page('הגדרות', html`
 <div class="narrow">
-  <h1>הגדרות מערכת</h1>
+  ${pageHead('הגדרות מערכת', { iconName: 'settings', sub: 'כללי הזמנה, תזכורות, מיילים והתחברות.' })}
   ${postForm(req, '/admin/settings', html`
+    <h2 class="section-title">${icon('calendar')} כללי הזמנה ותזכורות</h2>
     ${Object.entries(SETTING_LABELS).map(([k, [label, hint]]) => field(label, html`<input type="number" name="${k}" value="${s[k]}" min="0" step="1" required>`, hint))}
     <button class="btn btn-primary btn-block">שמירה</button>`, 'class="card"')}
   ${emailStatusCard(req)}
   ${googleStatusCard(req)}
-  <p><a href="/admin/audit">יומן פעולות מנהלים</a></p>
+  <p><a class="back" href="/admin/audit">${icon('clock', 16)} יומן פעולות מנהלים</a></p>
 </div>`);
   });
 
@@ -698,12 +710,14 @@ ${bookingsTable(list)}`);
       ORDER BY a.id DESC LIMIT 300`).all();
     const link = (r) => (r.target_type === 'user' ? `/admin/users/${r.target_id}` : r.target_type === 'booking' ? `/admin/bookings/${r.target_id}` : null);
     res.page('יומן פעולות', html`
-<h1>יומן פעולות</h1>
+${pageHead('יומן פעולות', { iconName: 'clock', sub: '300 הפעולות האחרונות במערכת.' })}
+<section class="card">
 <table class="table"><thead><tr><th>מועד</th><th>מבצע</th><th>פעולה</th><th>יעד</th><th>פרטים</th></tr></thead><tbody>
 ${rows.map((r) => html`<tr><td data-label="מועד">${time.fmt(r.at)}</td><td data-label="מבצע">${r.actor_id ? fullName(r) : 'מערכת'}</td>
   <td data-label="פעולה"><code>${r.action}</code></td>
   <td data-label="יעד">${link(r) ? html`<a href="${link(r)}">${r.target_type} #${r.target_id}</a>` : ''}</td>
   <td data-label="פרטים">${r.details}</td></tr>`)}
-</tbody></table>`);
+</tbody></table>
+</section>`);
   });
 };

@@ -8,7 +8,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const storage = require('../storage');
 const { renderCalendar, windowFor } = require('../views/calendar');
-const { html, markdown, postForm, actionButton, field, badge, USER_STATUS } = require('../views/html');
+const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, USER_STATUS } = require('../views/html');
 const { normalizePhone, validPhone, safeNext } = require('./public');
 
 const STATUS_HELP = {
@@ -40,7 +40,7 @@ function bookingRow(req, b, { showCancel }) {
 const bookingTable = (req, list, opts) => list.length
   ? html`<table class="table"><thead><tr><th>איסוף</th><th>החזרה</th><th>מטרה</th><th>סטטוס</th><th></th></tr></thead>
       <tbody>${list.map((b) => bookingRow(req, b, opts))}</tbody></table>`
-  : html`<p class="muted">אין הזמנות להצגה.</p>`;
+  : html`<p class="empty">${icon('calendar', 28)}<span>אין הזמנות להצגה.</span></p>`;
 
 function upcomingFor(userId) {
   return db.prepare(`SELECT * FROM bookings WHERE user_id = ? AND kind = 'booking' AND end_at > ?
@@ -53,30 +53,39 @@ module.exports = ({ app, requireLogin, licenseUpload }) => {
     const upcoming = upcomingFor(u.id);
     const needsPolicy = !userAcceptedPolicy(u.id);
     res.page('אזור אישי', html`
-<h1>שלום ${u.first_name}</h1>
+${pageHead(`שלום ${u.first_name}`, { iconName: 'user', sub: 'האזור האישי שלך: סטטוס החשבון, ההזמנות והפרטים.' })}
 <div class="card status-card status-${u.status}">
   <div>סטטוס החשבון: ${badge(u.status, USER_STATUS[u.status])}</div>
   <p>${STATUS_HELP[u.status]}</p>
   ${u.pending_license_file ? (u.role === 'admin'
-    ? html`<p>📄 העלית רישיון חדש. <a href="/admin/users/${u.id}#license">לאישור הרישיון שלך</a></p>`
-    : html`<p>📄 רישיון חדש שהעלית ממתין לבדיקת המנהל.</p>`) : ''}
+    ? html`<p class="note-line">${icon('id', 18)} העלית רישיון חדש. <a href="/admin/users/${u.id}#license">לאישור הרישיון שלך</a></p>`
+    : html`<p class="note-line">${icon('clock', 18)} רישיון חדש שהעלית ממתין לבדיקת המנהל.</p>`) : ''}
   ${u.role === 'admin' && !u.license_verified && !u.pending_license_file
-    ? html`<p>🚗 כדי להזמין את הרכב גם מנהל צריך רישיון נהיגה מאושר: <a href="/me/license">העלאת רישיון</a> ואז אישור בכרטיס שלך.</p>` : ''}
-  ${needsPolicy ? html`<p>⚠️ נהלי השאלת הרכב עודכנו. <a href="/policy/accept">יש לקרוא ולאשר אותם</a> לפני הזמנה נוספת.</p>` : ''}
-  ${u.status === 'license_update' && !u.pending_license_file ? html`<a class="btn btn-primary" href="/me/license">העלאת רישיון</a>` : ''}
-  ${u.status === 'active' && !needsPolicy ? html`<a class="btn btn-primary" href="/bookings/new">הזמנה חדשה</a>` : ''}
+    ? html`<p class="note-line">${icon('car', 18)} כדי להזמין את הרכב גם מנהל צריך רישיון נהיגה מאושר: <a href="/me/license">העלאת רישיון</a> ואז אישור בכרטיס שלך.</p>` : ''}
+  ${needsPolicy ? html`<p class="note-line">${icon('alert', 18)} נהלי השאלת הרכב עודכנו. <a href="/policy/accept">יש לקרוא ולאשר אותם</a> לפני הזמנה נוספת.</p>` : ''}
+  ${u.status === 'license_update' && !u.pending_license_file ? html`<a class="btn btn-primary" href="/me/license">${icon('id')} העלאת רישיון</a>` : ''}
 </div>
+
+<nav class="quick" aria-label="פעולות מהירות">
+  ${u.status === 'active' && !needsPolicy ? html`<a href="/bookings/new">${icon('plus')}הזמנה חדשה<small>בחירת מועד ושליחת בקשה</small></a>` : ''}
+  <a href="/calendar">${icon('calendar')}יומן הרכב<small>מתי הרכב פנוי</small></a>
+  <a href="/me/bookings">${icon('list')}ההזמנות שלי<small>עתידיות והיסטוריה</small></a>
+  <a href="/me/license">${icon('id')}רישיון נהיגה<small>תוקף והעלאת רישיון חדש</small></a>
+  <a href="/me/security">${icon('lock')}סיסמה ואבטחה<small>סיסמה ואימות דו־שלבי</small></a>
+</nav>
 
 <div class="grid2">
   <section class="card">
-    <h2>ההזמנות הקרובות</h2>
-    ${upcoming.length ? html`<ul class="plain">${upcoming.map((b) => html`<li>
-      ${time.fmtLong(b.start_at)} ← ${time.fmt(b.end_at)} ${bookingBadge(b.status)}</li>`)}</ul>`
-      : html`<p class="muted">אין הזמנות קרובות.</p>`}
+    <h2 class="section-title">${icon('clock')} ההזמנות הקרובות</h2>
+    ${upcoming.length ? html`<ul class="plain upcoming">${upcoming.map((b) => html`<li>
+      <span class="date-chip"><b>${time.fmt(b.start_at).slice(0, 5)}</b><small>${time.HE_DAYS[time.parse(b.start_at).getDay()]}</small></span>
+      <span class="when">${time.fmt(b.start_at).slice(11)} – ${time.fmt(b.end_at)}<br><small class="muted">${b.purpose || 'ללא מטרה'}</small></span>
+      ${bookingBadge(b.status)}</li>`)}</ul>`
+      : html`<p class="empty">${icon('calendar', 28)}<span>אין הזמנות קרובות.</span></p>`}
     <a href="/me/bookings">לכל ההזמנות</a>
   </section>
   <section class="card">
-    <h2>הפרטים שלי</h2>
+    <h2 class="section-title">${icon('id')} הפרטים שלי</h2>
     <dl class="dl">
       <dt>שם</dt><dd>${u.first_name} ${u.last_name}</dd>
       <dt>ת"ז</dt><dd>${u.id_number}</dd>
@@ -87,7 +96,7 @@ module.exports = ({ app, requireLogin, licenseUpload }) => {
       ${field('טלפון נייד', html`<input type="tel" name="phone" value="${u.phone}" required>`)}
       <button class="btn btn-light">עדכון טלפון</button>`)}
     <p class="muted small">לשינוי שם, תעודת זהות או דואר אלקטרוני יש לפנות למנהל.</p>
-    <p><a href="/me/license">עדכון רישיון נהיגה</a> · <a href="/me/security">סיסמה ואבטחה</a> · <a href="/policy">נהלי השאלה</a></p>
+    <p class="small"><a href="/me/license">עדכון רישיון נהיגה</a> · <a href="/me/security">סיסמה ואבטחה</a> · <a href="/policy">נהלי השאלה</a></p>
   </section>
 </div>`);
   });
@@ -107,14 +116,14 @@ module.exports = ({ app, requireLogin, licenseUpload }) => {
     const u = req.user;
     res.page('רישיון נהיגה', html`
 <div class="narrow">
-  <h1>רישיון נהיגה</h1>
-  <div class="card">
-    <p>תוקף הרישיון הנוכחי: <b>${time.fmt(u.license_expiry) || '—'}</b>
+  ${pageHead('רישיון נהיגה', { iconName: 'id', sub: 'רישיון בתוקף ומאושר נדרש כדי להזמין את הרכב.' })}
+  <div class="card status-card status-${u.license_verified ? 'active' : 'pending'}">
+    <p class="kv-inline">תוקף הרישיון הנוכחי: <b>${time.fmt(u.license_expiry) || '—'}</b>
       ${u.license_verified ? badge('active', 'אומת') : badge('pending', 'טרם אומת')}</p>
-    ${u.pending_license_file ? html`<p>רישיון חדש (בתוקף עד ${time.fmt(u.pending_license_expiry)}) ממתין לבדיקת המנהל. העלאה נוספת תחליף אותו.</p>` : ''}
+    ${u.pending_license_file ? html`<p class="note-line">${icon('clock', 18)} רישיון חדש (בתוקף עד ${time.fmt(u.pending_license_expiry)}) ממתין לבדיקת המנהל. העלאה נוספת תחליף אותו.</p>` : ''}
   </div>
   ${postForm(req, '/me/license', html`
-    <h2>העלאת רישיון חדש</h2>
+    <h2 class="section-title">${icon('file')} העלאת רישיון חדש</h2>
     ${field('צילום רישיון נהיגה', html`<input type="file" name="license" accept="image/*,application/pdf" required>`, 'תמונה או PDF, עד 8MB')}
     ${field('תאריך פקיעת תוקף', html`<input type="date" name="license_expiry" required min="${time.today()}">`)}
     <button class="btn btn-primary btn-block">שליחה לבדיקה</button>
@@ -151,14 +160,17 @@ module.exports = ({ app, requireLogin, licenseUpload }) => {
     const past = all.filter((b) => !future.includes(b));
     const s = getSettings();
     res.page('ההזמנות שלי', html`
-<div class="page-head"><h1>ההזמנות שלי</h1><a class="btn btn-primary" href="/bookings/new">הזמנה חדשה</a></div>
+${pageHead('ההזמנות שלי', {
+    iconName: 'list', sub: 'בקשות פעילות, הזמנות מאושרות והיסטוריה.',
+    actions: html`<a class="btn btn-primary" href="/bookings/new">${icon('plus')} הזמנה חדשה</a>`,
+  })}
 <section class="card">
-  <h2>הזמנות עתידיות</h2>
+  <h2 class="section-title">${icon('calendar')} הזמנות עתידיות</h2>
   ${bookingTable(req, future, { showCancel: true })}
   <p class="muted small">ניתן לבטל בקשה שממתינה לאישור בכל עת, והזמנה מאושרת עד ${s.cancel_hours_before} שעות לפני תחילתה.</p>
 </section>
 <section class="card">
-  <h2>היסטוריית הזמנות</h2>
+  <h2 class="section-title">${icon('clock')} היסטוריית הזמנות</h2>
   ${bookingTable(req, past, { showCancel: false })}
 </section>`);
   });
@@ -195,10 +207,10 @@ module.exports = ({ app, requireLogin, licenseUpload }) => {
     });
     const canBook = u.status === 'active' && vehicle.status !== 'disabled';
     res.page('יומן הרכב', html`
-<div class="page-head">
-  <h1>יומן הרכב <small class="muted">${vehicle.make} ${vehicle.model} · ${vehicle.plate}</small></h1>
-  ${canBook ? html`<a class="btn btn-primary" href="${isAdmin ? '/admin/bookings/new' : '/bookings/new'}">הזמנה חדשה</a>` : ''}
-</div>
+${pageHead('יומן הרכב', {
+    iconName: 'calendar', sub: `${[vehicle.make, vehicle.model].filter(Boolean).join(' ')} · ${vehicle.plate}`,
+    actions: canBook ? html`<a class="btn btn-primary" href="${isAdmin ? '/admin/bookings/new' : '/bookings/new'}">${icon('plus')} הזמנה חדשה</a>` : '',
+  })}
 ${vehicle.status !== 'available' ? html`<div class="flash flash-warning">הרכב כרגע ${vehicle.status === 'service' ? 'בטיפול' : 'מושבת'}.</div>` : ''}
 ${!isAdmin && u.status !== 'active' ? html`<div class="flash flash-warning">${STATUS_HELP[u.status]}</div>` : ''}
 <div class="legend">
@@ -219,14 +231,17 @@ ${canBook ? html`<p class="muted small">לחיצה על משבצת פנויה ב
     const end = time.isValidLocal(v.end) ? v.end : start ? time.addMinutes(start, 120) : '';
     return html`
 <div class="narrow">
-  <h1>בקשת הזמנה חדשה</h1>
+  ${pageHead('בקשת הזמנה חדשה', { iconName: 'plus', sub: 'בוחרים מתי לאסוף ומתי להחזיר, והבקשה נשלחת לאישור המנהל.' })}
   ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
   ${postForm(req, '/bookings/new', html`
+    <h2 class="section-title">${icon('clock')} מתי?</h2>
     <div class="grid2">
       ${field('איסוף הרכב', html`<input type="datetime-local" name="start" value="${start}" required min="${time.now()}">`)}
       ${field('החזרת הרכב', html`<input type="datetime-local" name="end" value="${end}" required min="${time.now()}">`)}
     </div>
+    <div id="duration" class="duration" aria-live="polite"></div>
     <div id="availability" class="availability" aria-live="polite"></div>
+    <h2 class="section-title">${icon('file')} פרטים נוספים</h2>
     ${field('מטרת הנסיעה (אופציונלי)', html`<input name="purpose" value="${v.purpose}" maxlength="200">`)}
     ${field('הערות מיוחדות (אופציונלי)', html`<textarea name="notes" rows="3" maxlength="1000">${v.notes}</textarea>`)}
     <label class="check"><input type="checkbox" name="accept_rules" value="1" required> <span>אני מתחייב/ת לפעול לפי <a href="/policy" target="_blank">נהלי השאלת הרכב</a></span></label>
@@ -265,7 +280,8 @@ ${canBook ? html`<p class="muted small">לחיצה על משבצת פנויה ב
       await mail.bookingRequested(b);
       res.page('הבקשה נשלחה', html`
 <div class="narrow card success-card">
-  <h1>✓ הבקשה נשלחה</h1>
+  <span class="success-mark">${icon('check', 34)}</span>
+  <h1>הבקשה נשלחה</h1>
   <p><b>בקשת ההזמנה התקבלה וממתינה לאישור המנהל. ההזמנה אינה סופית עד לקבלת אישור.</b></p>
   <p>איסוף: ${time.fmtLong(b.start_at)}<br>החזרה: ${time.fmtLong(b.end_at)}</p>
   <p><a class="btn btn-primary" href="/me/bookings">להזמנות שלי</a> <a class="btn btn-light" href="/calendar">ליומן</a></p>
@@ -297,10 +313,10 @@ ${canBook ? html`<p class="muted small">לחיצה על משבצת פנויה ב
     const policy = currentPolicy();
     const accepted = db.prepare('SELECT * FROM policy_acceptances WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(req.user.id);
     res.page('אישור נהלים', html`
-<h1>נהלי השאלת הרכב</h1>
+${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: 'יש לקרוא ולאשר את הנהלים לפני הזמנת הרכב.' })}
 ${accepted ? html`<p class="muted">אישרת לאחרונה את גרסה ${accepted.policy_version} בתאריך ${time.fmt(accepted.accepted_at)}.</p>` : ''}
 <article class="card prose">${markdown(policy.content)}</article>
-${accepted?.policy_version === policy.version ? html`<p>✓ הגרסה הנוכחית כבר אושרה.</p>` : postForm(req, '/policy/accept', html`
+${accepted?.policy_version === policy.version ? html`<p class="note-line">${icon('check', 18)} הגרסה הנוכחית כבר אושרה.</p>` : postForm(req, '/policy/accept', html`
   <input type="hidden" name="version" value="${policy.version}">
   <input type="hidden" name="next" value="${req.query.next || ''}">
   <label class="check"><input type="checkbox" name="agree" value="1" required> <span>קראתי ואני מסכים/ה לנהלי השאלת הרכב (גרסה ${policy.version})</span></label>
@@ -326,24 +342,24 @@ ${accepted?.policy_version === policy.version ? html`<p>✓ הגרסה הנוכ�
       const qr = await QRCode.toDataURL(uri, { margin: 1, width: 200 });
       setup = html`
 <div class="card">
-  <h3>סריקת קוד</h3>
+  <h2 class="section-title">${icon('shield')} סריקת קוד</h2>
   <p>סרקו את הקוד באפליקציית אימות (Google Authenticator, Microsoft Authenticator וכדומה), או הזינו ידנית את המפתח:</p>
-  <img src="${qr}" alt="QR" width="200" height="200"><p><code>${u.totp_secret}</code></p>
+  <div class="qr"><img src="${qr}" alt="QR" width="200" height="200"><code>${u.totp_secret}</code></div>
   ${postForm(req, '/me/2fa/enable', html`${field('קוד מהאפליקציה', html`<input name="code" inputmode="numeric" maxlength="6" required>`)}
     <button class="btn btn-primary">הפעלה</button>`)}
 </div>`;
     }
     res.page('סיסמה ואבטחה', html`
 <div class="narrow">
-  <h1>סיסמה ואבטחה</h1>
+  ${pageHead('סיסמה ואבטחה', { iconName: 'lock', sub: 'שמירה על החשבון שלך.' })}
   ${postForm(req, '/me/password', html`
-    <h2>${u.password_hash ? 'שינוי סיסמה' : 'הגדרת סיסמה'}</h2>
+    <h2 class="section-title">${icon('lock')} ${u.password_hash ? 'שינוי סיסמה' : 'הגדרת סיסמה'}</h2>
     ${u.password_hash ? field('סיסמה נוכחית', html`<input type="password" name="current" required autocomplete="current-password">`) : ''}
     ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password">`)}
     <button class="btn btn-primary">שמירה</button>`, 'class="card"')}
-  ${u.google_sub ? html`<section class="card"><h2>חשבון Google</h2><p>${badge('active', 'מקושר')} ניתן להתחבר עם חשבון Google של ${u.email}.</p></section>` : ''}
+  ${u.google_sub ? html`<section class="card"><h2 class="section-title">${icon('user')} חשבון Google</h2><p>${badge('active', 'מקושר')} ניתן להתחבר עם חשבון Google של ${u.email}.</p></section>` : ''}
   <section class="card">
-    <h2>אימות דו־שלבי</h2>
+    <h2 class="section-title">${icon('shield')} אימות דו־שלבי</h2>
     ${u.role === 'admin' && !u.totp_enabled ? html`<div class="flash flash-warning">מומלץ מאוד להפעיל אימות דו־שלבי לחשבונות מנהל.</div>` : ''}
     ${u.totp_enabled
       ? html`<p>${badge('active', 'פעיל')} האימות הדו־שלבי מופעל.</p>

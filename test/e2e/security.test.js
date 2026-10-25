@@ -1,6 +1,6 @@
 'use strict';
 // Access control, CSRF, XSS, upload restrictions and HTTP hardening.
-const { db, createUser, startServer, Client, registrationForm, inDays, putStoredFile } = require('../helpers');
+const { db, createUser, startServer, Client, registrationForm, inDays, putStoredFile, calendarSection } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const bookings = require('../../src/bookings');
@@ -198,7 +198,7 @@ test('a blocked admin loses all admin powers, even after logging in again', asyn
   for (const url of ['/admin', '/admin/users', `/admin/users/${other.id}/license`]) assert.equal((await c.get(url)).status, 403, url);
   assert.doesNotMatch((await c.get('/me')).text, /href="\/admin"/, 'no admin menu');
   const cal = (await c.get(`/calendar?view=day&date=${inDays(15).slice(0, 10)}`)).text;
-  assert.doesNotMatch(cal, /בדיקה משתמש/, 'calendar does not reveal who booked');
+  assert.doesNotMatch(calendarSection(cal), /בדיקה משתמש/, 'calendar does not reveal who booked');
   await c.post(`/me/bookings/${booking}/cancel`, {}, '/me/bookings');
   assert.equal(db.prepare('SELECT status FROM bookings WHERE id = ?').get(booking).status, 'approved', 'cannot cancel other users\' bookings');
 });

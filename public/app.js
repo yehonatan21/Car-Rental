@@ -29,10 +29,21 @@ if (form) {
   const start = form.querySelector('[name=start]');
   const end = form.querySelector('[name=end]');
   const box = document.getElementById('availability');
+  const dur = document.getElementById('duration');
   const pad = (n) => String(n).padStart(2, '0');
   const local = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
+  const showDuration = () => {
+    if (!dur) return;
+    const mins = start.value && end.value ? Math.round((new Date(end.value) - new Date(start.value)) / 60000) : 0;
+    if (mins <= 0) { dur.textContent = ''; return; }
+    const d = Math.floor(mins / 1440); const h = Math.floor((mins % 1440) / 60); const m = mins % 60;
+    const parts = [d && (d === 1 ? 'יום' : `${d} ימים`), h && (h === 1 ? 'שעה' : `${h} שעות`), m && `${m} דקות`].filter(Boolean);
+    dur.textContent = 'משך ההזמנה: ' + parts.join(' ו־');
+  };
+
   const check = async () => {
+    showDuration();
     if (!start.value || !end.value || end.value <= start.value) {
       box.textContent = end.value && start.value ? 'מועד ההחזרה חייב להיות אחרי מועד האיסוף' : '';
       box.className = 'availability' + (box.textContent ? ' bad' : '');

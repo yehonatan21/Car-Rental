@@ -302,8 +302,8 @@ test('admin settings explain what is missing when Google is not configured', asy
   try {
     const page = (await ac.get('/admin/settings')).text;
     assert.match(page, /לא מופעלת/);
-    assert.match(page, /❌ <code>GOOGLE_CLIENT_SECRET<\/code>/);
-    assert.match(page, /✅ <code>GOOGLE_CLIENT_ID<\/code>/);
+    assert.match(page, /<li class="note-line bad">(?:(?!<\/li>)[^])*<code>GOOGLE_CLIENT_SECRET<\/code>/);
+    assert.match(page, /<li class="note-line ok">(?:(?!<\/li>)[^])*<code>GOOGLE_CLIENT_ID<\/code>/);
   } finally {
     config.google.clientSecret = saved;
   }

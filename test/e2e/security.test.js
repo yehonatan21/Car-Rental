@@ -204,3 +204,9 @@ test('a blocked admin loses all admin powers, even after logging in again', asyn
   await c.post(`/me/bookings/${booking}/cancel`, {}, '/me/bookings');
   assert.equal(db.prepare('SELECT status FROM bookings WHERE id = ?').get(booking).status, 'approved', 'cannot cancel other users\' bookings');
 });
+
+test('no third-party or Vercel scripts outside Vercel; CSP allows only same-origin scripts', async () => {
+  const r = await client().get('/login');
+  assert.doesNotMatch(r.text, /_vercel\/insights/);
+  assert.match(r.headers.get('content-security-policy'), /script-src 'self'/);
+});

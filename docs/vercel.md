@@ -33,6 +33,15 @@ Register the **production domain** in Google Cloud Console: the origin `https://
 `https://<project>.vercel.app/auth/google/callback`. Per-deployment preview URLs (`car-rental-abc123-….vercel.app`) change
 on every deploy and can't all be registered. On those, the login page links to the production domain instead.
 
+## Web Analytics (page views)
+Every page includes Vercel's analytics script (`/_vercel/insights/script.js`) when running on Vercel. This app renders
+plain HTML (no React/Next.js), so it uses the HTML script rather than the `<Analytics/>` component; the result is the same.
+1. In the Vercel project, open **Analytics → Enable** (until then the script returns 404 and nothing is counted).
+2. Deploy, then open the site and move between a few pages. Data shows up in the Analytics tab after about 30 seconds.
+   Ad/content blockers hide your own visits.
+
+Analytics is cookieless; the privacy page mentions it. Set `VERCEL_ANALYTICS=false` to remove the script.
+
 ## Branches
 By default Vercel deploys `main` to production and every other branch (such as `dev`) as a **preview**, each with its
 own URL. Preview URLs may require logging in to Vercel (**Settings → Deployment Protection**).

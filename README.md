@@ -37,7 +37,7 @@ npm run tunnel                                 # בחלון נוסף, כשהאפ
 - **אבטחה:** הפקודה מסרבת לפרסם את האתר כל עוד קיים משתמש עם סיסמת הדמו `Password1`, שמופיעה ב־README וידועה לכולם. לפני הפרסום צריך להחליף סיסמאות (`npm run create-admin -- --email admin@example.org --password …`), או להתחיל ממסד נתונים חדש בלי נתוני דמו.
 - הכתובת משתנה בכל הפעלה. כדי שקישורים במיילים יפנו אליה, מגדירים `BASE_URL=<הכתובת>` ב־`.env` ומפעילים מחדש.
 - **לכתובת קבועה:** [Cloudflare Tunnel עם דומיין משלכם](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/), או [ngrok](https://ngrok.com) עם הדומיין הסטטי החינמי: `ngrok http https://localhost:3000 --url=<השם-שלכם>.ngrok-free.app`. בשני המקרים מגדירים את `BASE_URL` לכתובת הקבועה.
-- המחשב צריך להישאר דלוק ומחובר. לסביבת פיתוח שזמינה תמיד באינטרנט, ומתעדכנת אוטומטית בכל push ל־`dev`, ראו את המדריך **[docs/dev-environment.md](docs/dev-environment.md)**. לאחסון בחינם (Oracle Cloud Always Free) ראו **[docs/free-hosting.md](docs/free-hosting.md)**. לפריסה ב־Vercel, להדגמה בלבד כי הנתונים שם זמניים, ראו **[docs/vercel.md](docs/vercel.md)**.
+- המחשב צריך להישאר דלוק ומחובר. לסביבת פיתוח שזמינה תמיד באינטרנט, ומתעדכנת אוטומטית בכל push ל־`dev`, ראו את המדריך **[docs/dev-environment.md](docs/dev-environment.md)**. לאחסון בחינם (Oracle Cloud Always Free) ראו **[docs/free-hosting.md](docs/free-hosting.md)**. לפריסה ב־Vercel ראו **[docs/vercel.md](docs/vercel.md)**. שם מחברים מסד נתונים של Turso (חינם), כדי שהנתונים יישמרו גם אחרי העלאת גרסה חדשה.
 
 ## התחברות עם Google
 
@@ -144,6 +144,7 @@ npm run dev        # https://localhost:3000, טעינה מחדש בכל שמיר
 | `npm run test:unit` | בדיקות יחידה: כללי הזמנה, זמנים ושעון קיץ, אימות, מיילים, משימות רקע |
 | `npm run test:e2e` | בדיקות קצה לקצה מול שרת אמיתי: תהליכי משתמש ומנהל, אבטחה והרשאות |
 | `npm run test:coverage` | בדיקות עם דוח כיסוי (נכשל מתחת ל־80% שורות) |
+| `SQLD_BIN=/path/to/sqld npm run test:libsql` | כל הבדיקות מול שרת libSQL (מה ש־Turso מריץ) במקום קובץ מקומי |
 | `npm run create-admin -- --email … --password …` | יצירת מנהל או קידום משתמש קיים למנהל |
 
 ## ענפים ו־CI/CD
@@ -199,6 +200,9 @@ docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js 
 | `DOMAIN` | הדומיין לייצור, ש־Caddy מנפיק עבורו תעודה |
 | `FORCE_HTTPS=false` | ביטול ההפניה ל־HTTPS בייצור (לא מומלץ) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | התחברות עם Google (ראו למעלה) |
+| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | מסד נתונים מתארח (Turso/libSQL) במקום קובץ מקומי. נדרש ב־Vercel כדי שהנתונים יישמרו |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | יצירת מנהל ראשון בהפעלה (אם החשבון לא קיים) |
+| `CRON_SECRET` | מפתח להפעלת המשימות המתוזמנות דרך `/internal/cron` (Vercel Cron) |
 | `NODE_ENV=production` | מפעיל עוגיות `Secure` ו־HSTS (חובה מאחורי HTTPS) |
 | `DATA_DIR` | תיקיית הנתונים: מסד הנתונים, צילומי הרישיונות ו־outbox (ברירת מחדל `./data`) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | שרת דואר יוצא |

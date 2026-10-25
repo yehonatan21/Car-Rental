@@ -1,6 +1,4 @@
 'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
 const QRCode = require('qrcode');
 const { db, audit, currentPolicy, userAcceptedPolicy, getSettings, defaultVehicle } = require('../db');
 const auth = require('../auth');
@@ -8,6 +6,7 @@ const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
 const bookings = require('../bookings');
+const storage = require('../storage');
 const { renderCalendar, windowFor } = require('../views/calendar');
 const { html, markdown, postForm, actionButton, field, badge, USER_STATUS } = require('../views/html');
 const { normalizePhone, validPhone, safeNext } = require('./public');
@@ -94,7 +93,7 @@ module.exports = ({ app, requireLogin, licenseUpload }) => {
     if (!validPhone(phone)) {
       res.flash('error', 'מספר הטלפון אינו תקין');
     } else {
-      db.prepare("UPDATE users SET phone = ?, updated_at = datetime('now','localtime') WHERE id = ?").run(phone, req.user.id);
+      db.prepare('UPDATE users SET phone = ?, updated_at = ? WHERE id = ?').run(phone, time.stamp(), req.user.id);
       res.flash('success', 'הפרטים עודכנו');
     }
     res.redirect('/me');
@@ -122,14 +121,15 @@ module.exports = ({ app, requireLogin, licenseUpload }) => {
   app.post('/me/license', requireLogin, licenseUpload, async (req, res) => {
     const expiry = String(req.body.license_expiry || '');
     if (!req.file || !time.isValidDate(expiry) || expiry < time.today()) {
-      if (req.file) fs.rmSync(req.file.path, { force: true });
+      storage.discard(req.file);
       res.flash('error', 'יש להעלות קובץ תמונה או PDF ולהזין תאריך תוקף עתידי');
       return res.redirect('/me/license');
     }
     const u = req.user;
-    if (u.pending_license_file) fs.rmSync(path.join(config.uploadsDir, u.pending_license_file), { force: true });
-    db.prepare("UPDATE users SET pending_license_file = ?, pending_license_expiry = ?, updated_at = datetime('now','localtime') WHERE id = ?")
-      .run(req.file.filename, expiry, u.id);
+    storage.remove(u.pending_license_file);
+    storage.keep(req.file);
+    db.prepare('UPDATE users SET pending_license_file = ?, pending_license_expiry = ?, updated_at = ? WHERE id = ?')
+      .run(req.file.filename, expiry, time.stamp(), u.id);
     audit(u.id, 'user.license_upload', 'user', u.id, expiry);
     await mail.newLicenseUploaded(u);
     res.flash('success', 'הרישיון נשלח לבדיקת המנהל');
@@ -305,7 +305,7 @@ ${accepted?.policy_version === policy.version ? html`<p>✓ הגרסה הנוכ�
       res.flash('error', 'יש לסמן את תיבת האישור');
       return res.redirect('/policy/accept');
     }
-    db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, ip) VALUES (?, ?, ?)').run(req.user.id, version, req.ip);
+    db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, ip, accepted_at) VALUES (?, ?, ?, ?)').run(req.user.id, version, req.ip, time.stamp());
     res.flash('success', 'הנהלים אושרו');
     res.redirect(safeNext(req.body.next) || '/me');
   });

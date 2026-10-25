@@ -9,7 +9,7 @@ const { db } = require('./db');
 const auth = require('./auth');
 const { layout, html } = require('./views/html');
 const { BookingError } = require('./bookings');
-const { startJobs } = require('./jobs');
+const { startJobs, runJobs } = require('./jobs');
 const { listenHttps, lanAddresses } = require('./tls');
 
 // HSTS applies to a whole host name (all ports), so it is never sent for localhost or raw IP addresses:
@@ -46,6 +46,28 @@ app.get('/healthz', (req, res) => {
   db.prepare('SELECT 1').get();
   res.json({ status: 'ok', env: process.env.APP_ENV || process.env.NODE_ENV || 'development' });
 });
+
+// Scheduled jobs (reminders, license expiry, closing finished bookings). A normal server runs them on a timer
+// (start() → startJobs). Serverless platforms only run code during requests, so there they run:
+//   - from Vercel Cron, which calls /internal/cron with "Authorization: Bearer $CRON_SECRET" (see vercel.json), and
+//   - at most every 15 minutes while the site is being used.
+app.get('/internal/cron', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.get('authorization') !== `Bearer ${secret}`) return res.status(401).json({ error: 'unauthorized' });
+  await runJobs();
+  res.json({ status: 'ok' });
+});
+if (config.onVercel) {
+  let lastJobsRun = 0;
+  app.use(async (req, res, next) => {
+    if (Date.now() - lastJobsRun > 15 * 60000) {
+      lastJobsRun = Date.now();
+      await runJobs().catch((err) => console.error('[jobs]', err));
+    }
+    next();
+  });
+}
+
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 
 // Session, user and flash message loading.

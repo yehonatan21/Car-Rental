@@ -90,6 +90,8 @@ test('vercel.json routes everything to the function and does not publish the sou
   assert.ok(!routed.test('/_vercel/insights/script.js') && !routed.test('/_vercel/insights/view'), 'Vercel Analytics paths are left to Vercel');
   assert.match(v.functions['api/index.js'].includeFiles, /src/);
   assert.match(v.functions['api/index.js'].includeFiles, /public/);
+  assert.match(v.functions['api/index.js'].includeFiles, /node_modules\/@libsql/, 'native libsql binary (loaded by computed name) is bundled');
+  assert.deepEqual(v.crons.map((c) => c.path), ['/internal/cron']);
 });
 
 test('the analytics script is only added on Vercel and can be turned off', () => {

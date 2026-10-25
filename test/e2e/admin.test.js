@@ -1,10 +1,8 @@
 'use strict';
 // Admin workflows: licenses, user lifecycle, manual bookings, vehicle, settings, policies, 2FA, OTP login.
-const { db, createUser, getUser, getBooking, inDays, startServer, Client, outbox, dataDir, PNG } = require('../helpers');
+const { db, createUser, getUser, getBooking, inDays, startServer, Client, outbox, PNG, putStoredFile, storedFile } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const auth = require('../../src/auth');
 const { getSettings } = require('../../src/db');
 const time = require('../../src/time');
@@ -31,7 +29,7 @@ function licenseForm(expiry) {
 }
 
 test('license renewal: upload → pending review → admin approves → old file removed', async () => {
-  fs.writeFileSync(path.join(dataDir, 'licenses', 'old.png'), 'old');
+  putStoredFile('old.png', 'old');
   const u = createUser({ email: 'renew@adm.test', status: 'license_update', license_file: 'old.png', license_expiry: time.addDays(time.today(), -2) });
   const c = client();
   await c.login('renew@adm.test');
@@ -48,8 +46,8 @@ test('license renewal: upload → pending review → admin approves → old file
   assert.equal(row.status, 'active', 'reactivated');
   assert.equal(row.license_expiry, time.addDays(time.today(), 690), 'admin-verified date wins');
   assert.equal(row.pending_license_file, null);
-  assert.ok(!fs.existsSync(path.join(dataDir, 'licenses', 'old.png')));
-  assert.ok(fs.existsSync(path.join(dataDir, 'licenses', row.license_file)));
+  assert.equal(storedFile('old.png'), null, 'old license deleted');
+  assert.ok(storedFile(row.license_file));
 });
 
 test('license upload validation', async () => {
@@ -69,7 +67,7 @@ test('admin can reject a newly uploaded license', async () => {
   const pending = getUser(u.id).pending_license_file;
   await admin.post(`/admin/users/${u.id}/license/reject`, { note: 'התמונה מטושטשת' }, `/admin/users/${u.id}`);
   assert.equal(getUser(u.id).pending_license_file, null);
-  assert.ok(!fs.existsSync(path.join(dataDir, 'licenses', pending)));
+  assert.equal(storedFile(pending), null);
   assert.ok(outbox().some((m) => m.subject === 'נדרש עדכון רישיון נהיגה' && m.body.includes('התמונה מטושטשת')));
 });
 

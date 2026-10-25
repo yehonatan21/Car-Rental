@@ -1,16 +1,19 @@
 'use strict';
-// SQLite data layer. Times are stored as local (Asia/Jerusalem) strings
+// Data layer. Times are stored as local (Asia/Jerusalem) strings
 // "YYYY-MM-DDTHH:MM" so they compare lexically and match what users type.
 const path = require('node:path');
 const fs = require('node:fs');
-const { DatabaseSync } = require('node:sqlite');
 const config = require('./config');
+const time = require('./time');
+const { openDatabase } = require('./driver');
 
+// Uploads are always received into this folder first (and stay there unless files are kept in the database).
 fs.mkdirSync(config.dataDir, { recursive: true });
 fs.mkdirSync(config.uploadsDir, { recursive: true });
 
-const db = new DatabaseSync(config.dbFile);
-db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+// Local SQLite file by default; a hosted libSQL/Turso database when TURSO_DATABASE_URL is set (see driver.js).
+// Timestamps are always written by the app (time.stamp()); the DEFAULTs below are only a fallback.
+const db = openDatabase();
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -142,6 +145,15 @@ CREATE TABLE IF NOT EXISTS google_signups (
   expires_at INTEGER NOT NULL
 );
 
+-- Uploaded files (license images) when they are stored in the database, split into chunks
+-- (hosted databases limit the size of a single value).
+CREATE TABLE IF NOT EXISTS files (
+  name TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  PRIMARY KEY (name, seq)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -173,7 +185,7 @@ if (!db.prepare('SELECT 1 FROM vehicles LIMIT 1').get()) {
 
 if (!db.prepare('SELECT 1 FROM policies LIMIT 1').get()) {
   const content = fs.readFileSync(path.join(__dirname, 'default-policy.md'), 'utf8');
-  db.prepare('INSERT INTO policies (version, content) VALUES (1, ?)').run(content);
+  db.prepare('INSERT INTO policies (version, content, created_at) VALUES (1, ?, ?)').run(content, time.stamp());
 }
 
 function getSettings() {
@@ -202,8 +214,8 @@ function transaction(fn) {
 }
 
 function audit(actorId, action, targetType, targetId, details) {
-  db.prepare('INSERT INTO audit_log (actor_id, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)')
-    .run(actorId ?? null, action, targetType ?? null, targetId ?? null, details ? String(details) : null);
+  db.prepare('INSERT INTO audit_log (actor_id, action, target_type, target_id, details, at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(actorId ?? null, action, targetType ?? null, targetId ?? null, details ? String(details) : null, time.stamp());
 }
 
 function currentPolicy() {

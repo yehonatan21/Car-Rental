@@ -1,10 +1,8 @@
 'use strict';
 // Access control, CSRF, XSS, upload restrictions and HTTP hardening.
-const { db, createUser, startServer, Client, registrationForm, inDays, dataDir } = require('../helpers');
+const { db, createUser, startServer, Client, registrationForm, inDays, putStoredFile } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const bookings = require('../../src/bookings');
 
 let srv, admin, user, adminUser, plainUser;
@@ -14,7 +12,7 @@ before(async () => {
   srv = await startServer();
   adminUser = createUser({ role: 'admin', email: 'admin@sec.test' });
   plainUser = createUser({ email: 'user@sec.test', license_file: 'secret.png' });
-  fs.writeFileSync(path.join(dataDir, 'licenses', 'secret.png'), 'PNGDATA');
+  putStoredFile('secret.png', 'PNGDATA');
   admin = client();
   user = client();
   await admin.login('admin@sec.test');

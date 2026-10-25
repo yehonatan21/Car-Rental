@@ -11,11 +11,35 @@ process.env.DATA_DIR = dataDir;
 process.env.TZ = 'Asia/Jerusalem';
 delete process.env.SMTP_HOST;
 
+// SQLD_BIN=/path/to/sqld runs the suite against a hosted-style libSQL server (what Turso runs) instead of a local
+// file: every test file gets its own fresh server, like it gets its own fresh file otherwise.
+let sqld = null;
+if (process.env.SQLD_BIN) {
+  const { spawn } = require('node:child_process');
+  const port = 20000 + (process.pid % 20000);
+  sqld = spawn(process.env.SQLD_BIN, ['--http-listen-addr', `127.0.0.1:${port}`, '--db-path', path.join(dataDir, 'sqld')],
+    { stdio: 'ignore' });
+  sqld.unref(); // don't keep the test process alive; it is killed on exit
+  process.env.TURSO_DATABASE_URL = `http://127.0.0.1:${port}`;
+  // Wait (synchronously, before the app opens the database) until the server answers.
+  const Database = require('libsql');
+  const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  for (let i = 0; ; i++) {
+    try { new Database(process.env.TURSO_DATABASE_URL, {}).prepare('SELECT 1').get([]); break; } catch (err) {
+      if (i > 100) throw new Error('sqld did not start: ' + err.message);
+      sleep(100);
+    }
+  }
+}
+
 const { db, currentPolicy } = require('../src/db');
 const auth = require('../src/auth');
 const time = require('../src/time');
 
-process.on('exit', () => fs.rmSync(dataDir, { recursive: true, force: true }));
+process.on('exit', () => {
+  if (sqld) sqld.kill('SIGKILL'); // sqld ignores SIGTERM; its data is a throwaway temp dir
+  fs.rmSync(dataDir, { recursive: true, force: true });
+});
 
 // 1x1 PNG
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
@@ -95,6 +119,19 @@ function clearOutbox() {
   fs.rmSync(path.join(dataDir, 'outbox'), { recursive: true, force: true });
 }
 
+// Stored license files, wherever they live (disk, or the database in hosted mode).
+function putStoredFile(name, content) {
+  const tmp = path.join(require('../src/config').uploadsDir, name);
+  fs.writeFileSync(tmp, content);
+  require('../src/storage').keep({ path: tmp, filename: name });
+}
+const storedFile = (name) => require('../src/storage').read(name);
+/** Stored files plus any upload left behind in the receiving folder (should be none in hosted mode). */
+function storedFileCount() {
+  const left = fs.readdirSync(require('../src/config').uploadsDir).length;
+  return require('../src/storage').inDatabase() ? db.prepare('SELECT COUNT(DISTINCT name) AS n FROM files').get().n + left : left;
+}
+
 /** Starts the Express app on a random port. */
 async function startServer() {
   const { app } = require('../src/server');
@@ -171,5 +208,5 @@ function registrationForm({ license, licenseBlob, licenseName, ...fields } = {})
 
 module.exports = {
   dataDir, db, PNG, createUser, getUser, getBooking, inDays, outbox, clearOutbox, startServer, Client,
-  registrationForm, nextIdNumber,
+  registrationForm, nextIdNumber, putStoredFile, storedFile, storedFileCount,
 };

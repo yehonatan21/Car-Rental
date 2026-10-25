@@ -4,6 +4,7 @@
 // database is temporary and starts empty after every restart.
 const { db, audit, currentPolicy } = require('./db');
 const auth = require('./auth');
+const time = require('./time');
 
 function ensureAdminFromEnv(env = process.env) {
   const email = String(env.ADMIN_EMAIL || '').trim().toLowerCase();
@@ -15,11 +16,12 @@ function ensureAdminFromEnv(env = process.env) {
   }
   const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (existing) return existing; // never overwrite a real account's password or role
+  const now = time.stamp();
   const id = Number(db.prepare(`INSERT INTO users (first_name, last_name, id_number, phone, email, password_hash, role, status,
-      privacy_accepted_at) VALUES (?, ?, ?, '', ?, ?, 'admin', 'active', datetime('now','localtime'))`)
-    .run(env.ADMIN_FIRST_NAME || 'מנהל', env.ADMIN_LAST_NAME || 'מערכת', `admin-${Date.now()}`, email, auth.hashPassword(password))
-    .lastInsertRowid);
-  db.prepare('INSERT INTO policy_acceptances (user_id, policy_version) VALUES (?, ?)').run(id, currentPolicy().version);
+      privacy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, '', ?, ?, 'admin', 'active', ?, ?, ?)`)
+    .run(env.ADMIN_FIRST_NAME || 'מנהל', env.ADMIN_LAST_NAME || 'מערכת', `admin-${Date.now()}`, email, auth.hashPassword(password),
+      now, now, now).lastInsertRowid);
+  db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, accepted_at) VALUES (?, ?, ?)').run(id, currentPolicy().version, now);
   audit(null, 'admin.bootstrap_env', 'user', id, email);
   console.log(`[bootstrap] Created admin ${email} from ADMIN_EMAIL/ADMIN_PASSWORD`);
   return db.prepare('SELECT * FROM users WHERE id = ?').get(id);

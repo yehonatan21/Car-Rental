@@ -50,8 +50,8 @@ function validateRange(start, end) {
 }
 
 function addHistory(bookingId, from, to, actorId, note) {
-  db.prepare('INSERT INTO booking_history (booking_id, from_status, to_status, actor_id, note) VALUES (?, ?, ?, ?, ?)')
-    .run(bookingId, from, to, actorId ?? null, note || null);
+  db.prepare('INSERT INTO booking_history (booking_id, from_status, to_status, actor_id, note, at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(bookingId, from, to, actorId ?? null, note || null, time.stamp());
 }
 
 function changeStatus(booking, to, actorId, note) {
@@ -110,8 +110,8 @@ function createRequest(user, { vehicleId, start, end, purpose, notes }) {
   const conflicts = findConflicts(vehicleId, start, end);
   if (conflicts.length) throw new BookingError(conflictMessage(conflicts));
 
-  const id = Number(db.prepare(`INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, purpose, notes, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(vehicleId, user.id, start, end, purpose || null, notes || null, user.id).lastInsertRowid);
+  const id = Number(db.prepare(`INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, purpose, notes, created_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(vehicleId, user.id, start, end, purpose || null, notes || null, user.id, time.stamp()).lastInsertRowid);
   addHistory(id, null, 'pending', user.id, 'בקשה הוגשה');
   return getBooking(id);
 }
@@ -172,8 +172,8 @@ function createManual(adminId, { vehicleId, userId, start, end, purpose, notes }
     checkVehicle(vehicleId);
     const conflicts = findConflicts(vehicleId, start, end);
     if (conflicts.length) throw new BookingError(conflictMessage(conflicts));
-    const id = Number(db.prepare(`INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, purpose, notes, status, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, 'approved', ?)`).run(vehicleId, userId, start, end, purpose || null, notes || null, adminId).lastInsertRowid);
+    const id = Number(db.prepare(`INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, purpose, notes, status, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'approved', ?, ?)`).run(vehicleId, userId, start, end, purpose || null, notes || null, adminId, time.stamp()).lastInsertRowid);
     addHistory(id, null, 'approved', adminId, 'הזמנה ידנית על ידי המנהל');
     audit(adminId, 'booking.manual', 'booking', id);
     return getBooking(id);
@@ -187,8 +187,8 @@ function createBlock(adminId, { vehicleId, start, end, reason }) {
   return transaction(() => {
     const conflicts = findConflicts(vehicleId, start, end, { buffer: 0 });
     if (conflicts.length) throw new BookingError(conflictMessage(conflicts) + '. יש לבטל אותה לפני החסימה');
-    const id = Number(db.prepare(`INSERT INTO bookings (vehicle_id, kind, start_at, end_at, block_reason, status, created_by)
-      VALUES (?, 'block', ?, ?, ?, 'approved', ?)`).run(vehicleId, start, end, reason, adminId).lastInsertRowid);
+    const id = Number(db.prepare(`INSERT INTO bookings (vehicle_id, kind, start_at, end_at, block_reason, status, created_by, created_at)
+      VALUES (?, 'block', ?, ?, ?, 'approved', ?, ?)`).run(vehicleId, start, end, reason, adminId, time.stamp()).lastInsertRowid);
     addHistory(id, null, 'approved', adminId, 'חסימת יומן: ' + reason);
     audit(adminId, 'block.create', 'booking', id, reason);
     return getBooking(id);

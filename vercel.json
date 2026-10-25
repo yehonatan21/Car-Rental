@@ -4,7 +4,7 @@
   "outputDirectory": "public",
   "functions": {
     "api/index.js": {
-      "includeFiles": "{src,public}/**",
+      "includeFiles": "{src,public,node_modules/@libsql}/**",
       "maxDuration": 30
     }
   },
@@ -12,6 +12,12 @@
     {
       "source": "/((?!_vercel/).*)",
       "destination": "/api/index"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/internal/cron",
+      "schedule": "0 5 * * *"
     }
   ]
 }

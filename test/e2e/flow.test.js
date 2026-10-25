@@ -1,10 +1,8 @@
 'use strict';
 // Main user journey: register → admin approval → booking request → admin decision → cancellation.
-const { db, createUser, getUser, getBooking, inDays, startServer, Client, registrationForm, outbox, dataDir } = require('../helpers');
+const { db, createUser, getUser, getBooking, inDays, startServer, Client, registrationForm, outbox, storedFile, storedFileCount } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const { setSetting } = require('../../src/db');
 const time = require('../../src/time');
 
@@ -30,7 +28,7 @@ test('registration creates a pending user who cannot book yet', async () => {
   aliceId = u.id;
   assert.equal(u.status, 'pending');
   assert.equal(u.phone, '0501234567', 'phone normalized');
-  assert.ok(fs.existsSync(path.join(dataDir, 'licenses', u.license_file)), 'license stored privately');
+  assert.ok(storedFile(u.license_file), 'license stored privately');
   const acc = db.prepare('SELECT * FROM policy_acceptances WHERE user_id = ?').get(u.id);
   assert.equal(acc.policy_version, 1);
   assert.ok(acc.accepted_at, 'acceptance time recorded');
@@ -61,8 +59,7 @@ test('registration rejects invalid data and duplicates', async () => {
   r = await c.post('/register', registrationForm({ password: 'short' }));
   assert.match(r.text, /לפחות 8 תווים/);
   assert.ok(r.text.includes('value="ישראל"'), 'form keeps entered values');
-  const files = fs.readdirSync(path.join(dataDir, 'licenses'));
-  assert.equal(files.length, 1, 'uploads from failed registrations are deleted');
+  assert.equal(storedFileCount(), 1, 'uploads from failed registrations are deleted');
 });
 
 test('admin approves the user, who can then book', async () => {

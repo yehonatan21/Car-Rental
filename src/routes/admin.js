@@ -134,7 +134,7 @@ function emailStatusCard(req) {
   <h2 class="section-title">${icon('file')} שליחת מיילים</h2>
   ${m.configured
     ? html`<p>${m.verified === false ? badge('blocked', 'שגיאה') : badge('active', 'מוגדר')}
-        שרת: <code>${m.host}:${m.port}</code> ${m.secure ? '(TLS)' : '(STARTTLS)'} · משתמש: <code>${m.user || '—'}</code> · שולח: <code>${m.from}</code></p>`
+        שרת: <code>${m.host}:${m.port}</code> ${m.secure ? '(TLS)' : '(STARTTLS)'} · משתמש: <code>${m.user || '—'}</code> · שולח: <b>${m.fromName}</b> <code>&lt;${m.from}&gt;</code></p>`
     : config.onVercel || config.production
       ? html`<div class="flash flash-error small"><b>מיילים לא נשלחים:</b> באתר הזה לא הוגדר שרת דואר (<code>SMTP_HOST</code>),
           ולכן מנהלים ולקוחות לא מקבלים שום מייל.</div>

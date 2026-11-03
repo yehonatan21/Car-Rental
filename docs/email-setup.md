@@ -29,6 +29,7 @@ Gmail allows about 500 emails a day, which is plenty for one shared car.
    SMTP_PASS=abcd efgh ijkl mnop
    BASE_URL=https://your-application-domain.example
    # Optional: MAIL_FROM=your-sender@gmail.com (defaults to SMTP_USER)
+   # Optional: MAIL_FROM_NAME=גמח רכב בני אדם (the name inboxes show; defaults to APP_NAME)
    ```
 
    - **Locally**: in the `.env` file in the project root (it is git-ignored), then restart with `npm start`.

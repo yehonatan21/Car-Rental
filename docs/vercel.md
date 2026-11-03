@@ -49,6 +49,7 @@ finds those variables too. The deployment's **Logs** show which one it uses: `[d
    | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | your e-mail, a strong password (8+ characters) | Creates the first admin (there is no terminal on Vercel). Never overwrites an existing account |
    | `CRON_SECRET` | a long random string | Lets Vercel Cron run the daily jobs (reminders, license expiry) |
    | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | e.g. Gmail (see README) | Optional: real e-mails |
+   | `MAIL_FROM_NAME` | e.g. `גמח רכב בני אדם` | The sender name shown in inboxes (default: `APP_NAME`) |
    | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | from Google Cloud Console | Optional: sign in with Google |
    | `BASE_URL` | e.g. `https://car-rental.vercel.app` | Optional: defaults to the production domain (production) or the branch address (preview) |
 

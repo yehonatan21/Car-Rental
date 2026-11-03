@@ -223,6 +223,7 @@ docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js 
 | `DATA_DIR` | תיקיית הנתונים: מסד הנתונים, צילומי הרישיונות ו־outbox (ברירת מחדל `./data`) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | שרת דואר יוצא |
 | `MAIL_FROM` | כתובת השולח (ברירת מחדל: `SMTP_USER`, אם זו כתובת מייל) |
+| `MAIL_FROM_NAME` | שם השולח שמוצג בתיבת הדואר במקום הכתובת, למשל `גמח רכב בני אדם` (ברירת מחדל: `APP_NAME`) |
 | `APP_NAME` | שם המערכת שמוצג בממשק ובמיילים |
 | `APP_TIMEZONE` | אזור הזמן של המערכת (ברירת מחדל `Asia/Jerusalem`, גם כשהשרת עצמו מוגדר ל־UTC, כמו ב־Vercel) |
 

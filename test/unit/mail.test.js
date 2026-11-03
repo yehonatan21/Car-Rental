@@ -129,3 +129,19 @@ test('booking notifications report what happened (sent / nobody to send to / not
     db.prepare("UPDATE users SET status = 'active' WHERE role = 'admin'").run();
   }
 });
+
+test('e-mails carry a sender name, so inboxes show it instead of the bare address', async () => {
+  const config = require('../../src/config');
+  const saved = config.mailFromName;
+  config.mailFromName = 'גמח רכב בני אדם';
+  try {
+    await mail.send('reader@mail.test', 'בדיקת שם שולח', ['שורה']);
+    const m = outbox().find((x) => x.subject === 'בדיקת שם שולח');
+    const fromLine = /^From: (.*)$/m.exec(m.raw.split(/\r?\n\r?\n/)[0].replace(/\r?\n[ \t]+/g, ' '))[1];
+    const decoded = fromLine.replace(/\?=\s+=\?UTF-8\?B\?/gi, '?==?UTF-8?B?') // RFC 2047: no space between adjacent words
+      .replace(/=\?UTF-8\?B\?([^?]*)\?=/gi, (_, x) => Buffer.from(x, 'base64').toString('utf8'));
+    assert.match(decoded, /^"?גמח רכב בני אדם"? <[^>]+@[^>]+>$/);
+  } finally {
+    config.mailFromName = saved;
+  }
+});

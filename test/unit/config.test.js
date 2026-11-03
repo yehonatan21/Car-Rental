@@ -46,3 +46,14 @@ test('sender address: MAIL_FROM, else the SMTP login (providers refuse other sen
   assert.equal(fromFor({ SMTP_HOST: 'smtp.sendgrid.net', SMTP_USER: 'apikey' }), 'car-booking@localhost', 'a login that is not an address');
   assert.equal(fromFor({}), 'car-booking@localhost');
 });
+
+test('sender name: MAIL_FROM_NAME, else the name in "Name <address>", else APP_NAME', () => {
+  const sender = (env) => JSON.parse(execFileSync(process.execPath, ['--no-warnings', '-e',
+    'const c = require("./src/config"); console.log(JSON.stringify([c.mailFromName, c.mailFrom]))'],
+  { cwd: path.join(__dirname, '..', '..'), env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' }));
+  const gmail = { SMTP_HOST: 'smtp.gmail.com', SMTP_USER: 'gmach.car.bne.adam@gmail.com' };
+  assert.deepEqual(sender({ ...gmail, MAIL_FROM_NAME: ' "גמח רכב בני אדם" ' }), ['גמח רכב בני אדם', 'gmach.car.bne.adam@gmail.com']);
+  assert.deepEqual(sender({ ...gmail, MAIL_FROM: 'גמח רכב בני אדם <gmach.car.bne.adam@gmail.com>' }), ['גמח רכב בני אדם', 'gmach.car.bne.adam@gmail.com']);
+  assert.deepEqual(sender({ ...gmail, APP_NAME: 'רכב הקהילה' }), ['רכב הקהילה', 'gmach.car.bne.adam@gmail.com']);
+  assert.deepEqual(sender(gmail), ['הזמנת רכב', 'gmach.car.bne.adam@gmail.com'], 'never just the bare address');
+});

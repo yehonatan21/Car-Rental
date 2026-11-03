@@ -159,6 +159,10 @@ test('reservation: admin is e-mailed the pending request, client is e-mailed the
   assert.ok(notice, 'the admin got the pending-approval e-mail');
   assert.match(notice.from, /sender@test\.org|car-booking/);
   assert.match(textOf(notice), /הבקשה ממתינה לאישור מנהל/);
+  const fromHeader = /^From: (.*)$/m.exec(notice.data)?.[1] || '';
+  const fromName = fromHeader.replace(/\?=\s+=\?UTF-8\?B\?/gi, '?==?UTF-8?B?') // RFC 2047: no space between adjacent words
+    .replace(/=\?UTF-8\?B\?([^?]*)\?=/gi, (_, x) => Buffer.from(x, 'base64').toString('utf8'));
+  assert.match(fromName, new RegExp(`${config.mailFromName}"? <`), 'sent with the sender name over SMTP');
   assert.ok(textOf(notice).includes(`/admin/bookings/${b.id}`));
   assert.ok(!received.some((x) => x.to.includes('res-client@test.org') && /אושרה סופית/.test(textOf(x))), 'no confirmation yet');
 

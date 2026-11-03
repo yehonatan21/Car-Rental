@@ -44,7 +44,8 @@ async function send(to, subject, paragraphs, link, { attachments } = {}) {
   const html = wrap(subject, paragraphs, link);
   const text = paragraphs.map((p) => p.replace(/<[^>]+>/g, '')).join('\n\n') + (link ? `\n\n${config.baseUrl}${link.href}` : '');
   try {
-    const info = await getTransport().sendMail({ from: config.mailFrom, to: recipients.join(', '), subject, html, text, attachments });
+    const from = { name: config.mailFromName, address: config.mailFrom }; // inboxes show the name, not the bare address
+    const info = await getTransport().sendMail({ from, to: recipients.join(', '), subject, html, text, attachments });
     if (!config.smtp) {
       fs.mkdirSync(config.outboxDir, { recursive: true });
       const file = path.join(config.outboxDir, `${Date.now()}-${Math.random().toString(36).slice(2, 7)}.eml`);
@@ -99,7 +100,7 @@ function status() {
   return {
     configured: Boolean(config.smtp),
     host: config.smtp?.host, port: config.smtp?.port, secure: config.smtp?.secure, user: config.smtp?.auth?.user,
-    from: config.mailFrom, ...state, lastError: lastFailure(),
+    from: config.mailFrom, fromName: config.mailFromName, ...state, lastError: lastFailure(),
   };
 }
 

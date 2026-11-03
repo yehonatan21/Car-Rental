@@ -91,11 +91,17 @@ const allowTemporaryData = clean(process.env.ALLOW_TEMPORARY_DATA) === 'true';
 
 // Sender address. Most SMTP providers (Gmail, Outlook, SendGrid…) refuse or spam-flag mail "from" an address the
 // account does not own, so without MAIL_FROM the SMTP login (when it is an e-mail address) is used.
+// MAIL_FROM may also be written as "Name <address>".
+const mailFromParts = /^(.*?)\s*<([^<>]+)>$/.exec(clean(process.env.MAIL_FROM));
 function mailFrom() {
-  if (process.env.MAIL_FROM) return process.env.MAIL_FROM.trim();
+  if (mailFromParts) return mailFromParts[2].trim();
+  if (clean(process.env.MAIL_FROM)) return clean(process.env.MAIL_FROM);
   const user = (process.env.SMTP_USER || '').trim();
   return process.env.SMTP_HOST && user.includes('@') ? user : 'car-booking@localhost';
 }
+const appName = clean(process.env.APP_NAME) || 'הזמנת רכב';
+// The sender name inboxes show instead of the bare address: MAIL_FROM_NAME, else the name in MAIL_FROM, else APP_NAME.
+const mailFromName = clean(process.env.MAIL_FROM_NAME) || clean(mailFromParts?.[1] ?? '') || appName;
 
 module.exports = {
   port,
@@ -126,11 +132,12 @@ module.exports = {
   // Private storage for license images: outside any static folder, served only through an admin-checked route.
   uploadsDir: path.join(dataDir, 'licenses'),
   outboxDir: path.join(dataDir, 'outbox'),
-  appName: process.env.APP_NAME || 'הזמנת רכב',
+  appName,
   smtp: process.env.SMTP_HOST ? smtpConfig() : null,
   // Largest license upload. Vercel refuses request bodies over 4.5 MB before they reach the app, so stay below it.
   uploadMaxBytes: (onVercel ? 4 : 8) * 1024 * 1024,
   mailFrom: mailFrom(),
+  mailFromName,
   // "Sign in with Google" is shown only when both are set (Google Cloud Console → APIs & Services → Credentials).
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID || '',

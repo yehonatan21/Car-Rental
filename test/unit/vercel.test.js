@@ -101,3 +101,41 @@ test('the analytics script is only added on Vercel and can be turned off', () =>
   assert.equal(flag({ VERCEL: '1' }), true);
   assert.equal(flag({ VERCEL: '1', VERCEL_ANALYTICS: 'false' }), false);
 });
+
+test('Vercel entry point: a database that cannot be reached gives an explained 503, not a crash', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-down-'));
+  const script = `
+    const http = require('node:http');
+    const s = http.createServer(require('./api/index.js')).listen(0, '127.0.0.1', () => console.log('PORT ' + s.address().port));`;
+  const child = spawn(process.execPath, ['--no-warnings', '-e', script], {
+    cwd: root, env: { PATH: process.env.PATH, VERCEL: '1', NODE_ENV: 'production', TMPDIR: tmp,
+      // Pasted with a trailing newline, pointing at a port nobody listens on.
+      TURSO_DATABASE_URL: 'libsql://127.0.0.1:9\n', TURSO_AUTH_TOKEN: 'eyJhbGciOi.eyJzZWNyZXQi.c2lnbmF0dXJl' },
+  });
+  let stderr = '';
+  child.stderr.on('data', (d) => { stderr += d; });
+  try {
+    const port = await new Promise((resolve, reject) => {
+      let out = '';
+      child.stdout.on('data', (d) => { out += d; const m = /PORT (\d+)/.exec(out); if (m) resolve(Number(m[1])); });
+      child.on('exit', (code) => reject(new Error('exited ' + code + ': ' + stderr)));
+    });
+    const get = () => new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port, path: '/', headers: { 'x-forwarded-proto': 'https' } }, (res) => {
+        let body = '';
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      }).on('error', reject);
+    });
+    const first = await get();
+    assert.equal(first.status, 503);
+    assert.match(first.body, /TURSO_DATABASE_URL/);
+    assert.match(first.body, /Connection refused/, 'the real reason is shown');
+    assert.doesNotMatch(first.body, /eyJzZWNyZXQi/, 'no token on the page');
+    assert.equal((await get()).status, 503, 'still serving (retries startup), not crashed');
+    assert.match(stderr, /\[startup\] The app failed to start/);
+  } finally {
+    child.kill();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

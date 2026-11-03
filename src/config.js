@@ -60,11 +60,12 @@ module.exports = {
   // (project → Analytics → Enable). VERCEL_ANALYTICS=false turns the script off.
   vercelAnalytics: onVercel && process.env.VERCEL_ANALYTICS !== 'false',
   // Data does not survive restarts (Vercel without DATA_DIR pointing at persistent storage): warn on every page.
-  ephemeral: onVercel && !process.env.DATA_DIR && !(process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL),
+  ephemeral: onVercel && !process.env.DATA_DIR && !(process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL || '').trim(),
   // Hosted libSQL / Turso database (data survives redeploys). Names match Vercel's Turso integration.
+  // Trimmed: values pasted into a hosting dashboard often carry a trailing space or newline, which breaks the URL.
   database: {
-    url: process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL || '',
-    authToken: process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN || '',
+    url: (process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL || '').trim(),
+    authToken: (process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN || '').trim(),
   },
   dbFile: process.env.DB_FILE || path.join(dataDir, 'app.db'),
   // Private storage for license images: outside any static folder, served only through an admin-checked route.

@@ -75,6 +75,8 @@ npm run tunnel                                 # בחלון נוסף, כשהאפ
 
 ## מיילים אמיתיים (למשל Gmail)
 
+English setup guide and reservation notification behavior: [Email setup](docs/email-setup.md).
+
 בלי SMTP, המיילים לא נשלחים אלא נשמרים ב־`data/outbox`. כדי שהמשתמשים והמנהלים יקבלו אותם בפועל, כולל אישורי ההזמנה, מגדירים SMTP. לדוגמה עם Gmail:
 
 1. בחשבון Google מפעילים **אימות דו־שלבי**, ואז יוצרים **App password** בכתובת https://myaccount.google.com/apppasswords.

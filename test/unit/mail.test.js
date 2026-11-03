@@ -59,6 +59,9 @@ test('booking request notifies both the user and all active admins', async () =>
   assert.equal(toUser.subject, 'בקשת ההזמנה התקבלה');
   assert.match(toAdmins.to, /admin2@mail.test/);
   assert.doesNotMatch(toAdmins.to, /blocked-admin/);
+  assert.match(toAdmins.body, /הבקשה ממתינה לאישור מנהל/);
+  assert.ok(toAdmins.body.includes(b.plate));
+  assert.ok(toAdmins.body.includes(`/admin/bookings/${b.id}`));
 });
 
 test('approval confirmation goes to the user AND all active admins, both with a calendar invite', async () => {

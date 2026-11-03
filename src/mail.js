@@ -189,7 +189,8 @@ module.exports = {
       `שלום ${esc(b.first_name)},`, 'בקשת ההזמנה התקבלה וממתינה לאישור המנהל. <b>ההזמנה אינה סופית עד לקבלת אישור.</b>', range(b),
     ], { href: '/me/bookings', label: 'להזמנות שלי' }),
     send(adminEmails(), 'בקשת הזמנה חדשה ממתינה לאישור', [
-      `${esc(fullName(b))} ביקש/ה את הרכב:`, range(b), b.purpose ? `<b>מטרה:</b> ${esc(b.purpose)}` : '',
+      `${esc(fullName(b))} ביקש/ה את הרכב. הבקשה ממתינה לאישור מנהל:`, vehicleLine(b), range(b),
+      b.purpose ? `<b>מטרה:</b> ${esc(b.purpose)}` : '',
     ].filter(Boolean), { href: `/admin/bookings/${b.id}`, label: 'לטיפול בבקשה' }),
   ]),
   /** Final confirmation: to the user (unless notifyUser is false) and to all admins, each with a calendar invite. */

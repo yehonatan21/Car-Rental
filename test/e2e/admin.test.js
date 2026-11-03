@@ -1,6 +1,6 @@
 'use strict';
 // Admin workflows: licenses, user lifecycle, manual bookings, vehicle, settings, policies, 2FA, OTP login.
-const { db, createUser, getUser, getBooking, inDays, startServer, Client, outbox, PNG, putStoredFile, storedFile } = require('../helpers');
+const { db, createUser, getUser, getBooking, inDays, startServer, Client, outbox, PNG, putStoredFile, storedFile, nextIdNumber } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const auth = require('../../src/auth');
@@ -401,4 +401,71 @@ test('on Vercel without a mail server: settings explain the Vercel steps, the te
   } finally {
     config.onVercel = saved;
   }
+});
+
+/** The "add user" form as the admin fills it in. */
+function newUserForm(fields = {}, license) {
+  const fd = new FormData();
+  const values = { first_name: 'רון', last_name: 'כהן', id_number: nextIdNumber(), phone: '052-7654321', email: 'ron@manual.test',
+    role: 'user', send_invite: '1', ...fields };
+  for (const [k, v] of Object.entries(values)) if (v !== null) fd.set(k, v);
+  if (license) fd.set('license', new Blob([license], { type: 'image/png' }), 'license.png');
+  return fd;
+}
+
+test('admin adds a user manually: active with a checked license, invitation link sets the password', async () => {
+  assert.match((await admin.get('/admin/users')).text, /href="\/admin\/users\/new"/);
+  assert.equal((await admin.get('/admin/users/new')).status, 200);
+  const expiry = time.addDays(time.today(), 400);
+  const r = await admin.post('/admin/users/new', newUserForm({ email: 'Ron@Manual.test', license_expiry: expiry }, PNG), '/admin/users/new');
+  assert.equal(r.status, 302);
+  const u = db.prepare("SELECT * FROM users WHERE email = 'ron@manual.test'").get();
+  assert.ok(u, 'created (e-mail stored in lowercase)');
+  assert.equal(r.location, `/admin/users/${u.id}`);
+  assert.equal(u.status, 'active');
+  assert.equal(u.role, 'user');
+  assert.equal(u.license_verified, 1);
+  assert.equal(u.license_expiry, expiry);
+  assert.equal(u.password_hash, null);
+  assert.deepEqual(storedFile(u.license_file), PNG, 'license photo stored');
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'user.create' AND target_id = ?").get(u.id));
+
+  // No SMTP in tests: the admin is shown the invitation link; the person also got it in the outbox.
+  const flash = admin.flash();
+  assert.equal(flash.type, 'warning');
+  const link = /(\/password\/reset\?token=[\w%-]+)/.exec(flash.text)?.[1];
+  assert.ok(link);
+  assert.ok(outbox().some((m) => m.to.includes('ron@manual.test') && m.subject === 'נפתח עבורך חשבון במערכת הזמנת הרכב'));
+  const person = new Client(srv.base);
+  const page = await person.get(link);
+  assert.equal(page.status, 200);
+  const token = /name="token" value="([^"]+)"/.exec(page.text)[1];
+  await person.post('/password/reset', { token, password: 'RonPassword1', confirm: 'RonPassword1' });
+  await person.login('ron@manual.test', 'RonPassword1');
+});
+
+test('added without a license date: the person is asked to upload a license first', async () => {
+  await admin.post('/admin/users/new', newUserForm({ email: 'nolicense@manual.test', send_invite: null }), '/admin/users/new');
+  const u = db.prepare("SELECT * FROM users WHERE email = 'nolicense@manual.test'").get();
+  assert.equal(u.status, 'license_update');
+  assert.equal(u.license_verified, 0);
+  assert.match(admin.flash().text, /יתבקש להעלות רישיון נהיגה/);
+  assert.ok(!outbox().some((m) => m.to.includes('nolicense@manual.test')), 'no invitation when unticked');
+
+  await admin.post('/admin/users/new', newUserForm({ email: 'newadmin@manual.test', role: 'admin', send_invite: null }), '/admin/users/new');
+  const a = db.prepare("SELECT * FROM users WHERE email = 'newadmin@manual.test'").get();
+  assert.equal(a.role, 'admin');
+  assert.equal(a.status, 'active', 'an admin can manage the system without a license');
+});
+
+test('add user: validation errors keep the form, nothing is created', async () => {
+  let r = await admin.post('/admin/users/new', newUserForm({ email: 'ron@manual.test' }), '/admin/users/new');
+  assert.equal(r.status, 400);
+  assert.match(r.text, /קיים כבר משתמש/);
+  assert.match(r.text, /value="רון"/, 'values kept');
+  r = await admin.post('/admin/users/new', newUserForm({ email: 'bad-id@manual.test', id_number: '123456789' }), '/admin/users/new');
+  assert.match(r.text, /תעודת הזהות אינו תקין/);
+  r = await admin.post('/admin/users/new', newUserForm({ email: 'photo-only@manual.test' }, PNG), '/admin/users/new');
+  assert.match(r.text, /יש למלא גם את תאריך התוקף/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users WHERE email IN ('bad-id@manual.test', 'photo-only@manual.test')").get().n, 0);
 });

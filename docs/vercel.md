@@ -5,7 +5,12 @@ The app runs on Vercel as a single serverless function (`api/index.js`, routed b
 Vercel functions have **no lasting disk**: anything written to files is gone on the next deploy or restart.
 To keep users, bookings and license images across new versions, connect a hosted **Turso (libSQL) database**.
 The app then stores everything there, license images included. Turso has a free plan.
-Without it the app still runs, but in demo mode: data is temporary and every page shows a banner.
+Without it the app **does not start** on Vercel: every page explains that no database is connected. (On Vercel each
+server instance has its own temporary disk, so without a shared database logins break and everything vanishes with each
+new version.) For a throwaway demo on purpose, set `ALLOW_TEMPORARY_DATA=true`; every page then shows a "demo" banner.
+
+If you connected Turso through the Vercel integration with a custom prefix (e.g. `STORAGE_TURSO_DATABASE_URL`), the app
+finds those variables too. The deployment's **Logs** show which one it uses: `[db] hosted database <host> (from …)`.
 
 ## Set up
 

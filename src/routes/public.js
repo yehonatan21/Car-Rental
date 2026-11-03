@@ -541,3 +541,4 @@ module.exports.validIsraeliId = validIsraeliId;
 module.exports.normalizePhone = normalizePhone;
 module.exports.validPhone = validPhone;
 module.exports.safeNext = safeNext;
+module.exports.validEmail = validEmail;

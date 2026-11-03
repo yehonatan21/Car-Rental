@@ -2,6 +2,7 @@
 // Creates the first administrator from ADMIN_EMAIL / ADMIN_PASSWORD when that account does not exist yet.
 // Needed where there is no terminal to run `npm run create-admin` (Vercel and similar platforms), and where the
 // database is temporary and starts empty after every restart.
+const crypto = require('node:crypto');
 const { db, audit, currentPolicy } = require('./db');
 const auth = require('./auth');
 const time = require('./time');
@@ -17,10 +18,13 @@ function ensureAdminFromEnv(env = process.env) {
   const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (existing) return existing; // never overwrite a real account's password or role
   const now = time.stamp();
-  const id = Number(db.prepare(`INSERT INTO users (first_name, last_name, id_number, phone, email, password_hash, role, status,
+  // OR IGNORE: another server instance starting at the same moment may have just created it.
+  const r = db.prepare(`INSERT OR IGNORE INTO users (first_name, last_name, id_number, phone, email, password_hash, role, status,
       privacy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, '', ?, ?, 'admin', 'active', ?, ?, ?)`)
-    .run(env.ADMIN_FIRST_NAME || 'מנהל', env.ADMIN_LAST_NAME || 'מערכת', `admin-${Date.now()}`, email, auth.hashPassword(password),
-      now, now, now).lastInsertRowid);
+    .run(env.ADMIN_FIRST_NAME || 'מנהל', env.ADMIN_LAST_NAME || 'מערכת', `admin-${crypto.randomUUID()}`, email, auth.hashPassword(password),
+      now, now, now);
+  if (r.changes !== 1) return db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  const id = r.lastInsertRowid;
   db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, accepted_at) VALUES (?, ?, ?)').run(id, currentPolicy().version, now);
   audit(null, 'admin.bootstrap_env', 'user', id, email);
   console.log(`[bootstrap] Created admin ${email} from ADMIN_EMAIL/ADMIN_PASSWORD`);

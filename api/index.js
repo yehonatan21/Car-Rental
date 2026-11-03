@@ -19,6 +19,15 @@ const redact = (msg) => String(msg)
 
 function hint(err) {
   const msg = String(err && err.message);
+  if (/^No database is connected/.test(msg)) {
+    return {
+      he: 'לא מחובר מסד נתונים לפריסה הזו, ולכן כל הנתונים היו נמחקים בכל גרסה חדשה. ב־Vercel ← Storage ← Turso: חברו את מסד הנתונים '
+        + 'לפרויקט וסמנו את הסביבה הזו (Production / Preview), או הוסיפו ב־Settings ← Environment Variables את TURSO_DATABASE_URL ו־TURSO_AUTH_TOKEN. '
+        + 'אחר כך Redeploy.',
+      en: 'No database is connected to this deployment, so all data would be lost on every new version. In Vercel → Storage → '
+        + 'Turso connect the database to this project for this environment, or add TURSO_DATABASE_URL and TURSO_AUTH_TOKEN, then redeploy.',
+    };
+  }
   const variable = /^(BASE_URL|TURSO_DATABASE_URL|LIBSQL_URL) is not a valid address/.exec(msg)?.[1];
   if (variable) {
     return {

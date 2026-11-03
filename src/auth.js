@@ -99,12 +99,17 @@ function consumeLoginCode(userId, code) {
 // --- "Forgot password" links ---
 const RESET_TTL_MS = 60 * 60000;
 
-/** New single-use reset token for the user (earlier ones are cancelled). Only its hash is stored. */
-function createPasswordReset(userId) {
+const INVITE_TTL_MS = 7 * 86400000;
+
+/**
+ * New single-use reset token for the user (earlier ones are cancelled). Only its hash is stored.
+ * Also used for invitations to accounts an admin created, with a longer validity (INVITE_TTL_MS).
+ */
+function createPasswordReset(userId, ttlMs = RESET_TTL_MS) {
   const token = crypto.randomBytes(32).toString('base64url');
   db.prepare('DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?').run(userId, Date.now());
   db.prepare('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
-    .run(sha256(token), userId, Date.now() + RESET_TTL_MS);
+    .run(sha256(token), userId, Date.now() + ttlMs);
   return token;
 }
 
@@ -182,5 +187,5 @@ const resetThrottle = (key) => attempts.delete(key);
 module.exports = {
   hashPassword, verifyPassword, createSession, destroySession, destroyAllSessions, loadSession,
   completeTwoFactor, parseCookies, createLoginCode, consumeLoginCode, newTotpSecret, verifyTotp,
-  totpAt, throttled, resetThrottle, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256,
+  totpAt, throttled, resetThrottle, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
 };

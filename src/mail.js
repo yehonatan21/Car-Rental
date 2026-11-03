@@ -192,6 +192,16 @@ module.exports = {
       'אם לא ביקשת לאפס את הסיסמה, אפשר להתעלם מהודעה זו: הסיסמה הנוכחית לא תשתנה.',
     ], { href, label: 'בחירת סיסמה חדשה' });
   },
+  /** An admin created the account: link to choose a password (valid 7 days). */
+  invitation: (u, token, invitedBy) => {
+    const href = `/password/reset?token=${encodeURIComponent(token)}`;
+    if (!config.smtp && !config.production) console.log(`\n  >>> Invitation link for ${u.email}: ${config.baseUrl}${href}  (valid 7 days)\n`);
+    return send(u.email, 'נפתח עבורך חשבון במערכת הזמנת הרכב', [
+      `שלום ${esc(u.first_name)},`, `${esc(invitedBy)} פתח/ה עבורך חשבון במערכת הזמנת הרכב (${esc(config.appName)}).`,
+      'כדי להתחבר, בחרו סיסמה בקישור הבא. הקישור תקף ל־7 ימים ולשימוש אחד.',
+      `שם המשתמש שלך הוא כתובת הדואר האלקטרוני הזו: <b dir="ltr">${esc(u.email)}</b>.`,
+    ], { href, label: 'בחירת סיסמה' });
+  },
   passwordChanged: (u) => send(u.email, 'הסיסמה שלך שונתה', [
     `שלום ${esc(u.first_name)},`, 'הסיסמה לחשבון שלך שונתה, וכל החיבורים הפעילים נותקו.',
     'אם לא אתה שינית אותה, פנה מיד למנהל המערכת.',

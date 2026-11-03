@@ -177,9 +177,17 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `);
 
-// Columns added after the first release (existing databases are upgraded in place).
-const userColumns = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
-if (!userColumns.has('google_sub')) db.exec('ALTER TABLE users ADD COLUMN google_sub TEXT');
+// Columns added after the first release (existing databases are upgraded in place). On Vercel several instances can
+// start at the same moment on a new database, so everything below must also work when another one got there first.
+function addColumn(table, column, type) {
+  if (db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) return;
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message)) throw err;
+  }
+}
+addColumn('users', 'google_sub', 'TEXT');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
 
 const DEFAULT_SETTINGS = {
@@ -196,14 +204,10 @@ const DEFAULT_SETTINGS = {
 const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertSetting.run(k, v);
 
-if (!db.prepare('SELECT 1 FROM vehicles LIMIT 1').get()) {
-  db.prepare("INSERT INTO vehicles (plate, make, model) VALUES ('00-000-00', 'יצרן', 'דגם')").run();
-}
-
-if (!db.prepare('SELECT 1 FROM policies LIMIT 1').get()) {
-  const content = fs.readFileSync(path.join(__dirname, 'default-policy.md'), 'utf8');
-  db.prepare('INSERT INTO policies (version, content, created_at) VALUES (1, ?, ?)').run(content, time.stamp());
-}
+// First start only. One statement each, so two instances starting together cannot both insert.
+db.prepare("INSERT INTO vehicles (plate, make, model) SELECT '00-000-00', 'יצרן', 'דגם' WHERE NOT EXISTS (SELECT 1 FROM vehicles)").run();
+db.prepare('INSERT OR IGNORE INTO policies (version, content, created_at) SELECT 1, ?, ? WHERE NOT EXISTS (SELECT 1 FROM policies)')
+  .run(fs.readFileSync(path.join(__dirname, 'default-policy.md'), 'utf8'), time.stamp());
 
 function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();

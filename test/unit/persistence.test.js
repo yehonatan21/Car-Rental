@@ -12,12 +12,12 @@ const time = require('../../src/time');
 
 const root = path.join(__dirname, '..', '..');
 
-/** Runs code in a brand-new Node process using the same storage (what a redeploy/restart does). */
+/** Runs code in a brand-new Node process using the same storage (what a redeploy/restart does); its last output line. */
 function inNewProcess(code) {
   return execFileSync(process.execPath, ['--no-warnings', '-e', code], {
     cwd: root, encoding: 'utf8',
     env: { PATH: process.env.PATH, TZ: 'Asia/Jerusalem', DATA_DIR: dataDir, TURSO_DATABASE_URL: process.env.TURSO_DATABASE_URL || '' },
-  }).trim();
+  }).trim().split('\n').pop(); // earlier lines are startup logs such as "[db] hosted database …"
 }
 
 test('users, bookings and license files written now are there after a restart', () => {

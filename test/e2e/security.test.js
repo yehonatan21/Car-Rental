@@ -55,10 +55,12 @@ test('anonymous users are redirected to login, keeping the target', async () => 
 
 test('regular users get 403 on every admin page and action', async () => {
   for (const url of ['/admin', '/admin/users', `/admin/users/${plainUser.id}`, `/admin/users/${plainUser.id}/license`,
-    '/admin/bookings', '/admin/bookings/new', '/admin/blocks/new', '/admin/vehicle', '/admin/policies', '/admin/settings', '/admin/audit']) {
+    '/admin/bookings', '/admin/bookings/new', '/admin/blocks/new', '/admin/vehicle', '/admin/policies', '/admin/settings', '/admin/audit',
+    '/admin/users/new']) {
     assert.equal((await user.get(url)).status, 403, url);
   }
-  for (const url of [`/admin/users/${plainUser.id}/approve`, `/admin/users/${plainUser.id}/make-admin`, '/admin/settings', '/admin/policies']) {
+  for (const url of [`/admin/users/${plainUser.id}/approve`, `/admin/users/${plainUser.id}/make-admin`, '/admin/settings', '/admin/policies',
+    '/admin/users/new']) {
     assert.equal((await user.post(url, { license_expiry: '2099-01-01', content: 'x' })).status, 403, url);
   }
   assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get(plainUser.id).role, 'user', 'cannot self-promote');

@@ -8,7 +8,8 @@ const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
 const storage = require('../storage');
-const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 
 const SETTING_LABELS = {
   buffer_minutes: ['זמן התארגנות בין הזמנות (דקות)', 'מרווח חובה בין החזרת הרכב להזמנה הבאה'],
@@ -156,12 +157,50 @@ function googleStatusCard(req) {
 </section>`;
 }
 
+/** Admin → Users → "Add user": the account is active right away; the person chooses a password from an invitation. */
+function newUserPage(req, { errors = [], v = {} } = {}) {
+  const invite = v.send_invite ?? true;
+  return html`
+<div class="narrow-wide">
+  <p><a class="back" href="/admin/users">${icon('arrow', 16)} חזרה לרשימה</a></p>
+  ${pageHead('הוספת משתמש', { iconName: 'userplus', sub: 'בלי הרשמה עצמית: המשתמש יקבל במייל קישור לבחירת סיסמה.' })}
+  ${errors.length ? html`<div class="flash flash-error"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+  ${postForm(req, '/admin/users/new', html`
+    <fieldset>
+      <legend>${icon('user')} פרטים אישיים</legend>
+      <div class="grid2">
+        ${field('שם פרטי', html`<input name="first_name" value="${v.first_name}" required>`)}
+        ${field('שם משפחה', html`<input name="last_name" value="${v.last_name}" required>`)}
+        ${field('מספר תעודת זהות', html`<input name="id_number" value="${v.id_number}" required inputmode="numeric" maxlength="9">`)}
+        ${field('טלפון נייד', html`<input type="tel" name="phone" value="${v.phone}" required placeholder="05XXXXXXXX">`)}
+      </div>
+      ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${v.email}" required>`, 'משמש גם כשם המשתמש להתחברות')}
+    </fieldset>
+    <fieldset>
+      <legend>${icon('id')} רישיון נהיגה (אופציונלי)</legend>
+      ${field('תאריך פקיעת תוקף הרישיון', html`<input type="date" name="license_expiry" value="${v.license_expiry}" min="${time.today()}">`,
+        'מילוי התאריך מסמן שבדקת את הרישיון, והחשבון פעיל מיד. בלי תאריך המשתמש יתבקש להעלות רישיון, ואחרי אישורך יוכל להזמין.')}
+      ${field('צילום רישיון נהיגה', licenseInput({ required: false }), `תמונה או PDF, עד ${uploadLimitLabel()}`)}
+    </fieldset>
+    <fieldset>
+      <legend>${icon('shield')} תפקיד והזמנה</legend>
+      ${field('תפקיד', html`<select name="role">
+        <option value="user" ${v.role !== 'admin' ? 'selected' : ''}>משתמש רגיל</option>
+        <option value="admin" ${v.role === 'admin' ? 'selected' : ''}>מנהל מערכת</option></select>`)}
+      <label class="check"><input type="checkbox" name="send_invite" value="1" ${invite ? 'checked' : ''}> <span>שליחת מייל עם קישור לבחירת סיסמה (תקף ל־7 ימים)</span></label>
+    </fieldset>
+    <button class="btn btn-primary btn-block">${icon('userplus')} יצירת המשתמש</button>
+    <p class="muted small">את נהלי השאלת הרכב המשתמש יאשר בעצמו לפני ההזמנה הראשונה.</p>
+  `, 'enctype="multipart/form-data" class="card"')}
+</div>`;
+}
+
 function userOptions(selected) {
   const users = db.prepare("SELECT * FROM users WHERE status = 'active' ORDER BY first_name, last_name").all();
   return users.map((u) => html`<option value="${u.id}" ${u.id === Number(selected) ? 'selected' : ''}>${fullName(u)} (${u.email})</option>`);
 }
 
-module.exports = ({ app, requireAdmin }) => {
+module.exports = ({ app, requireAdmin, licenseUpload }) => {
   // ---------- Dashboard ----------
   app.get('/admin', requireAdmin, (req, res) => {
     const s = getSettings();
@@ -235,7 +274,10 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2 class="section-title">
     const users = db.prepare(`SELECT * FROM users ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY
       CASE status WHEN 'pending' THEN 0 WHEN 'license_update' THEN 1 ELSE 2 END, created_at DESC`).all(...args);
     res.page('משתמשים', html`
-${pageHead('משתמשים', { iconName: 'users', sub: 'אישור נרשמים, בדיקת רישיונות וניהול הרשאות.' })}
+${pageHead('משתמשים', {
+    iconName: 'users', sub: 'אישור נרשמים, בדיקת רישיונות וניהול הרשאות.',
+    actions: html`<a class="btn btn-primary" href="/admin/users/new">${icon('userplus')} הוספת משתמש</a>`,
+  })}
 <form class="filters" method="get">
   <input name="q" value="${q}" placeholder="חיפוש לפי שם, מייל, טלפון או ת״ז">
   <select name="status"><option value="">כל הסטטוסים</option>
@@ -259,6 +301,57 @@ ${pageHead('משתמשים', { iconName: 'users', sub: 'אישור נרשמים,
 ${users.length ? '' : html`<p class="empty">${icon('users', 28)}<span>לא נמצאו משתמשים.</span></p>`}
 </section>
 <p class="muted small">למינוי מנהל: פותחים את כרטיס המשתמש ← "הרשאות" ← "הפיכה למנהל".</p>`);
+  });
+
+  // Registered before /admin/users/:id so "new" is not taken as an id.
+  app.get('/admin/users/new', requireAdmin, (req, res) => res.page('הוספת משתמש', newUserPage(req)));
+
+  app.post('/admin/users/new', requireAdmin, licenseUpload, async (req, res) => {
+    const b = req.body;
+    const v = {
+      first_name: String(b.first_name || '').trim(), last_name: String(b.last_name || '').trim(),
+      id_number: String(b.id_number || '').trim(), phone: normalizePhone(b.phone),
+      email: String(b.email || '').trim().toLowerCase(), license_expiry: String(b.license_expiry || ''),
+      role: b.role === 'admin' ? 'admin' : 'user', send_invite: b.send_invite === '1',
+    };
+    const errors = [];
+    if (!v.first_name || !v.last_name) errors.push('יש למלא שם פרטי ושם משפחה');
+    if (!validIsraeliId(v.id_number)) errors.push('מספר תעודת הזהות אינו תקין');
+    if (!validPhone(v.phone)) errors.push('מספר הטלפון הנייד אינו תקין');
+    if (!validEmail(v.email)) errors.push('כתובת הדואר האלקטרוני אינה תקינה');
+    if (v.license_expiry && (!time.isValidDate(v.license_expiry) || v.license_expiry < time.today())) errors.push('תאריך תוקף הרישיון חייב להיות עתידי');
+    if (req.file && !v.license_expiry) errors.push('עם צילום רישיון יש למלא גם את תאריך התוקף שלו');
+    if (db.prepare('SELECT 1 FROM users WHERE email = ? OR id_number = ?').get(v.email, v.id_number)) {
+      errors.push('קיים כבר משתמש עם כתובת דואר אלקטרוני או תעודת זהות זו');
+    }
+    if (errors.length) {
+      storage.discard(req.file);
+      return res.status(400).page('הוספת משתמש', newUserPage(req, { errors, v }));
+    }
+    if (req.file) storage.keep(req.file);
+    const now = time.stamp();
+    // With a license date the admin vouches for the license; without one the person uploads it first (the usual
+    // "license update" flow: upload → the admin approves → active). Admins can manage the system without a license.
+    const status = v.license_expiry || v.role === 'admin' ? 'active' : 'license_update';
+    const id = Number(db.prepare(`INSERT INTO users (first_name, last_name, id_number, phone, email, role, status, license_file,
+        license_expiry, license_verified, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(v.first_name, v.last_name, v.id_number, v.phone, v.email, v.role, status, req.file?.filename ?? null,
+        v.license_expiry || null, v.license_expiry ? 1 : 0, now, now).lastInsertRowid);
+    audit(req.user.id, 'user.create', 'user', id, `${v.role}${v.license_expiry ? `, רישיון עד ${v.license_expiry}` : ''}`);
+    const u = getUser(id);
+
+    let notice = ['success', `המשתמש ${fullName(u)} נוצר.`];
+    if (v.send_invite) {
+      const token = auth.createPasswordReset(id, auth.INVITE_TTL_MS);
+      const sent = await mail.invitation(u, token, fullName(req.user)) && Boolean(config.smtp);
+      notice = sent
+        ? ['success', `המשתמש ${fullName(u)} נוצר, ונשלח אליו מייל לבחירת סיסמה.`]
+        : ['warning', `המשתמש ${fullName(u)} נוצר, אבל ${config.smtp ? 'שליחת המייל נכשלה' : 'לא הוגדר שרת דואר ולכן לא נשלח מייל'}. `
+          + `אפשר להעביר לו את הקישור לבחירת סיסמה (תקף ל־7 ימים): ${config.baseUrl}/password/reset?token=${encodeURIComponent(token)}`];
+    }
+    if (status === 'license_update') notice[1] += ' הוא יתבקש להעלות רישיון נהיגה, ואחרי אישורך יוכל להזמין.';
+    res.flash(...notice);
+    res.redirect(`/admin/users/${id}`);
   });
 
   app.get('/admin/users/:id', requireAdmin, (req, res) => {

@@ -61,6 +61,32 @@ function urlFromEnv(name, scheme) {
   return v.replace(/\/+$/, '');
 }
 
+/**
+ * Which environment variables hold the hosted database (Turso/libSQL). Besides the standard names, the Vercel Turso
+ * integration can add them under a custom prefix (e.g. STORAGE_TURSO_DATABASE_URL + STORAGE_TURSO_AUTH_TOKEN).
+ */
+function databaseEnv() {
+  for (const [url, token] of [['TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN'], ['LIBSQL_URL', 'LIBSQL_AUTH_TOKEN']]) {
+    if (clean(process.env[url])) return { url, token };
+  }
+  const url = Object.keys(process.env).sort()
+    .find((k) => /_DATABASE_URL$/.test(k) && /^libsql:\/\/|\.turso\.io\b/i.test(clean(process.env[k])));
+  return url ? { url, token: url.replace(/DATABASE_URL$/, 'AUTH_TOKEN') } : null;
+}
+const dbEnv = databaseEnv();
+const database = {
+  // Cleaned: values pasted into a hosting dashboard often carry spaces, a newline or quotes. A URL without its scheme
+  // would otherwise be taken as a local file name, silently using a throwaway database.
+  url: dbEnv ? urlFromEnv(dbEnv.url, 'libsql') : '',
+  authToken: dbEnv ? clean(process.env[dbEnv.token]).replace(/^Bearer\s+/i, '') : '',
+  from: dbEnv?.url || null,
+};
+// On Vercel the disk is temporary and separate for every instance: without a hosted database, accounts and logins
+// would exist on one instance and not the next (redirect loops) and everything would vanish on each new version.
+// So the app refuses to start there, unless a throwaway demo is wanted on purpose.
+const temporaryData = onVercel && !process.env.DATA_DIR && !database.url;
+const allowTemporaryData = clean(process.env.ALLOW_TEMPORARY_DATA) === 'true';
+
 // Sender address. Most SMTP providers (Gmail, Outlook, SendGrid…) refuse or spam-flag mail "from" an address the
 // account does not own, so without MAIL_FROM the SMTP login (when it is an e-mail address) is used.
 function mailFrom() {
@@ -87,14 +113,11 @@ module.exports = {
   // (project → Analytics → Enable). VERCEL_ANALYTICS=false turns the script off.
   vercelAnalytics: onVercel && process.env.VERCEL_ANALYTICS !== 'false',
   // Data does not survive restarts (Vercel without DATA_DIR pointing at persistent storage): warn on every page.
-  ephemeral: onVercel && !process.env.DATA_DIR && !clean(process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL),
+  ephemeral: temporaryData,
+  // Set when the app must not start: Vercel without a hosted database (and no ALLOW_TEMPORARY_DATA=true).
+  missingDatabase: temporaryData && !allowTemporaryData,
   // Hosted libSQL / Turso database (data survives redeploys). Names match Vercel's Turso integration.
-  // Cleaned: values pasted into a hosting dashboard often carry spaces, a newline or quotes. A URL without its scheme
-  // would otherwise be taken as a local file name, silently using a throwaway database.
-  database: {
-    url: urlFromEnv(process.env.TURSO_DATABASE_URL ? 'TURSO_DATABASE_URL' : 'LIBSQL_URL', 'libsql'),
-    authToken: clean(process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN).replace(/^Bearer\s+/i, ''),
-  },
+  database,
   dbFile: process.env.DB_FILE || path.join(dataDir, 'app.db'),
   // Private storage for license images: outside any static folder, served only through an admin-checked route.
   uploadsDir: path.join(dataDir, 'licenses'),

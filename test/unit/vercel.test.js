@@ -51,7 +51,7 @@ test('the Vercel entry point serves the app without writing next to the code', a
     const s = http.createServer(require('./api/index.js')).listen(0, '127.0.0.1', () => console.log('PORT ' + s.address().port));`;
   const child = spawn(process.execPath, ['--no-warnings', '-e', script], {
     cwd: root, env: { PATH: process.env.PATH, VERCEL: '1', VERCEL_URL: 'demo.vercel.app', NODE_ENV: 'production', TMPDIR: tmp,
-      ADMIN_EMAIL: 'vercel-admin@test.org', ADMIN_PASSWORD: 'VercelAdmin1' },
+      ADMIN_EMAIL: 'vercel-admin@test.org', ADMIN_PASSWORD: 'VercelAdmin1', ALLOW_TEMPORARY_DATA: 'true' },
   });
   try {
     const port = await new Promise((resolve, reject) => {
@@ -166,7 +166,7 @@ test('addresses pasted without https:// / libsql:// or in quotes still work; a b
   assert.equal(configWith({ BASE_URL: ' "https://car-rental.vercel.app/" ' }).baseUrl, 'https://car-rental.vercel.app');
   const db = JSON.parse(execFileSync(process.execPath, ['--no-warnings', '-e', 'console.log(JSON.stringify(require("./src/config").database))'],
     { cwd: root, env: { PATH: process.env.PATH, TURSO_DATABASE_URL: "'car-rental-x.turso.io'", TURSO_AUTH_TOKEN: ' "Bearer abc.def" ' }, encoding: 'utf8' }));
-  assert.deepEqual(db, { url: 'libsql://car-rental-x.turso.io', authToken: 'abc.def' }, 'never taken as a local file name');
+  assert.deepEqual(db, { url: 'libsql://car-rental-x.turso.io', authToken: 'abc.def', from: 'TURSO_DATABASE_URL' }, 'never taken as a local file name');
 
   // On Vercel the entry point explains it instead of a bare "Invalid URL".
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-url-'));
@@ -181,4 +181,35 @@ test('addresses pasted without https:// / libsql:// or in quotes still work; a b
   assert.match(out, /^503 /);
   assert.match(out, /הערך של BASE_URL אינו כתובת תקינה/);
   assert.match(out, /BASE_URL is not a valid address: &quot;https:\/\/&quot;/);
+});
+
+/** GET / through the Vercel entry point in a child process with the given environment: "<status> <body>". */
+function vercelGet(env) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-get-'));
+  try {
+    return execFileSync(process.execPath, ['--no-warnings', '-e', `
+      const http = require('node:http');
+      const s = http.createServer(require('./api/index.js')).listen(0, '127.0.0.1', () => {
+        http.get({ host: '127.0.0.1', port: s.address().port, path: '/login', headers: { 'x-forwarded-proto': 'https' } }, (res) => {
+          let b = ''; res.on('data', (c) => { b += c; }); res.on('end', () => { console.log(res.statusCode + ' ' + b); process.exit(0); });
+        });
+      });`], { cwd: root, env: { PATH: process.env.PATH, VERCEL: '1', NODE_ENV: 'production', TMPDIR: tmp, ...env }, encoding: 'utf8' });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+test('Vercel without a hosted database: a clear stop page instead of data that silently disappears', () => {
+  const out = vercelGet({ VERCEL_ENV: 'production' });
+  assert.match(out, /^503 /);
+  assert.match(out, /לא מחובר מסד נתונים לפריסה הזו/);
+  assert.match(out, /No database is connected to this production deployment/);
+  assert.match(vercelGet({ ALLOW_TEMPORARY_DATA: 'true' }), /^200 [\s\S]*סביבת הדגמה/, 'a throwaway demo only on purpose');
+});
+
+test('Turso variables added by the Vercel integration under a custom prefix are found', () => {
+  const db = JSON.parse(execFileSync(process.execPath, ['--no-warnings', '-e', 'console.log(JSON.stringify(require("./src/config").database))'],
+    { cwd: root, env: { PATH: process.env.PATH, STORAGE_TURSO_DATABASE_URL: 'libsql://car-rental-team.aws-eu-west-1.turso.io',
+      STORAGE_TURSO_AUTH_TOKEN: 'tok', OTHER_DATABASE_URL: 'postgres://x' }, encoding: 'utf8' }));
+  assert.deepEqual(db, { url: 'libsql://car-rental-team.aws-eu-west-1.turso.io', authToken: 'tok', from: 'STORAGE_TURSO_DATABASE_URL' });
 });

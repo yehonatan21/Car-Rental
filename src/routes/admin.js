@@ -1,6 +1,6 @@
 'use strict';
 const path = require('node:path');
-const { db, audit, getSettings, setSetting, currentPolicy, defaultVehicle } = require('../db');
+const { db, audit, getSettings, setSetting, currentPolicy, defaultVehicle, storageInfo } = require('../db');
 const auth = require('../auth');
 const mail = require('../mail');
 const time = require('../time');
@@ -94,6 +94,32 @@ function permissionsCard(req, u, isSelf) {
     : 'יכול להזמין את הרכב ולנהל את ההזמנות והפרטים שלו בלבד.'}</p>
   ${isAdmin && !u.totp_enabled ? html`<p class="small note-line">${icon('alert', 16)} למנהל זה אין אימות דו־שלבי. מומלץ לבקש ממנו להפעיל אותו (אזור אישי ← סיסמה ואבטחה).</p>` : ''}
   ${action}
+</section>`;
+}
+
+/** Settings page: which version runs and where the data is kept, so "is my data saved between versions?" is visible. */
+function systemCard() {
+  const s = storageInfo();
+  const env = process.env;
+  const commit = (env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7);
+  const count = (sql) => db.prepare(sql).get().n;
+  const leftovers = config.onVercel ? ['DATA_DIR', 'ALLOW_TEMPORARY_DATA', 'DB_FILE'].filter((k) => env[k]) : [];
+  return html`<section class="card" id="system">
+  <h2 class="section-title">${icon('settings')} מערכת ונתונים</h2>
+  ${s.kind === 'hosted'
+    ? html`<div class="flash flash-success small">הנתונים נשמרים במסד נתונים קבוע (Turso) ונשארים בין גרסאות.</div>`
+    : s.kind === 'temporary'
+      ? html`<div class="flash flash-error small"><b>הנתונים זמניים:</b> הם נשמרים בקובץ על השרת ונמחקים בכל גרסה חדשה. יש לחבר מסד נתונים (Turso) לסביבה הזו.</div>`
+      : html`<p class="small">הנתונים נשמרים בקובץ <code dir="ltr">${s.file}</code>.</p>`}
+  ${leftovers.length ? html`<div class="flash flash-warning small">ב־Vercel מוגדרים ${leftovers.join(', ')}, שלא צריכים להיות שם. יש למחוק אותם ולבצע Redeploy.</div>` : ''}
+  <dl class="dl small">
+    ${env.VERCEL_ENV ? html`<dt>סביבה</dt><dd>${env.VERCEL_ENV === 'production' ? 'Production (main)' : `${env.VERCEL_ENV} (${env.VERCEL_GIT_COMMIT_REF || '—'})`}</dd>` : ''}
+    ${commit ? html`<dt>גרסה</dt><dd><code>${commit}</code> ${env.VERCEL_GIT_COMMIT_MESSAGE ? html`<span class="muted">${env.VERCEL_GIT_COMMIT_MESSAGE.split('\n')[0].slice(0, 80)}</span>` : ''}</dd>` : ''}
+    ${s.host ? html`<dt>מסד נתונים</dt><dd><code dir="ltr">${s.host}</code> <span class="muted">(מתוך ${s.from})</span></dd>` : ''}
+    <dt>מזהה מסד הנתונים</dt><dd><code>${s.id}</code> <span class="muted">נוצר ${time.fmt(s.createdAt)}</span></dd>
+    <dt>נתונים</dt><dd>${count('SELECT COUNT(*) AS n FROM users')} משתמשים · ${count("SELECT COUNT(*) AS n FROM bookings WHERE kind = 'booking'")} הזמנות</dd>
+  </dl>
+  <p class="muted small">אחרי פריסה של גרסה חדשה, מזהה מסד הנתונים חייב להישאר זהה. אם הוא השתנה, הגרסה החדשה מחוברת למסד נתונים אחר (או חדש).</p>
 </section>`;
 }
 
@@ -356,7 +382,7 @@ ${users.length ? '' : html`<p class="empty">${icon('users', 28)}<span>לא נמ�
 
   app.get('/admin/users/:id', requireAdmin, (req, res) => {
     const u = getUser(req.params.id);
-    if (!u) return res.status(404).page('לא נמצא', html`<h1>המשתמש לא נמצא</h1>`);
+    if (!u) return res.redirect('/'); // an old or mistyped link: back to the main page
     const list = db.prepare("SELECT * FROM bookings WHERE user_id = ? AND kind = 'booking' ORDER BY start_at DESC").all(u.id);
     const acceptances = db.prepare('SELECT * FROM policy_acceptances WHERE user_id = ? ORDER BY id DESC').all(u.id);
     const log = db.prepare('SELECT a.*, x.first_name, x.last_name FROM audit_log a LEFT JOIN users x ON x.id = a.actor_id WHERE target_type = ? AND target_id = ? ORDER BY a.id DESC LIMIT 30').all('user', u.id);
@@ -644,7 +670,7 @@ ${pageHead('הזמנות', {
 
   app.get('/admin/bookings/:id', requireAdmin, (req, res) => {
     const b = bookings.getBooking(Number(req.params.id));
-    if (!b) return res.status(404).page('לא נמצא', html`<h1>ההזמנה לא נמצאה</h1>`);
+    if (!b) return res.redirect('/'); // an old or mistyped link: back to the main page
     const history = db.prepare(`SELECT h.*, u.first_name, u.last_name FROM booking_history h LEFT JOIN users u ON u.id = h.actor_id
       WHERE booking_id = ? ORDER BY h.id`).all(b.id);
     const conflicts = b.status === 'pending' ? bookings.findConflicts(b.vehicle_id, b.start_at, b.end_at, { excludeId: b.id }) : [];
@@ -812,6 +838,7 @@ ${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: `גרסה 
     <h2 class="section-title">${icon('calendar')} כללי הזמנה ותזכורות</h2>
     ${Object.entries(SETTING_LABELS).map(([k, [label, hint]]) => field(label, html`<input type="number" name="${k}" value="${s[k]}" min="0" step="1" required>`, hint))}
     <button class="btn btn-primary btn-block">שמירה</button>`, 'class="card"')}
+  ${systemCard()}
   ${emailStatusCard(req)}
   ${googleStatusCard(req)}
   <p><a class="back" href="/admin/audit">${icon('clock', 16)} יומן פעולות מנהלים</a></p>

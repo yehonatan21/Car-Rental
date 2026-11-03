@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const express = require('express');
 const multer = require('multer');
 const config = require('./config');
-const { db } = require('./db');
+const { db, storageInfo } = require('./db');
 const auth = require('./auth');
 const { layout, html, uploadLimitLabel } = require('./views/html');
 const { BookingError } = require('./bookings');
@@ -41,11 +41,21 @@ app.use((req, res, next) => {
 });
 
 app.use('/static', express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
+// Browsers ask for /favicon.ico on their own (e.g. when showing a PDF); the tab icon is an SVG.
+app.get('/favicon.ico', (req, res) => res.redirect(301, '/static/favicon.svg'));
 
 // Liveness/readiness probe for Docker, CI smoke tests and the hosting platform.
+// Also says which code version is running and where the data is kept (no secrets), e.g. to check after a new
+// deployment that it still uses the same database (storage.id unchanged).
 app.get('/healthz', (req, res) => {
   db.prepare('SELECT 1').get();
-  res.json({ status: 'ok', env: process.env.APP_ENV || process.env.NODE_ENV || 'development' });
+  const s = storageInfo();
+  res.set('Cache-Control', 'no-store').json({
+    status: 'ok', env: process.env.APP_ENV || process.env.NODE_ENV || 'development',
+    version: { commit: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null, branch: process.env.VERCEL_GIT_COMMIT_REF || null,
+      environment: process.env.VERCEL_ENV || null },
+    storage: { kind: s.kind, id: s.id, createdAt: s.createdAt },
+  });
 });
 
 // Scheduled jobs (reminders, license expiry, closing finished bookings). A normal server runs them on a timer
@@ -173,7 +183,13 @@ require('./routes/public')(ctx);
 require('./routes/user')(ctx);
 require('./routes/admin')(ctx);
 
-app.use((req, res) => res.status(404).page('לא נמצא', html`<h1>העמוד לא נמצא</h1><p><a href="/">חזרה לדף הבית</a></p>`));
+// An unknown address (an old link, a typo) goes to the main page, which sends signed-in people on to their own home
+// page. Files (images, styles, scripts) and form posts keep a plain 404, so a missing file never gets a whole page.
+app.use((req, res) => {
+  const isPage = req.method === 'GET' && !req.path.startsWith('/static/') && !/\.[a-z0-9]{1,5}$/i.test(req.path) && req.accepts('html');
+  if (isPage) return res.redirect('/');
+  res.status(404).type('text/plain').send('Not found');
+});
 
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {

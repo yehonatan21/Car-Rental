@@ -204,7 +204,9 @@ test('Vercel without a hosted database: a clear stop page instead of data that s
   assert.match(out, /^503 /);
   assert.match(out, /לא מחובר מסד נתונים לפריסה הזו/);
   assert.match(out, /No database is connected to this production deployment/);
-  assert.match(vercelGet({ ALLOW_TEMPORARY_DATA: 'true' }), /^200 [\s\S]*סביבת הדגמה/, 'a throwaway demo only on purpose');
+  const demo = vercelGet({ ALLOW_TEMPORARY_DATA: 'true' });
+  assert.match(demo, /^200 [\s\S]*סביבת הדגמה/m, 'a throwaway demo only on purpose');
+  assert.match(demo, /^\[db\] temporary database file/m, 'and the log says so');
 });
 
 test('Turso variables added by the Vercel integration under a custom prefix are found', () => {

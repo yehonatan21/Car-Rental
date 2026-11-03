@@ -469,3 +469,18 @@ test('add user: validation errors keep the form, nothing is created', async () =
   assert.match(r.text, /יש למלא גם את תאריך התוקף/);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users WHERE email IN ('bad-id@manual.test', 'photo-only@manual.test')").get().n, 0);
 });
+
+test('settings show where the data is kept and the database id', async () => {
+  const page = (await admin.get('/admin/settings')).text;
+  assert.match(page, /מערכת ונתונים/);
+  assert.match(page, /מזהה מסד הנתונים<\/dt><dd><code>[0-9a-f]{8}<\/code>/);
+  const config = require('../../src/config');
+  const saved = config.onVercel;
+  config.onVercel = true;
+  try {
+    const hosted = require('../../src/db').db.remote;
+    assert.match((await admin.get('/admin/settings')).text, hosted ? /נשמרים במסד נתונים קבוע/ : /הנתונים זמניים/);
+  } finally {
+    config.onVercel = saved;
+  }
+});

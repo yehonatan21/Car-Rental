@@ -175,6 +175,13 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Facts about the database itself: a random id and creation time written once, when it is first set up. If the id
+-- shown on the settings page changes after a new deployment, that deployment uses a different (or new) database.
+CREATE TABLE IF NOT EXISTS app_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `);
 
 // Columns added after the first release (existing databases are upgraded in place). On Vercel several instances can
@@ -258,7 +265,26 @@ function defaultVehicle() {
   return db.prepare('SELECT * FROM vehicles ORDER BY id LIMIT 1').get();
 }
 
+db.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('db_id', require('node:crypto').randomBytes(4).toString('hex'));
+db.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('created_at', time.stamp());
+
+/** Where the data lives, for /healthz, the settings page and the startup log. No secrets. */
+function storageInfo() {
+  const meta = Object.fromEntries(db.prepare('SELECT key, value FROM app_meta').all().map((r) => [r.key, r.value]));
+  // Any file on Vercel is temporary (wiped with each new version, and separate for every server instance).
+  const kind = db.remote ? 'hosted' : config.onVercel ? 'temporary' : 'file';
+  return {
+    kind, id: meta.db_id, createdAt: meta.created_at,
+    host: db.remote ? new URL(config.database.url).host : null, from: config.database.from, file: db.remote ? null : config.dbFile,
+  };
+}
+{
+  const s = storageInfo();
+  console.log(`[db] ${s.kind === 'hosted' ? `hosted database ${s.host} (from ${s.from})` : `${s.kind} database file ${s.file}`}, `
+    + `database id ${s.id}, created ${s.createdAt}`);
+}
+
 module.exports = {
-  db, transaction, audit, getSettings, setSetting, DEFAULT_SETTINGS,
+  db, transaction, audit, getSettings, setSetting, DEFAULT_SETTINGS, storageInfo,
   currentPolicy, requiredPolicyVersion, userAcceptedPolicy, defaultVehicle,
 };

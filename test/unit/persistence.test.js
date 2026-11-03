@@ -102,3 +102,13 @@ test('scheduled jobs endpoint for Vercel Cron requires the secret', async () => 
     await srv.close();
   }
 });
+
+test('the database id stays the same in a new process (a new version) on the same storage', () => {
+  const { storageInfo } = require('../../src/db');
+  const here = storageInfo();
+  assert.match(here.id, /^[0-9a-f]{8}$/);
+  assert.equal(here.kind, process.env.TURSO_DATABASE_URL ? 'hosted' : 'file');
+  const there = JSON.parse(inNewProcess('console.log(JSON.stringify(require("./src/db").storageInfo()))'));
+  assert.equal(there.id, here.id);
+  assert.equal(there.createdAt, here.createdAt);
+});

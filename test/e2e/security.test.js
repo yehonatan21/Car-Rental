@@ -23,7 +23,11 @@ after(() => srv.close());
 test('health endpoint', async () => {
   const r = await client().get('/healthz');
   assert.equal(r.status, 200);
-  assert.equal(JSON.parse(r.text).status, 'ok');
+  const health = JSON.parse(r.text);
+  assert.equal(health.status, 'ok');
+  assert.match(health.storage.id, /^[0-9a-f]{8}$/, 'says which database is in use');
+  assert.ok(['file', 'hosted'].includes(health.storage.kind));
+  assert.doesNotMatch(r.text, /token|password/i);
 });
 
 test('security headers are set', async () => {
@@ -201,10 +205,21 @@ test('admins cannot change their own status or role', async () => {
   assert.equal(me.role, 'admin');
 });
 
-test('unknown pages return 404', async () => {
-  assert.equal((await client().get('/nope')).status, 404);
-  assert.equal((await admin.get('/admin/users/999999')).status, 404);
-  assert.equal((await admin.get('/admin/bookings/999999')).status, 404);
+test('unknown pages go to the main page; missing files are a plain 404', async () => {
+  for (const [c, url] of [[client(), '/nope'], [admin, '/admin/nope'], [admin, '/admin/users/999999'], [admin, '/admin/bookings/999999']]) {
+    const r = await c.get(url);
+    assert.equal(r.status, 302, url);
+    assert.equal(r.location, '/', url);
+  }
+  assert.equal((await client().get('/')).status, 200);
+  assert.equal((await admin.get('/')).location, '/admin', 'the main page sends an admin on to the dashboard');
+  const missing = await client().get('/static/missing.css');
+  assert.equal(missing.status, 404);
+  assert.equal(missing.text, 'Not found');
+  assert.equal((await client().get('/robots.txt')).status, 404);
+  assert.equal((await client().get('/favicon.ico')).location, '/static/favicon.svg');
+  assert.match((await client().get('/static/favicon.svg')).headers.get('content-type'), /^image\/svg\+xml/);
+  assert.match((await client().get('/login')).text, /<link rel="icon" href="\/static\/favicon.svg"/);
 });
 
 test('a blocked admin loses all admin powers, even after logging in again', async () => {

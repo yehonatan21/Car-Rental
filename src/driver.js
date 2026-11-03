@@ -67,13 +67,12 @@ function wrapNodeSqlite(conn) {
 }
 
 function openDatabase() {
-  const { url, authToken, from } = config.database;
+  const { url, authToken } = config.database;
   if (config.missingDatabase) {
     throw new Error(`No database is connected to this ${process.env.VERCEL_ENV || 'Vercel'} deployment: TURSO_DATABASE_URL is not set, `
       + 'so every new version (and every server instance) would start with empty data.');
   }
   if (url) {
-    console.log(`[db] hosted database ${new URL(url).host} (from ${from})`);
     const Database = require('libsql');
     // libsql:// is Turso's name for HTTPS; spell it out so the transport is unambiguous.
     const conn = new Database(url.replace(/^libsql:\/\//, 'https://'), authToken ? { authToken } : {});

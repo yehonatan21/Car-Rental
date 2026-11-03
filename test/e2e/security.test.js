@@ -77,12 +77,31 @@ test('license files are only served to admins, never cached, and every view is l
   }
 });
 
-test('POST without a valid CSRF token is rejected', async () => {
+test('POST without a valid CSRF token is not performed (the page is reloaded with a message)', async () => {
   let r = await admin.req('POST', `/admin/users/${plainUser.id}/block`, {});
-  assert.equal(r.status, 403);
-  r = await admin.req('POST', `/admin/users/${plainUser.id}/block`, { _csrf: 'forged' });
-  assert.equal(r.status, 403);
+  assert.equal(r.status, 303);
+  r = await admin.req('POST', `/admin/users/${plainUser.id}/block`, { _csrf: 'forged' }, { referer: `${srv.base}/admin/users/${plainUser.id}` });
+  assert.equal(r.status, 303);
+  assert.equal(r.headers.get('location'), `/admin/users/${plainUser.id}`, 'back to the page the form was on');
+  assert.match(admin.flash().text, /הפעולה לא בוצעה/);
+  r = await admin.req('POST', `/admin/users/${plainUser.id}/block`, { _csrf: 'forged' }, { referer: 'https://evil.example/x' });
+  assert.equal(r.headers.get('location'), '/', 'never redirected to another site');
   assert.equal(db.prepare('SELECT status FROM users WHERE id = ?').get(plainUser.id).status, 'active');
+});
+
+test('a login page opened before signing in elsewhere still works (no token needed on public forms)', async () => {
+  const c = client();
+  const loginPage = (await c.get('/login')).text; // rendered without a session: no _csrf field
+  assert.doesNotMatch(loginPage, /name="_csrf"/);
+  await c.login('admin@sec.test'); // "another tab" signs in: the browser now sends a session cookie
+  const r = await c.req('POST', '/login', { email: 'admin@sec.test', password: 'Password1' });
+  assert.equal(r.status, 302, 'signed in, not "the form expired"');
+});
+
+test('signed-in pages are not stored by the browser', async () => {
+  const r = await admin.req('GET', '/admin');
+  assert.equal(r.headers.get('cache-control'), 'no-store');
+  assert.equal((await client().req('GET', '/login')).headers.get('cache-control'), null);
 });
 
 test('cross-origin POSTs are rejected even with a token', async () => {
@@ -96,7 +115,8 @@ test('cross-origin POSTs are rejected even with a token', async () => {
 test('CSRF tokens are per session', async () => {
   const userToken = await user.csrf('/me');
   const r = await admin.req('POST', '/admin/settings', { _csrf: userToken, buffer_minutes: '99' });
-  assert.equal(r.status, 403);
+  assert.equal(r.status, 303);
+  assert.notEqual(require('../../src/db').getSettings().buffer_minutes, 99, 'not saved');
 });
 
 test('stored XSS: user-supplied fields are escaped everywhere', async () => {

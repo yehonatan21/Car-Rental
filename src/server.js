@@ -1,4 +1,5 @@
 'use strict';
+const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
 const crypto = require('node:crypto');
@@ -91,22 +92,48 @@ app.use((req, res, next) => {
   }
   res.flash = (type, text) => res.cookie('flash', Buffer.from(JSON.stringify({ type, text })).toString('base64url'),
     { httpOnly: true, sameSite: 'lax', secure: req.secure, path: '/' });
-  res.page = (title, body) => res.send(layout(req, title, body));
+  res.page = (title, body) => {
+    // Signed-in pages carry personal data and forms bound to this session: never keep a copy (shared computers,
+    // and the Back button would otherwise show a stale form whose token no longer works).
+    if ((req.user || req.pendingUser) && !res.get('Cache-Control')) res.set('Cache-Control', 'no-store');
+    return res.send(layout(req, title, body));
+  };
   next();
 });
 
 const PUBLIC_ORIGIN = new URL(config.baseUrl).origin;
+
+// Forms anyone may submit (signing in, registering, password reset) are protected by the Origin check alone: they
+// are often rendered before any session exists (a login page left open while signing in on another tab), so they
+// cannot carry a session's token.
+const PUBLIC_POSTS = new Set(['/login', '/login/code', '/login/code/verify', '/register', '/password/forgot', '/password/reset']);
+
+/** A path on this same site taken from the Referer header, or null. */
+function sameSiteReferer(req) {
+  try {
+    const u = new URL(req.get('referer') || '');
+    return u.host === req.get('host') ? u.pathname + u.search : null;
+  } catch {
+    return null;
+  }
+}
 
 // CSRF: every POST must come from our own origin; logged-in POSTs must also carry the session token.
 function verifyCsrf(req, res, next) {
   const origin = req.get('origin');
   // Our own origin as this request sees it, or the configured public URL (a tunnel/proxy may rewrite Host).
   if (origin && origin !== `${req.protocol}://${req.get('host')}` && origin !== PUBLIC_ORIGIN) return res.status(403).send('Forbidden');
-  if (req.session) {
+  if (req.session && !PUBLIC_POSTS.has(req.path)) {
     const token = String(req.body?._csrf || '');
     const ok = token.length === req.session.csrf.length &&
       crypto.timingSafeEqual(Buffer.from(token), Buffer.from(req.session.csrf));
-    if (!ok) return res.status(403).send('פג תוקף הטופס. יש לרענן את הדף ולנסות שוב.');
+    if (!ok) {
+      // A form from an older page: the person signed in again (another tab, after a new deployment) or the page came
+      // back from the browser history. Nothing is done; the page is reloaded with a fresh token and a short message.
+      if (req.file) fs.rmSync(req.file.path, { force: true });
+      res.flash('warning', 'הדף היה ישן (למשל אחרי התחברות מחדש בלשונית אחרת), ולכן הפעולה לא בוצעה. הדף רוענן – נסו שוב.');
+      return res.redirect(303, sameSiteReferer(req) || '/');
+    }
   }
   next();
 }

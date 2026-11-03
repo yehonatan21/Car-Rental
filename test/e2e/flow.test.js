@@ -99,7 +99,7 @@ test('availability API reports busy/free without personal details', async () => 
   assert.equal(free.ok, true, 'pending requests do not occupy the slot');
   const bad = JSON.parse((await alice.get('/api/availability?start=x&end=y')).text);
   assert.equal(bad.ok, false);
-  assert.equal((await client().get('/api/availability')).status, 302, 'login required');
+  assert.equal((await client().get('/api/availability')).status, 401, 'login required');
 });
 
 test('availability API warns about rule violations before the form is sent', async () => {
@@ -243,8 +243,8 @@ test('blocked users are logged out and cannot book', async () => {
   assert.equal(getUser(bobId).status, 'blocked');
   assert.match(admin.flash().text, /הזמנות פתוחות/, 'admin warned about open bookings');
   const r = await bob.get('/bookings/new');
-  assert.equal(r.status, 302);
-  assert.match(r.location, /login/);
+  assert.equal(r.status, 401, 'logged out: the login form is shown');
+  assert.match(r.text, /action="\/login"/);
 });
 
 test('every main page renders for admin and user', async () => {

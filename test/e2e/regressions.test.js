@@ -37,11 +37,12 @@ async function follow(first, clients, max = 6) {
   return { r, hops };
 }
 
-/** A page in a flow must finally be a 200 page (not an error, not a loop). */
+/** A flow must end on a real page: a 200 page, or the login form shown in place (401). Never an error or a loop. */
 async function landsOn(first, clients = [admin]) {
   const { r, hops } = await follow(first, clients);
-  assert.equal(r.status, 200, `ended with ${r.status} after ${hops.join(' → ')}`);
-  return { page: r.text, hops };
+  const loginForm = r.status === 401 && /action="\/login"/.test(r.text);
+  assert.ok(r.status === 200 || loginForm, `ended with ${r.status} after ${hops.join(' → ')}`);
+  return { page: r.text, hops, status: r.status };
 }
 
 test('test e-mail: back on the settings page with a message, whatever the mail server does', async () => {
@@ -79,10 +80,11 @@ test('new reservation page opens (signed in, and with a login from another deplo
   assert.match((await landsOn(await admin.get(url))).page, /הזמנה ידנית/);
   const stale = new Client(srv.base);
   stale.cookies.sid = 'a-token-only-another-database-knows';
-  const { page, hops } = await landsOn(await stale.get(url), [stale]);
-  assert.equal(hops.length, 1);
-  assert.match(hops[0], /^\/login\?next=/);
+  const { page, hops, status } = await landsOn(await stale.get(url), [stale]);
+  assert.deepEqual(hops, [], 'no redirect at all: the login form is shown in place');
+  assert.equal(status, 401);
   assert.match(page, /התחברות/);
+  assert.ok(page.includes(`name="next" value="${url.replace(/&/g, '&amp;')}"`), 'and continues to the page after signing in');
   assert.equal(stale.cookies.sid, undefined, 'the unknown login cookie is removed');
 });
 
@@ -179,4 +181,22 @@ test('never a bare "Not found": a form re-sent to a page address, or an action o
   }
   // A missing file is still a plain 404 (an <img> or stylesheet must not receive a whole page).
   assert.equal((await admin.get('/static/nope.png')).status, 404);
+});
+
+test('redirects are never stored by the browser or the CDN', async () => {
+  const r = await admin.post('/admin/settings/test-email', {}, '/admin/settings');
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.get('cache-control'), 'no-store');
+  await landsOn(r);
+});
+
+test('a login cookie that is not recognised is logged with the reason (and nothing secret)', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const c = new Client(srv.base);
+  c.cookies.sid = 'not-a-real-session-token';
+  const r = await c.get('/admin/settings');
+  assert.equal(r.status, 401);
+  const line = warn.mock.calls.map((x) => x.arguments[0]).find((m) => /\[session\]/.test(m));
+  assert.match(line, /login cookie not recognised \(unknown\) on GET \/admin\/settings/);
+  assert.doesNotMatch(line, /not-a-real-session-token/);
 });

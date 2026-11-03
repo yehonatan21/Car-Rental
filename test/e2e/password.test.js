@@ -49,7 +49,7 @@ test('full reset: e-mail link → new password → old one stops working, everyo
   const ok = await c.post('/password/reset', { token, password: 'NewPassword1', confirm: 'NewPassword1' });
   assert.equal(ok.location, '/login');
   assert.match(c.flash().text, /הסיסמה עודכנה/);
-  assert.equal((await loggedIn.get('/me')).status, 302, 'existing sessions ended');
+  assert.equal((await loggedIn.get('/me')).status, 401, 'existing sessions ended');
   assert.equal((await client().post('/login', { email: 'forgot@pw.test', password: 'OldPassword1' })).status, 401);
   await client().login('forgot@pw.test', 'NewPassword1');
   assert.ok(outbox().some((m) => m.subject === 'הסיסמה שלך שונתה' && m.to.includes('forgot@pw.test')));
@@ -94,7 +94,9 @@ test('admin can send a reset link from the user card (also to themselves)', asyn
   const me = db.prepare("SELECT id FROM users WHERE email = 'admin@pw.test'").get();
   await admin.post(`/admin/users/${me.id}/send-reset`, {}, `/admin/users/${me.id}`);
   assert.ok(lastLink('admin@pw.test'));
-  assert.equal((await new Client(srv.base).post(`/admin/users/${u.id}/send-reset`, {})).status, 302, 'not for anonymous users');
+  const anon = await new Client(srv.base).post(`/admin/users/${u.id}/send-reset`, {});
+  assert.equal(anon.status, 303, 'not for anonymous users');
+  assert.equal(anon.location, '/login');
 });
 
 test('requests are throttled', async () => {

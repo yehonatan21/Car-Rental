@@ -11,13 +11,14 @@ const guard = require('../../src/redirect-guard');
 
 /** A fake request/response pair that carries cookies from one hop to the next like a browser. */
 function hop(jar, url) {
-  const req = { method: 'GET', originalUrl: url, secure: true, cookies: { ...jar }, user: null };
+  const req = { method: 'GET', originalUrl: url, path: url.split('?')[0], secure: true, cookies: { ...jar }, user: null, sessionState: 'ok' };
   const res = {
     statusCode: 200, body: null, location: null,
     cookie(name, value) { jar[name] = value; return this; },
     clearCookie(name) { delete jar[name]; return this; },
     redirect(...args) { this.statusCode = typeof args[0] === 'number' ? args[0] : 302; this.location = args.at(-1); return this; },
     status(code) { this.statusCode = code; return this; },
+    set(name, value) { (this.headers ||= {})[name] = value; return this; },
     type() { return this; },
     send(body) { this.body = body; return this; },
   };
@@ -42,7 +43,8 @@ test('an endless redirect loop is stopped with a page and logged', (t) => {
   assert.equal(statuses.length, guard.MAX + 1, 'stopped right after MAX redirects, long before the browser limit');
   assert.ok(statuses.slice(0, -1).every((s) => s === 302));
   assert.equal(warn.mock.callCount(), 1);
-  assert.match(warn.mock.calls[0].arguments[0], /\[redirect-loop\] stopped after 8 redirects[\s\S]*\/login\?next/);
+  assert.match(warn.mock.calls[0].arguments[0], /\[redirect-loop\] stopped after 8 redirects[\s\S]*GET \/login \[ok\]/);
+  assert.doesNotMatch(warn.mock.calls[0].arguments[0], /start=|next=/, 'no query strings (they can carry tokens) in the log');
   assert.equal(jar[guard.COOKIE], undefined, 'and starts counting afresh');
 });
 

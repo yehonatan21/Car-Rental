@@ -15,6 +15,9 @@ const { startJobs, runJobs } = require('./jobs');
 const { listenHttps, lanAddresses } = require('./tls');
 const redirectGuard = require('./redirect-guard');
 
+// Identifies this server process in log lines (Vercel runs several instances side by side).
+const INSTANCE = crypto.randomBytes(3).toString('hex');
+
 // HSTS applies to a whole host name (all ports), so it is never sent for localhost or raw IP addresses:
 // pinning them would force every other local/LAN dev server on that host onto HTTPS.
 const pinnable = (hostname) => hostname !== 'localhost' && !net.isIP(hostname.replace(/^\[|\]$/g, ''));
@@ -88,7 +91,12 @@ app.use((req, res, next) => {
   req.cookies = auth.parseCookies(req.headers.cookie);
   const session = auth.loadSession(req);
   const user = session && db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id);
+  req.sessionState = !req.cookies[auth.COOKIE] ? 'none' : user ? 'ok' : session ? 'no-user'
+    : db.prepare('SELECT 1 FROM sessions WHERE token_hash = ?').get(auth.sha256(req.cookies[auth.COOKIE])) ? 'expired' : 'unknown';
   if (req.cookies[auth.COOKIE] && !user) {
+    // Rare (after logging out elsewhere or a long absence): logged, so a login that is lost unexpectedly can be traced.
+    console.warn(`[session] login cookie not recognised (${req.sessionState}) on ${req.method} ${req.path}; `
+      + `deployment ${process.env.VERCEL_DEPLOYMENT_ID || '-'}, instance ${INSTANCE}`);
     // A login cookie this database does not know (expired, logged out elsewhere, or made by another deployment with
     // its own database): forget it. Otherwise pages served by two deployments at once during a new release could
     // send the browser back and forth between "/login" and the page forever (ERR_TOO_MANY_REDIRECTS).
@@ -176,7 +184,11 @@ const licenseUpload = [upload.single('license'), verifyCsrf];
 
 const requireLogin = (req, res, next) => {
   if (req.user) return next();
-  res.redirect('/login?next=' + encodeURIComponent(req.originalUrl));
+  // Not signed in: the login form is shown right here, at this address, and signing in continues to it. There is no
+  // redirect to /login, so no chain of redirects (stale cookies, two deployments, a cached response) can loop.
+  // A form post has nothing to continue to: it goes to the login page.
+  if (req.method !== 'GET' && req.method !== 'HEAD') return res.redirect(303, '/login');
+  res.status(401).page('התחברות', require('./routes/public').loginPage(req, { next: req.originalUrl }));
 };
 const requireAdmin = (req, res, next) => {
   if (!req.user) return requireLogin(req, res, next);

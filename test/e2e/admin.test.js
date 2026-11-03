@@ -309,7 +309,7 @@ test('password change requires the current password and logs out other sessions'
   assert.match(a.flash().text, /שגויה/);
   await a.post('/me/password', { current: 'Password1', password: 'NewPassword1' }, '/me/security');
   assert.equal((await a.get('/me')).status, 200, 'current session kept');
-  assert.equal((await b.get('/me')).status, 302, 'other session logged out');
+  assert.equal((await b.get('/me')).status, 401, 'other session logged out (login form shown)');
   await client().login('pw@adm.test', 'NewPassword1');
 });
 

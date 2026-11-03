@@ -37,16 +37,17 @@ function homeFor(user) {
   return user.status === 'active' ? '/calendar' : '/me';
 }
 
-function loginPage(req, { error, email = '' } = {}) {
+/** The login form. `next`: where to continue after signing in (defaults to ?next= of this request). */
+function loginPage(req, { error, email = '', next = req.query.next || req.body?.next || '' } = {}) {
   return html`
 <div class="narrow">
   <div class="auth-head"><span class="brand-mark">${icon('car', 30)}</span><h1>התחברות</h1>
     <p class="muted">ברוכים השבים! התחברו כדי לבדוק זמינות ולהזמין את הרכב.</p></div>
   ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
-  ${googleOption(req, '/auth/google' + (safeNext(req.query.next) ? '?next=' + encodeURIComponent(req.query.next) : ''), 'התחברות עם Google', '/login')}
+  ${googleOption(req, '/auth/google' + (safeNext(next) ? '?next=' + encodeURIComponent(next) : ''), 'התחברות עם Google', '/login')}
   ${google.enabled() ? html`<p class="divider"><span>או</span></p>` : ''}
   ${postForm(req, '/login', html`
-    <input type="hidden" name="next" value="${req.query.next || req.body?.next || ''}">
+    <input type="hidden" name="next" value="${next}">
     ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required autocomplete="username">`)}
     ${field('סיסמה', html`<input type="password" name="password" required autocomplete="current-password">`)}
     <button class="btn btn-primary btn-block">כניסה</button>
@@ -515,3 +516,4 @@ module.exports.normalizePhone = normalizePhone;
 module.exports.validPhone = validPhone;
 module.exports.safeNext = safeNext;
 module.exports.validEmail = validEmail;
+module.exports.loginPage = loginPage;

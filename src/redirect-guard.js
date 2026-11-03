@@ -21,20 +21,27 @@ function guard(req, res, next) {
   res.redirect = (...args) => {
     const to = typeof args[0] === 'number' ? args[1] : args[0];
     const prev = read(req);
-    const chain = [...(prev?.chain || []), `${req.method} ${req.originalUrl.slice(0, 120)}`].slice(-6);
+    // Without the query, so the cookie and the log never carry tokens; with whether this request was signed in.
+    const chain = [...(prev?.chain || []), `${req.method} ${req.path.slice(0, 80)} [${req.sessionState || '-'}]`].slice(-6);
     const n = (prev?.n || 0) + 1;
     const cookie = { httpOnly: true, sameSite: 'lax', secure: req.secure, path: '/', maxAge: WINDOW_MS };
     if (n > MAX) {
+      const target = String(to).split('?')[0];
       console.warn(`[redirect-loop] stopped after ${n - 1} redirects; signed in: ${Boolean(req.user)}, session cookie: `
-        + `${Boolean(req.cookies?.sid)}; last: ${chain.join(' → ')} → ${to}`);
+        + `${Boolean(req.cookies?.sid)}; last: ${chain.join(' → ')} → ${target}`);
+      const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       res.clearCookie(COOKIE, { path: '/', secure: req.secure });
       return res.status(508).type('html').send(`<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>הדף לא נטען</title></head>
 <body style="font-family:system-ui,Arial,sans-serif;max-width:560px;margin:12vh auto;padding:0 16px;line-height:1.6">
 <h1>הדף לא נטען</h1><p>הדפדפן הופנה שוב ושוב בין דפים. הפרטים נרשמו ביומן השרת.</p>
-<p><a href="/">לדף הראשי</a> · <a href="/login">להתחברות מחדש</a></p></body></html>`);
+<p><a href="/">לדף הראשי</a> · <a href="/login">להתחברות מחדש</a></p>
+<details><summary>פרטים טכניים</summary><pre dir="ltr" style="white-space:pre-wrap;font-size:13px">${esc(`${chain.join('\n')}\n→ ${target}`)}</pre></details>
+</body></html>`);
     }
     res.cookie(COOKIE, Buffer.from(JSON.stringify({ n, t: Date.now(), chain })).toString('base64url'), cookie);
+    // A redirect is never stored, by the browser or by Vercel: a reused old one could send the browser in circles.
+    res.set('Cache-Control', 'no-store');
     return redirect(...args);
   };
   next();

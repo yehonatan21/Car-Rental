@@ -162,7 +162,7 @@ test('rejected responses never log anyone in', async () => {
     const r = await googleLogin(c, { email: 'victim@test.org', ...claims });
     assert.equal(r.location, '/login', name);
     assert.match(c.flash().text, /Google/, name);
-    assert.equal((await c.get('/me')).status, 302, `${name}: not logged in`);
+    assert.equal((await c.get('/me')).status, 401, `${name}: not logged in`);
   }
   assert.equal(db.prepare("SELECT google_sub FROM users WHERE email = 'victim@test.org'").get().google_sub, null);
 });
@@ -172,7 +172,7 @@ test('state must match the browser cookie and is single-use', async () => {
   const c = client();
   const r = await googleLogin(c, { email: 'state@test.org' }, { tamper: { state: 'forged' } });
   assert.equal(r.location, '/login');
-  assert.equal((await c.get('/me')).status, 302);
+  assert.equal((await c.get('/me')).status, 401);
 
   // Replaying a callback URL that was already used fails.
   const c2 = client();

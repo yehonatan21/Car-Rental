@@ -49,12 +49,18 @@ test('session cookie is HttpOnly and SameSite', async () => {
   assert.match(cookie, /SameSite=Lax/i);
 });
 
-test('anonymous users are redirected to login, keeping the target', async () => {
+test('anonymous users get the login form in place (no redirect), and continue to the page after signing in', async () => {
   for (const url of ['/me', '/calendar', '/bookings/new', '/admin', '/admin/users/1']) {
     const r = await client().get(url);
-    assert.equal(r.status, 302, url);
-    assert.equal(r.location, '/login?next=' + encodeURIComponent(url));
+    assert.equal(r.status, 401, url);
+    assert.match(r.text, /action="\/login"/, url);
+    assert.ok(r.text.includes(`name="next" value="${url}"`), `${url}: continues there after signing in`);
+    assert.equal(r.headers.get('cache-control'), null);
   }
+  const c = client();
+  const r = await c.post('/login', { email: 'admin@sec.test', password: 'Password1', next: '/admin/users/1' });
+  assert.equal(r.location, '/admin/users/1');
+  assert.equal((await client().req('POST', '/me/profile', { phone: '0500000000' })).location, '/login', 'a form post goes to the login page');
 });
 
 test('regular users get 403 on every admin page and action', async () => {
@@ -194,7 +200,7 @@ test('logout destroys the session server-side', async () => {
   await c.post('/logout', {}, '/me');
   const stale = new Client(srv.base);
   stale.cookies.sid = sid;
-  assert.equal((await stale.get('/me')).status, 302);
+  assert.equal((await stale.get('/me')).status, 401);
 });
 
 test('admins cannot change their own status or role', async () => {

@@ -14,7 +14,7 @@ const root = path.join(__dirname, '..', '..');
 
 function configWith(env) {
   return JSON.parse(execFileSync(process.execPath, ['--no-warnings', '-e',
-    'const c = require("./src/config"); console.log(JSON.stringify({ dataDir: c.dataDir, baseUrl: c.baseUrl, ephemeral: c.ephemeral }))'],
+    'const c = require("./src/config"); console.log(JSON.stringify({ dataDir: c.dataDir, baseUrl: c.baseUrl, ephemeral: c.ephemeral, uploadMaxBytes: c.uploadMaxBytes }))'],
   { cwd: root, env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' }));
 }
 
@@ -147,4 +147,16 @@ test('Israel time even where the host sets TZ=:UTC (Vercel / AWS Lambda); APP_TI
   assert.equal(offsetFor({ VERCEL: '1', TZ: ':UTC' }), -180, 'summer time in Israel is UTC+3');
   assert.equal(offsetFor({}), -180);
   assert.equal(offsetFor({ TZ: ':UTC', APP_TIMEZONE: 'Europe/London' }), -60);
+});
+
+test('preview deployments (the dev branch) use their own branch address; uploads stay under Vercel\'s 4.5 MB limit', () => {
+  const preview = configWith({ VERCEL: '1', VERCEL_ENV: 'preview', VERCEL_URL: 'car-rental-abc123-team.vercel.app',
+    VERCEL_BRANCH_URL: 'car-rental-git-dev-team.vercel.app', VERCEL_PROJECT_PRODUCTION_URL: 'car-rental.vercel.app' });
+  assert.equal(preview.baseUrl, 'https://car-rental-git-dev-team.vercel.app', 'not the production site');
+  const production = configWith({ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_URL: 'car-rental-abc123-team.vercel.app',
+    VERCEL_BRANCH_URL: 'car-rental-git-main-team.vercel.app', VERCEL_PROJECT_PRODUCTION_URL: 'car-rental.vercel.app' });
+  assert.equal(production.baseUrl, 'https://car-rental.vercel.app');
+  assert.equal(configWith({ VERCEL: '1', VERCEL_ENV: 'preview', BASE_URL: 'https://dev.example.org' }).baseUrl, 'https://dev.example.org');
+  assert.ok(preview.uploadMaxBytes < 4.5 * 1024 * 1024);
+  assert.equal(configWith({}).uploadMaxBytes, 8 * 1024 * 1024);
 });

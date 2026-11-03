@@ -84,7 +84,12 @@ test('admin can send a reset link from the user card (also to themselves)', asyn
   const u = createUser({ email: 'byadmin@pw.test' });
   assert.match((await admin.get(`/admin/users/${u.id}`)).text, /שליחת קישור לאיפוס סיסמה/);
   await admin.post(`/admin/users/${u.id}/send-reset`, {}, `/admin/users/${u.id}`);
-  assert.match(admin.flash().text, /נשלח אל byadmin@pw.test/);
+  // No SMTP in tests: the mail only reaches data/outbox, so the admin is not told it was sent but gets the link.
+  const flash = admin.flash();
+  assert.equal(flash.type, 'warning');
+  const shown = /(\/password\/reset\?token=[\w%-]+)/.exec(flash.text)?.[1];
+  assert.ok(shown, 'reset link shown to the admin');
+  assert.equal((await client().get(shown)).status, 200, 'the shown link works');
   assert.ok(lastLink('byadmin@pw.test'));
   const me = db.prepare("SELECT id FROM users WHERE email = 'admin@pw.test'").get();
   await admin.post(`/admin/users/${me.id}/send-reset`, {}, `/admin/users/${me.id}`);
@@ -96,4 +101,22 @@ test('requests are throttled', async () => {
   let last;
   for (let i = 0; i < 7; i++) last = await client().post('/password/forgot', { email: 'flood@pw.test' });
   assert.equal(last.status, 429);
+});
+
+test('production without a mail server: no dead-end "code sent" or "link sent" screens', async () => {
+  const config = require('../../src/config');
+  const saved = config.production;
+  config.production = true; // config.smtp stays null in tests
+  try {
+    const login = (await client().get('/login')).text;
+    assert.doesNotMatch(login, /כניסה עם קוד חד־פעמי/);
+    assert.match(login, /שכחת סיסמה\? פנו למנהל המערכת/);
+    const code = await client().post('/login/code', { email: 'admin@pw.test' });
+    assert.equal(code.status, 503);
+    assert.match(code.text, /לא הוגדרה שליחת מיילים/);
+    assert.match((await client().get('/password/forgot')).text, /לא ניתן לשלוח קישור לאיפוס/);
+    assert.equal((await client().post('/password/forgot', { email: 'admin@pw.test' })).status, 503);
+  } finally {
+    config.production = saved;
+  }
 });

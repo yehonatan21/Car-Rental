@@ -162,8 +162,15 @@ const fullName = (u) => `${u.first_name} ${u.last_name}`;
 const range = (b) => `<b>איסוף:</b> ${esc(time.fmtLong(b.start_at))}<br><b>החזרה:</b> ${esc(time.fmtLong(b.end_at))}`;
 const vehicleLine = (b) => `<b>רכב:</b> ${esc([b.make, b.model].filter(Boolean).join(' '))} (${esc(b.plate)})`;
 
+/**
+ * Can an e-mail reach a person? With SMTP, yes. Without it, development still works (codes and links are printed
+ * in the server window), but on a production site nobody would ever receive the message.
+ */
+const canDeliver = () => Boolean(config.smtp) || !config.production;
+
 module.exports = {
   send,
+  canDeliver,
   adminEmails,
   bookingIcs,
   verifyTransport,

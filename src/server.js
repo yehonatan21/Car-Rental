@@ -7,7 +7,7 @@ const multer = require('multer');
 const config = require('./config');
 const { db } = require('./db');
 const auth = require('./auth');
-const { layout, html } = require('./views/html');
+const { layout, html, uploadLimitLabel } = require('./views/html');
 const { BookingError } = require('./bookings');
 const { startJobs, runJobs } = require('./jobs');
 const { listenHttps, lanAddresses } = require('./tls');
@@ -115,14 +115,14 @@ app.use((req, res, next) => {
   verifyCsrf(req, res, next);
 });
 
-// Private license uploads: random file names, images or PDF only, 8MB max.
+// Private license uploads: random file names, images or PDF only, up to config.uploadMaxBytes.
 const ALLOWED = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/heic': '.heic', 'application/pdf': '.pdf' };
 const upload = multer({
   storage: multer.diskStorage({
     destination: config.uploadsDir,
     filename: (req, file, cb) => cb(null, crypto.randomBytes(16).toString('hex') + ALLOWED[file.mimetype]),
   }),
-  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+  limits: { fileSize: config.uploadMaxBytes, files: 1 },
   fileFilter: (req, file, cb) => cb(null, Boolean(ALLOWED[file.mimetype])),
 });
 const licenseUpload = [upload.single('license'), verifyCsrf];
@@ -150,7 +150,7 @@ app.use((req, res) => res.status(404).page('לא נמצא', html`<h1>העמוד 
 
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    res.flash('error', err.code === 'LIMIT_FILE_SIZE' ? 'הקובץ גדול מדי (עד 8MB)' : 'שגיאה בהעלאת הקובץ');
+    res.flash('error', err.code === 'LIMIT_FILE_SIZE' ? `הקובץ גדול מדי (עד ${uploadLimitLabel()})` : 'שגיאה בהעלאת הקובץ');
     return res.redirect(req.get('referer') || '/');
   }
   console.error(err);

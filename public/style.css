@@ -478,3 +478,6 @@ a.back .icon { transform: scaleX(-1); }
 .actions-grid > form .field { margin: 0; }
 .actions-grid > form .inline-note { width: 100%; flex: none; }
 .actions-grid > form .btn { width: 100%; }
+.upload-note { display: block; color: var(--muted); font-size: .84rem; margin-top: .3rem; }
+.upload-note:empty { display: none; }
+.upload-note.bad { color: var(--danger); font-weight: 500; }

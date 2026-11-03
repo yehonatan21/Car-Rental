@@ -438,9 +438,14 @@ ${permissionsCard(req, u, isSelf)}
   });
 
   userAction('send-reset', async (u, req) => {
-    const sent = await mail.passwordReset(u, auth.createPasswordReset(u.id));
-    audit(req.user.id, 'user.password_reset_sent', 'user', u.id);
-    return sent ? `נשלח אל ${u.email} קישור לאיפוס סיסמה (תקף לשעה)` : { type: 'error', text: 'שליחת המייל נכשלה (ראו הגדרות ← שליחת מיילים)' };
+    const token = auth.createPasswordReset(u.id);
+    const sent = await mail.passwordReset(u, token) && Boolean(config.smtp); // without SMTP it only reaches data/outbox
+    audit(req.user.id, 'user.password_reset_sent', 'user', u.id, sent ? 'email' : 'shown to admin');
+    if (sent) return `נשלח אל ${u.email} קישור לאיפוס סיסמה (תקף לשעה)`;
+    // No e-mail reached the user: give the admin the link to pass on (WhatsApp, SMS…). Single use, valid one hour.
+    const link = `${config.baseUrl}/password/reset?token=${encodeURIComponent(token)}`;
+    return { type: 'warning', text: `${config.smtp ? 'שליחת המייל נכשלה' : 'לא הוגדר שרת דואר, ולכן לא נשלח מייל'}. `
+      + `אפשר להעביר למשתמש את קישור האיפוס הזה (חד־פעמי, תקף לשעה): ${link}` };
   });
 
   userAction('note', async (u, req) => {

@@ -8,7 +8,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const storage = require('../storage');
 const { renderCalendar, windowFor } = require('../views/calendar');
-const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, USER_STATUS } = require('../views/html');
+const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
 const { normalizePhone, validPhone, safeNext } = require('./public');
 
 const STATUS_HELP = {
@@ -124,7 +124,7 @@ ${pageHead(`שלום ${u.first_name}`, { iconName: 'user', sub: 'האזור הא
   </div>
   ${postForm(req, '/me/license', html`
     <h2 class="section-title">${icon('file')} העלאת רישיון חדש</h2>
-    ${field('צילום רישיון נהיגה', html`<input type="file" name="license" accept="image/*,application/pdf" required>`, 'תמונה או PDF, עד 8MB')}
+    ${field('צילום רישיון נהיגה', licenseInput(), `תמונה או PDF, עד ${uploadLimitLabel()} (תמונה גדולה מוקטנת אוטומטית)`)}
     ${field('תאריך פקיעת תוקף', html`<input type="date" name="license_expiry" required min="${time.today()}">`)}
     <button class="btn btn-primary btn-block">שליחה לבדיקה</button>
     <p class="muted small">הרישיון הקיים ימשיך לשמש עד לאישור החדש.</p>`, 'enctype="multipart/form-data" class="card"')}

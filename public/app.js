@@ -67,3 +67,52 @@ if (form) {
   end.addEventListener('change', check);
   check();
 }
+
+// License uploads: shrink large photos in the browser (phone photos are often 4-12 MB) and refuse files that are
+// still over the limit, which the hosting platform would otherwise cut off with a bare error page.
+const mb = (n) => `${(n / 1048576).toFixed(1).replace(/\.0$/, '')}MB`;
+
+async function shrinkImage(file, maxSide = 2400, quality = 0.85) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+  if (!blob || blob.size >= file.size) return file;
+  return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+}
+
+for (const input of document.querySelectorAll('input[type=file][data-max-bytes]')) {
+  const max = Number(input.dataset.maxBytes);
+  const note = document.createElement('small');
+  note.className = 'upload-note';
+  note.setAttribute('aria-live', 'polite');
+  input.after(note);
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    note.textContent = '';
+    note.classList.remove('bad');
+    if (!file) return;
+    let out = file;
+    if (/^image\/(jpeg|png|webp|heic|heif)$/.test(file.type) && file.size > 1.5 * 1048576) {
+      note.textContent = 'מקטין את התמונה…';
+      try { out = await shrinkImage(file); } catch { out = file; } // e.g. a format this browser can't decode
+    }
+    if (out.size > max) {
+      input.value = '';
+      note.textContent = `הקובץ גדול מדי (${mb(out.size)}). המקסימום הוא ${mb(max)}: צלמו שוב, או העלו צילום מסך או PDF קטן יותר.`;
+      note.classList.add('bad');
+      return;
+    }
+    if (out !== file) {
+      const dt = new DataTransfer();
+      dt.items.add(out);
+      input.files = dt.files; // assigning does not fire "change" again
+      note.textContent = `התמונה הוקטנה מ־${mb(file.size)} ל־${mb(out.size)}.`;
+    } else {
+      note.textContent = '';
+    }
+  });
+}

@@ -5,7 +5,7 @@ const auth = require('../auth');
 const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
-const { html, raw, markdown, postForm, field, icon, pageHead } = require('../views/html');
+const { html, raw, markdown, postForm, field, icon, pageHead, licenseInput, uploadLimitLabel } = require('../views/html');
 const google = require('../google');
 const storage = require('../storage');
 
@@ -50,15 +50,16 @@ function loginPage(req, { error, email = '' } = {}) {
     ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required autocomplete="username">`)}
     ${field('סיסמה', html`<input type="password" name="password" required autocomplete="current-password">`)}
     <button class="btn btn-primary btn-block">כניסה</button>
-    <p class="small"><a href="/password/forgot${email ? '?email=' + encodeURIComponent(email) : ''}">שכחתי סיסמה</a></p>
+    ${mail.canDeliver() ? html`<p class="small"><a href="/password/forgot${email ? '?email=' + encodeURIComponent(email) : ''}">שכחתי סיסמה</a></p>`
+      : html`<p class="muted small">שכחת סיסמה? פנו למנהל המערכת.</p>`}
   `, 'class="card"')}
-  <div class="card">
+  ${mail.canDeliver() ? html`<div class="card">
     <h2 class="section-title">${icon('lock')} כניסה עם קוד חד־פעמי</h2>
     <p class="muted">נשלח קוד בן 6 ספרות לכתובת הדואר האלקטרוני שלך.</p>
     ${postForm(req, '/login/code', html`
       ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required>`)}
       <button class="btn btn-light btn-block">שליחת קוד</button>`)}
-  </div>
+  </div>` : ''}
   <p class="auth-foot">עדיין אין לך חשבון? <a href="/register">להרשמה</a></p>
 </div>`;
 }
@@ -124,10 +125,10 @@ ${postForm(req, '/register', html`
   <fieldset>
     <legend>${icon('id')} רישיון נהיגה</legend>
     ${draft?.licenseName
-      ? field('צילום רישיון נהיגה (להחלפה בלבד)', html`<input type="file" name="license" accept="image/*,application/pdf">`,
+      ? field('צילום רישיון נהיגה (להחלפה בלבד)', licenseInput({ required: false }),
         html`<span class="saved">✓ הקובץ <b dir="auto">${draft.licenseName}</b> נשמר. אין צורך להעלות אותו שוב.</span>`)
-      : field('צילום רישיון נהיגה בתוקף', html`<input type="file" name="license" accept="image/*,application/pdf" required>`,
-        'תמונה או PDF, עד 8MB. הקובץ נשמר באזור מוגן ונגיש למנהלים בלבד.')}
+      : field('צילום רישיון נהיגה בתוקף', licenseInput(),
+        `תמונה או PDF, עד ${uploadLimitLabel()} (תמונה גדולה מוקטנת אוטומטית). הקובץ נשמר באזור מוגן ונגיש למנהלים בלבד.`)}
     ${field('תאריך פקיעת תוקף הרישיון', html`<input type="date" name="license_expiry" value="${v.license_expiry}" required min="${time.today()}">`)}
   </fieldset>
   <fieldset>
@@ -177,6 +178,7 @@ function forgotPage(req, { email = '', error } = {}) {
 <div class="narrow">
   <h1>שכחתי סיסמה</h1>
   ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
+  ${!mail.canDeliver() ? html`<div class="flash flash-warning">באתר הזה לא הוגדרה שליחת מיילים, ולכן לא ניתן לשלוח קישור לאיפוס. לאיפוס הסיסמה פנו למנהל המערכת.</div>` : ''}
   ${postForm(req, '/password/forgot', html`
     <p>נשלח לכתובת הדואר האלקטרוני שלך קישור לבחירת סיסמה חדשה.</p>
     ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required autocomplete="email" autofocus>`)}
@@ -245,6 +247,9 @@ module.exports = ({ app, licenseUpload }) => {
 
   app.post('/login/code', async (req, res) => {
     const email = String(req.body.email || '').trim();
+    if (!mail.canDeliver()) {
+      return res.status(503).page('התחברות', loginPage(req, { error: 'באתר הזה לא הוגדרה שליחת מיילים, ולכן לא ניתן לשלוח קוד. התחברו עם סיסמה.', email }));
+    }
     if (auth.throttled('code:' + req.ip, 5)) {
       return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי בקשות. נסו שוב בעוד מספר דקות.', email }));
     }
@@ -452,6 +457,7 @@ module.exports = ({ app, licenseUpload }) => {
 
   app.post('/password/forgot', async (req, res) => {
     const email = String(req.body.email || '').trim();
+    if (!mail.canDeliver()) return res.status(503).page('שכחתי סיסמה', forgotPage(req, { email }));
     if (auth.throttled('reset:' + req.ip, 5)) {
       return res.status(429).page('שכחתי סיסמה', forgotPage(req, { email, error: 'יותר מדי בקשות. נסו שוב בעוד מספר דקות.' }));
     }

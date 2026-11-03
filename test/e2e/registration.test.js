@@ -23,7 +23,9 @@ test('after an error the license and password are kept; resubmitting without the
   assert.match(first.text, /✓ הקובץ <b dir="auto">רישיון.png<\/b> נשמר/, 'Hebrew file name shown correctly');
   assert.match(first.text, /✓ הסיסמה שהזנת נשמרה/);
   assert.doesNotMatch(first.text, /MySecret123/, 'the password is never written into the page');
-  assert.match(first.text, /name="license" accept="image\/\*,application\/pdf">/, 'file no longer required');
+  const fileInput = /<input type="file" name="license"[^>]*>/.exec(first.text)?.[0] || '';
+  assert.ok(fileInput && !/\brequired\b/.test(fileInput), 'file no longer required');
+  assert.match(fileInput, /data-max-bytes="\d+"/, 'the browser knows the upload limit');
   assert.match(first.text, /name="accept_policy" value="1" required checked/, 'consent checkboxes stay ticked');
   assert.match(first.text, /value="keep@test.org"/);
 

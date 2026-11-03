@@ -28,7 +28,7 @@ Without it the app still runs, but in demo mode: data is temporary and every pag
    | `CRON_SECRET` | a long random string | Lets Vercel Cron run the daily jobs (reminders, license expiry) |
    | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | e.g. Gmail (see README) | Optional: real e-mails |
    | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | from Google Cloud Console | Optional: sign in with Google |
-   | `BASE_URL` | e.g. `https://car-rental.vercel.app` | Optional: defaults to the project's production domain |
+   | `BASE_URL` | e.g. `https://car-rental.vercel.app` | Optional: defaults to the production domain (production) or the branch address (preview) |
 
 4. **Settings → General → Node.js Version**: **22.x** or newer.
 5. **Deployments → ⋯ → Redeploy** (environment variable changes need a new deployment).
@@ -57,9 +57,28 @@ plain HTML (no React/Next.js), so it uses the HTML script rather than the `<Anal
 
 Analytics is cookieless; the privacy page mentions it. Set `VERCEL_ANALYTICS=false` to remove the script.
 
-## Branches
-By default Vercel deploys `main` to production and every other branch (such as `dev`) as a **preview**, each with its
-own URL. Preview URLs may require logging in to Vercel (**Settings → Deployment Protection**).
+## Branches: production (`main`) and dev (`dev`)
+Vercel deploys `main` to **Production** and every other branch (such as `dev`) as a **Preview**. In
+**Settings → Environment Variables** each variable has checkboxes for Production, Preview and Development, so the two
+sites can get different values.
+
+- **Use a separate database for Preview.** If both sites share one Turso database, testing on dev changes real users
+  and bookings, and dev sends real e-mails to them. Create a second Turso database (for example `car-rental-dev`) and
+  set its `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` for Preview only.
+- **Addresses:** production uses the project's production domain; a preview uses its branch address, for example
+  `https://car-rental-git-dev-<team>.vercel.app` (shown in the deployment's **Domains**), so e-mail links and Google
+  sign-in on dev stay on dev. `BASE_URL` overrides either one.
+- Preview URLs may require logging in to Vercel (**Settings → Deployment Protection**).
+- Vercel Cron runs on production only; on dev the jobs run while the site is being used.
+
+## Limits on Vercel
+- **Uploads:** Vercel refuses requests over 4.5 MB, so license uploads are limited to 4 MB there. Large photos are
+  shrunk in the browser before upload (typically to 1–2 MB), so phone pictures work; a PDF over 4 MB is refused with a message.
+- **E-mail:** without `SMTP_*` nothing is sent. The site then hides "sign in with a code" and "forgot password"
+  (they could never arrive), and an admin's "send reset link" shows the link on screen to pass on instead.
+- **Time zone:** Vercel's servers run on UTC; the app always uses Israel time (`APP_TIMEZONE` changes it).
+- If the app cannot start (usually a wrong `TURSO_*` value), every page shows "השירות אינו זמין כרגע" with the reason,
+  instead of Vercel's bare 500 error. The deployment's **Logs** show the same reason.
 
 ## Scheduled jobs on Vercel
 Pickup/return reminders, license-expiry checks and closing finished bookings run:

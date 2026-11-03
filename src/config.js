@@ -13,7 +13,11 @@ const onVercel = Boolean(process.env.VERCEL);
 const dataDir = path.resolve(process.env.DATA_DIR
   || (onVercel ? path.join(os.tmpdir(), 'car-rental') : path.join(__dirname, '..', 'data')));
 const production = process.env.NODE_ENV === 'production';
-const vercelUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+// The address people use: production deployments use the production domain; preview deployments (e.g. the dev
+// branch) their stable branch address (car-rental-git-dev-<team>.vercel.app), so links and Google sign-in stay on dev.
+const vercelUrl = process.env.VERCEL_ENV === 'preview'
+  ? process.env.VERCEL_BRANCH_URL || process.env.VERCEL_URL
+  : process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
 const port = Number(process.env.PORT || 3000);
 // Serve TLS from Node itself? Default: yes in development, no in production (a TLS proxy such as Caddy sits in front).
 const httpsEnabled = process.env.HTTPS ? process.env.HTTPS === 'true' : !production;
@@ -75,6 +79,8 @@ module.exports = {
   outboxDir: path.join(dataDir, 'outbox'),
   appName: process.env.APP_NAME || 'הזמנת רכב',
   smtp: process.env.SMTP_HOST ? smtpConfig() : null,
+  // Largest license upload. Vercel refuses request bodies over 4.5 MB before they reach the app, so stay below it.
+  uploadMaxBytes: (onVercel ? 4 : 8) * 1024 * 1024,
   mailFrom: mailFrom(),
   // "Sign in with Google" is shown only when both are set (Google Cloud Console → APIs & Services → Credentials).
   google: {

@@ -307,7 +307,10 @@ test('admin settings: e-mail status panel and test e-mail', async () => {
   assert.match(page, /id="email"/);
   assert.match(page, /לא מוגדר/);
   await admin.post('/admin/settings/test-email', {}, '/admin/settings');
-  assert.match(admin.flash().text, /נשמר ב־data\/outbox/);
+  const flash = admin.flash();
+  assert.equal(flash.type, 'warning', 'saving to the outbox is not reported as a success');
+  assert.match(flash.text, /לא נשלח אלא נשמר בתיקייה data\/outbox/);
+  assert.doesNotMatch((await admin.get('/admin/settings')).text, /מייל אחרון נשלח בהצלחה/);
   assert.ok(outbox().some((m) => m.subject === 'בדיקת שליחת מייל' && m.to.includes('admin@adm.test')));
 });
 
@@ -380,4 +383,22 @@ test('hosted without a mail server: the dashboard says e-mails are not being sen
   assert.doesNotMatch((await admin.get('/admin')).text, /מיילים לא נשלחים/, 'not in development, where the outbox is expected');
   const settings = (await admin.get('/admin/settings')).text;
   assert.match(settings, /הודעות על בקשות הזמנה חדשות נשלחות אל המנהלים הפעילים: <span dir="ltr">[^<]*admin@adm\.test/);
+});
+
+test('on Vercel without a mail server: settings explain the Vercel steps, the test e-mail is not called sent', async () => {
+  const config = require('../../src/config');
+  const saved = config.onVercel;
+  config.onVercel = true;
+  try {
+    const page = (await admin.get('/admin/settings')).text;
+    assert.match(page, /מיילים לא נשלחים:<\/b> באתר הזה לא הוגדר שרת דואר/);
+    assert.match(page, /Environment Variables/);
+    assert.match(page, /Redeploy/);
+    await admin.post('/admin/settings/test-email', {}, '/admin/settings');
+    const flash = admin.flash();
+    assert.equal(flash.type, 'warning');
+    assert.match(flash.text, /המייל לא נשלח: באתר הזה לא הוגדר שרת דואר/);
+  } finally {
+    config.onVercel = saved;
+  }
 });

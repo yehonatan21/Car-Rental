@@ -210,6 +210,7 @@ docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js 
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | שרת דואר יוצא |
 | `MAIL_FROM` | כתובת השולח (ברירת מחדל: `SMTP_USER`, אם זו כתובת מייל) |
 | `APP_NAME` | שם המערכת שמוצג בממשק ובמיילים |
+| `APP_TIMEZONE` | אזור הזמן של המערכת (ברירת מחדל `Asia/Jerusalem`, גם כשהשרת עצמו מוגדר ל־UTC, כמו ב־Vercel) |
 
 ### העלאה לאוויר
 

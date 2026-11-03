@@ -2,8 +2,10 @@
 const os = require('node:os');
 const path = require('node:path');
 
-// All date math in the app assumes Israel local time.
-process.env.TZ = process.env.TZ || 'Asia/Jerusalem';
+// All date math in the app assumes Israel local time. Set unconditionally: hosts such as Vercel (AWS Lambda) set
+// TZ=:UTC themselves, which would shift every booking time and "now" check by two or three hours.
+// APP_TIMEZONE overrides it for a deployment in another country.
+process.env.TZ = process.env.APP_TIMEZONE || 'Asia/Jerusalem';
 
 // Vercel (serverless): the code directory is read-only and only os.tmpdir() is writable. It is wiped whenever
 // an instance is recycled, so data there is temporary (see `ephemeral` below and docs/vercel.md).

@@ -105,7 +105,15 @@ function emailStatusCard(req) {
   ${m.configured
     ? html`<p>${m.verified === false ? badge('blocked', 'שגיאה') : badge('active', 'מוגדר')}
         שרת: <code>${m.host}:${m.port}</code> ${m.secure ? '(TLS)' : '(STARTTLS)'} · משתמש: <code>${m.user || '—'}</code> · שולח: <code>${m.from}</code></p>`
-    : html`<p>${badge('pending', 'לא מוגדר')} לא הוגדר שרת דואר (<code>SMTP_HOST</code>), ולכן מיילים <b>לא נשלחים</b>:
+    : config.onVercel || config.production
+      ? html`<div class="flash flash-error small"><b>מיילים לא נשלחים:</b> באתר הזה לא הוגדר שרת דואר (<code>SMTP_HOST</code>),
+          ולכן מנהלים ולקוחות לא מקבלים שום מייל.</div>
+        <p class="small">${config.onVercel
+          ? html`להגדרה: ב־Vercel ← Project ← <b>Settings ← Environment Variables</b> מוסיפים <code>SMTP_HOST</code>, <code>SMTP_PORT</code>,
+            <code>SMTP_USER</code>, <code>SMTP_PASS</code> (מסומנים ל־Production), ואז <b>Deployments ← ⋯ ← Redeploy</b>. משתנים חלים רק על פריסה חדשה.`
+          : html`להגדרה מוסיפים <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code> למשתני הסביבה ומפעילים מחדש.`}
+          פירוט: <code>docs/email-setup.md</code>.</p>`
+      : html`<p>${badge('pending', 'לא מוגדר')} לא הוגדר שרת דואר (<code>SMTP_HOST</code>), ולכן מיילים <b>לא נשלחים</b>:
         הם נשמרים בתיקייה <code>data/outbox</code>, וקודי התחברות מודפסים בחלון השרת. להגדרה (למשל Gmail) ראו README ← "מיילים אמיתיים".</p>`}
   ${m.lastError ? html`<div class="flash flash-error small"><b>שגיאה אחרונה (${time.fmt(time.toLocal(m.lastError.at))}):</b> <code>${m.lastError.message}</code>
     ${/Invalid login|Username and Password not accepted|535/i.test(m.lastError.message) ? html`<br>שם המשתמש או הסיסמה נדחו. ב־Gmail יש להשתמש ב־App password (לא בסיסמה הרגילה).` : ''}
@@ -113,7 +121,7 @@ function emailStatusCard(req) {
   ${admins.length
     ? html`<p class="small">הודעות על בקשות הזמנה חדשות נשלחות אל המנהלים הפעילים: <span dir="ltr">${admins.join(', ')}</span></p>`
     : html`<div class="flash flash-warning small">אין מנהל פעיל, ולכן אף אחד לא יקבל הודעה על בקשות הזמנה חדשות.</div>`}
-  ${m.lastSentAt ? html`<p class="muted small">מייל אחרון נשלח בהצלחה: ${time.fmt(time.toLocal(m.lastSentAt))}</p>` : ''}
+  ${m.lastSentAt && m.configured ? html`<p class="muted small">מייל אחרון נשלח בהצלחה: ${time.fmt(time.toLocal(m.lastSentAt))}</p>` : ''}
   ${postForm(req, '/admin/settings/test-email', html`<button class="btn btn-light btn-sm">שליחת מייל בדיקה אל ${req.user.email}</button>`)}
 </section>`;
 }
@@ -714,9 +722,10 @@ ${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: `גרסה 
 
   app.post('/admin/settings/test-email', requireAdmin, async (req, res) => {
     const ok = await mail.test(req.user.email);
-    res.flash(ok ? 'success' : 'error', ok
-      ? (config.smtp ? `מייל בדיקה נשלח אל ${req.user.email}. אם לא הגיע תוך דקה, בדקו בספאם.` : 'מייל הבדיקה נשמר ב־data/outbox (לא הוגדר שרת דואר).')
-      : 'שליחת מייל הבדיקה נכשלה. פרטי השגיאה מופיעים למטה.');
+    if (!ok) res.flash('error', 'שליחת מייל הבדיקה נכשלה. פרטי השגיאה מופיעים למטה.');
+    else if (config.smtp) res.flash('success', `מייל בדיקה נשלח אל ${req.user.email}. אם לא הגיע תוך דקה, בדקו בספאם.`);
+    else if (config.onVercel || config.production) res.flash('warning', 'המייל לא נשלח: באתר הזה לא הוגדר שרת דואר (SMTP). ההוראות מופיעות למטה.');
+    else res.flash('warning', 'מייל הבדיקה לא נשלח אלא נשמר בתיקייה data/outbox, כי לא הוגדר שרת דואר (SMTP).');
     res.redirect('/admin/settings#email');
   });
 

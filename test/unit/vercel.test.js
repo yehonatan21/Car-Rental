@@ -139,3 +139,12 @@ test('Vercel entry point: a database that cannot be reached gives an explained 5
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('Israel time even where the host sets TZ=:UTC (Vercel / AWS Lambda); APP_TIMEZONE overrides', () => {
+  const offsetFor = (env) => Number(execFileSync(process.execPath, ['--no-warnings', '-e',
+    'require("./src/config"); console.log(new Date("2026-07-01T12:00:00Z").getTimezoneOffset())'],
+  { cwd: root, env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' }));
+  assert.equal(offsetFor({ VERCEL: '1', TZ: ':UTC' }), -180, 'summer time in Israel is UTC+3');
+  assert.equal(offsetFor({}), -180);
+  assert.equal(offsetFor({ TZ: ':UTC', APP_TIMEZONE: 'Europe/London' }), -60);
+});

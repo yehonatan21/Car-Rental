@@ -176,6 +176,21 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- Vehicle papers (vehicle license, insurance policies…). The file is kept like license images: in DATA_DIR, or in
+-- the files table when the database is hosted. visible_to_drivers: active users may open it (to show it on the road).
+CREATE TABLE IF NOT EXISTS vehicle_documents (
+  id INTEGER PRIMARY KEY,
+  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+  kind TEXT NOT NULL CHECK (kind IN ('registration','insurance_mandatory','insurance_comprehensive','other')),
+  title TEXT,
+  file TEXT NOT NULL,
+  original_name TEXT,
+  expires_at TEXT,
+  visible_to_drivers INTEGER NOT NULL DEFAULT 0,
+  uploaded_by INTEGER REFERENCES users(id),
+  uploaded_at TEXT NOT NULL
+);
+
 -- Facts about the database itself: a random id and creation time written once, when it is first set up. If the id
 -- shown on the settings page changes after a new deployment, that deployment uses a different (or new) database.
 CREATE TABLE IF NOT EXISTS app_meta (

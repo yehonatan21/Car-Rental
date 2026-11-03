@@ -70,6 +70,8 @@ ${pageHead(`שלום ${u.first_name}`, { iconName: 'user', sub: 'האזור הא
   <a href="/me/bookings">${icon('list')}ההזמנות שלי<small>עתידיות והיסטוריה</small></a>
   <a href="/me/license">${icon('id')}רישיון נהיגה<small>תוקף והעלאת רישיון חדש</small></a>
   <a href="/me/security">${icon('lock')}סיסמה ואבטחה<small>שינוי סיסמה</small></a>
+  ${u.status === 'active' && require('./documents').visibleDocumentCount(defaultVehicle().id)
+    ? html`<a href="/vehicle/documents">${icon('file')}מסמכי הרכב<small>רישיון רכב וביטוח</small></a>` : ''}
 </nav>
 
 <div class="grid2">

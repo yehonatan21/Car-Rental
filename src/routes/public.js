@@ -517,3 +517,4 @@ module.exports.validPhone = validPhone;
 module.exports.safeNext = safeNext;
 module.exports.validEmail = validEmail;
 module.exports.loginPage = loginPage;
+module.exports.uploadName = uploadName;

@@ -235,11 +235,15 @@ test('on Vercel (its request helpers in place) every form ends on a page: no 307
     const fd = new FormData();
     for (const [k, v] of Object.entries({ first_name: 'גל', last_name: 'רז', id_number: nextIdNumber(), phone: '0529876543',
       email: 'vercel-added@reg.test', role: 'user' })) fd.set(k, v);
+    const vehicleDoc = new FormData();
+    vehicleDoc.set('kind', 'registration');
+    vehicleDoc.set('document', new Blob([Buffer.from('89504e470d0a1a0a', 'hex')], { type: 'image/png' }), 'car.png');
     const forms = [
       ['/admin/settings/test-email', {}, '/admin/settings'],
       ['/admin/bookings/new', { user_id: String(u.id), start: inDays(6, '14:19'), end: inDays(6, '16:00'), notify: '1' }, '/admin/bookings/new'],
       ['/admin/vehicle', { plate: '12-345-67', status: 'available', make: 'טויוטה', model: 'קורולה' }, '/admin/vehicle'],
       ['/admin/users/new', fd, '/admin/users/new'],
+      ['/admin/vehicle/documents', vehicleDoc, '/admin/vehicle'],
       ['/admin/settings', { buffer_minutes: '0', cancel_hours_before: '24', max_booking_hours: '168', max_open_bookings: '3',
         pickup_reminder_hours: '24', return_reminder_hours: '2', pending_alert_hours: '24', license_warn_days: '30' }, '/admin/settings'],
     ];

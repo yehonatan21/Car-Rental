@@ -10,6 +10,7 @@ const google = require('../google');
 const storage = require('../storage');
 const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
+const documents = require('./documents');
 
 const SETTING_LABELS = {
   buffer_minutes: ['זמן התארגנות בין הזמנות (דקות)', 'מרווח חובה בין החזרת הרכב להזמנה הבאה'],
@@ -247,6 +248,9 @@ module.exports = ({ app, requireAdmin, licenseUpload }) => {
     if (v.status !== 'available') vehicleAlerts.push(`הרכב בסטטוס "${VEHICLE_STATUS[v.status]}"`);
     for (const [key, label] of [['insurance_renewal', 'חידוש ביטוח'], ['registration_renewal', 'חידוש רישיון רכב'], ['next_service', 'טיפול']]) {
       if (v[key] && v[key] <= time.addDays(today, 30)) vehicleAlerts.push(`${label}: ${time.fmt(v[key])}${v[key] < today ? ' (עבר!)' : ''}`);
+    }
+    for (const d of documents.expiringOtherDocuments(v.id)) {
+      vehicleAlerts.push(`מסמך "${d.title || documents.DOC_KINDS[d.kind]}": בתוקף עד ${time.fmt(d.expires_at)}${d.expires_at < today ? ' (עבר!)' : ''}`);
     }
 
     res.page('לוח בקרה', html`
@@ -774,6 +778,7 @@ ${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id
     ${field('הנחיות לנהג (יופיעו במייל האישור)', html`<textarea name="instructions" rows="3" placeholder="מיקום החניה, איסוף מפתח, כרטיס דלק…">${v.instructions}</textarea>`)}
     ${field('הערות מנהל (פנימי)', html`<textarea name="notes" rows="3">${v.notes}</textarea>`)}
     <button class="btn btn-primary btn-block">שמירה</button>`, 'class="card"')}
+  ${documents.documentsCard(req, v)}
   <nav class="quick" aria-label="תחזוקה">
     <a href="/admin/blocks/new">${icon('wrench')}חסימת מועד<small>לטיפול או תחזוקה</small></a>
     <a href="/admin/bookings?kind=block">${icon('list')}חסימות קיימות<small>צפייה וביטול</small></a>

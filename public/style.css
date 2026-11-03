@@ -479,3 +479,11 @@ a.back .icon { transform: scaleX(-1); }
 .upload-note { display: block; color: var(--muted); font-size: .84rem; margin-top: .3rem; }
 .upload-note:empty { display: none; }
 .upload-note.bad { color: var(--danger); font-weight: 500; }
+
+/* Vehicle documents */
+ul.docs li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; }
+ul.docs .doc-main { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; }
+ul.docs .doc-main br { flex-basis: 100%; content: ''; }
+ul.docs .doc-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+#documents form.doc-upload { border-top: 1px solid var(--border); margin-top: 1rem; padding-top: 1rem; }
+#documents h3 { margin-top: 0; }

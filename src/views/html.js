@@ -171,13 +171,14 @@ function field(label, input, hint) {
 const uploadLimitLabel = () => `${Math.round(config.uploadMaxBytes / 1048576)}MB`;
 
 /**
- * The license file input. data-max-bytes lets app.js shrink large photos in the browser and refuse files that are
+ * A photo/PDF file input. data-max-bytes lets app.js shrink large photos in the browser and refuse files that are
  * still too big, so they are not cut off by the hosting platform's request size limit with a bare error page.
  */
-const licenseInput = ({ required = true } = {}) =>
-  html`<input type="file" name="license" accept="image/*,application/pdf" data-max-bytes="${config.uploadMaxBytes}" ${required ? raw('required') : ''}>`;
+const fileInput = (name, { required = true } = {}) =>
+  html`<input type="file" name="${name}" accept="image/*,application/pdf" data-max-bytes="${config.uploadMaxBytes}" ${required ? raw('required') : ''}>`;
+const licenseInput = (opts) => fileInput('license', opts);
 
 module.exports = {
   html, raw, escape, markdown, layout, csrfField, postForm, actionButton, field, badge, icon, pageHead, USER_STATUS, VEHICLE_STATUS,
-  licenseInput, uploadLimitLabel,
+  licenseInput, fileInput, uploadLimitLabel,
 };

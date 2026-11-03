@@ -170,7 +170,7 @@ app.use((req, res, next) => {
   verifyCsrf(req, res, next);
 });
 
-// Private license uploads: random file names, images or PDF only, up to config.uploadMaxBytes.
+// Private uploads (driving licenses, vehicle documents): random file names, images or PDF only, up to config.uploadMaxBytes.
 const ALLOWED = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/heic': '.heic', 'application/pdf': '.pdf' };
 const upload = multer({
   storage: multer.diskStorage({
@@ -181,6 +181,7 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, Boolean(ALLOWED[file.mimetype])),
 });
 const licenseUpload = [upload.single('license'), verifyCsrf];
+const documentUpload = [upload.single('document'), verifyCsrf];
 
 const requireLogin = (req, res, next) => {
   if (req.user) return next();
@@ -199,10 +200,11 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-const ctx = { app, requireLogin, requireAdmin, licenseUpload };
+const ctx = { app, requireLogin, requireAdmin, licenseUpload, documentUpload };
 require('./routes/public')(ctx);
 require('./routes/user')(ctx);
 require('./routes/admin')(ctx);
+require('./routes/documents')(ctx);
 
 // Anything unknown (an old link, a typo, a form re-sent to the wrong address) goes to the main page, which sends
 // signed-in people on to their own home page; never a bare "not found". Only a missing file (image, style, script)

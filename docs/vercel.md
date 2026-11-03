@@ -9,6 +9,23 @@ Without it the app **does not start** on Vercel: every page explains that no dat
 server instance has its own temporary disk, so without a shared database logins break and everything vanishes with each
 new version.) For a throwaway demo on purpose, set `ALLOW_TEMPORARY_DATA=true`; every page then shows a "demo" banner.
 
+### Important: one permanent database, not one per deployment
+The Vercel Turso integration can be set up to create a **new, empty database for every deployment** (its name starts
+with `dpl-<deployment id>-vercel-icfg-`). Then nothing carries over to the next version, and while two deployments
+answer at once, logins bounce between them. The admin dashboard and **Settings → מערכת ונתונים** warn about this, and
+the log says `WARNING: this is a separate database created for this one deployment`.
+
+Fix: use one database of your own and give the app its address in **`LIBSQL_URL` / `LIBSQL_AUTH_TOKEN`**. These are never
+touched by the integration and take priority over `TURSO_DATABASE_URL`:
+1. On [app.turso.tech](https://app.turso.tech) create a database (e.g. `car-rental`, region Frankfurt
+   `aws-eu-central-1`, close to Vercel's `fra1`). Copy its URL (`libsql://car-rental-<org>.aws-eu-central-1.turso.io`) and
+   create a token (Read & Write, no expiration).
+2. Vercel → Settings → Environment Variables, **Production** only: `LIBSQL_URL` = the URL, `LIBSQL_AUTH_TOKEN` = the token
+   (Sensitive). For dev, a second database the same way, **Preview** only.
+3. Optional: in Vercel → Integrations → Turso → Manage, remove this project, so no more per-deployment databases are created.
+4. Redeploy. Settings → מערכת ונתונים should show the new host "(מתוך LIBSQL_URL)", and its database id must stay the
+   same after the next deployment.
+
 If you connected Turso through the Vercel integration with a custom prefix (e.g. `STORAGE_TURSO_DATABASE_URL`), the app
 finds those variables too. The deployment's **Logs** show which one it uses: `[db] hosted database <host> (from …)`.
 

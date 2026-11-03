@@ -227,7 +227,7 @@ module.exports = ({ app, licenseUpload }) => {
   });
 
   app.get('/login', (req, res) => {
-    if (req.user) return res.redirect(homeFor(req.user));
+    if (req.user) return res.redirect(safeNext(req.query.next) || homeFor(req.user)); // already signed in: carry on
     res.page('התחברות', loginPage(req));
   });
 

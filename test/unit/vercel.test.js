@@ -215,3 +215,29 @@ test('Turso variables added by the Vercel integration under a custom prefix are 
       STORAGE_TURSO_AUTH_TOKEN: 'tok', OTHER_DATABASE_URL: 'postgres://x' }, encoding: 'utf8' }));
   assert.deepEqual(db, { url: 'libsql://car-rental-team.aws-eu-west-1.turso.io', authToken: 'tok', from: 'STORAGE_TURSO_DATABASE_URL' });
 });
+
+test('LIBSQL_URL pins one permanent database even when the Turso integration injects TURSO_DATABASE_URL', () => {
+  const db = JSON.parse(execFileSync(process.execPath, ['--no-warnings', '-e', 'console.log(JSON.stringify(require("./src/config").database))'],
+    { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH,
+      TURSO_DATABASE_URL: 'libsql://dpl-h3ftpc1wn599qufqmwhc28-vercel-icfg-beumz0zl0at2ayxpixsatymh.aws-us-east-1.turso.io', TURSO_AUTH_TOKEN: 'per-deploy',
+      LIBSQL_URL: 'libsql://car-rental-yehonatan21.aws-eu-central-1.turso.io', LIBSQL_AUTH_TOKEN: 'permanent' } }));
+  assert.deepEqual(db, { url: 'libsql://car-rental-yehonatan21.aws-eu-central-1.turso.io', authToken: 'permanent', from: 'LIBSQL_URL' });
+});
+
+test('a database created for one deployment by the integration is recognised', () => {
+  const { isPerDeploymentHost } = require('../../src/db');
+  assert.equal(isPerDeploymentHost('dpl-h3ftpc1wn599qufqmwhc28-vercel-icfg-beumz0zl0at2ayxpixsatymh.aws-us-east-1.turso.io'), true);
+  assert.equal(isPerDeploymentHost('car-rental-yehonatan21.aws-eu-central-1.turso.io'), false);
+  assert.equal(isPerDeploymentHost(null), false);
+});
+
+test('only the harmless url.parse() deprecation (DEP0169) is silenced', () => {
+  const { stderr } = require('node:child_process').spawnSync(process.execPath, ['-e', `
+    require('./src/quiet-warnings');
+    process.emitWarning('url.parse() behavior is not standardized', 'DeprecationWarning', 'DEP0169');
+    process.emitWarning('url.parse() again', { type: 'DeprecationWarning', code: 'DEP0169' });
+    process.emitWarning('something else', 'DeprecationWarning', 'DEP0005');
+    setTimeout(() => {}, 50);`], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH } });
+  assert.doesNotMatch(stderr, /DEP0169|url\.parse/);
+  assert.match(stderr, /DEP0005.*something else|something else/, 'other warnings still print');
+});

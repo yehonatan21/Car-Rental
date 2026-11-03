@@ -272,23 +272,34 @@ function defaultVehicle() {
 db.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('db_id', require('node:crypto').randomBytes(4).toString('hex'));
 db.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('created_at', time.stamp());
 
+/**
+ * The Vercel Turso integration can create a database per deployment, named "dpl-<deployment id>-vercel-icfg-…":
+ * each new version then starts empty. A permanent database (LIBSQL_URL) is needed instead.
+ */
+const isPerDeploymentHost = (host) => Boolean(host && /^dpl-[a-z0-9]+-vercel-icfg-/i.test(host));
+
 /** Where the data lives, for /healthz, the settings page and the startup log. No secrets. */
 function storageInfo() {
   const meta = Object.fromEntries(db.prepare('SELECT key, value FROM app_meta').all().map((r) => [r.key, r.value]));
   // Any file on Vercel is temporary (wiped with each new version, and separate for every server instance).
   const kind = db.remote ? 'hosted' : config.onVercel ? 'temporary' : 'file';
+  const host = db.remote ? new URL(config.database.url).host : null;
   return {
-    kind, id: meta.db_id, createdAt: meta.created_at,
-    host: db.remote ? new URL(config.database.url).host : null, from: config.database.from, file: db.remote ? null : config.dbFile,
+    kind, id: meta.db_id, createdAt: meta.created_at, host, from: config.database.from, file: db.remote ? null : config.dbFile,
+    perDeployment: isPerDeploymentHost(host),
   };
 }
 {
   const s = storageInfo();
   console.log(`[db] ${s.kind === 'hosted' ? `hosted database ${s.host} (from ${s.from})` : `${s.kind} database file ${s.file}`}, `
     + `database id ${s.id}, created ${s.createdAt}`);
+  if (s.perDeployment) {
+    console.warn('[db] WARNING: this is a separate database created for this one deployment by the Vercel Turso integration. '
+      + 'Data will not carry over to the next deployment. Set LIBSQL_URL and LIBSQL_AUTH_TOKEN to one permanent database.');
+  }
 }
 
 module.exports = {
-  db, transaction, audit, getSettings, setSetting, DEFAULT_SETTINGS, storageInfo,
+  db, transaction, audit, getSettings, setSetting, DEFAULT_SETTINGS, storageInfo, isPerDeploymentHost,
   currentPolicy, requiredPolicyVersion, userAcceptedPolicy, defaultVehicle,
 };

@@ -1,4 +1,5 @@
 'use strict';
+require('./quiet-warnings');
 const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
@@ -54,7 +55,7 @@ app.get('/healthz', (req, res) => {
     status: 'ok', env: process.env.APP_ENV || process.env.NODE_ENV || 'development',
     version: { commit: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null, branch: process.env.VERCEL_GIT_COMMIT_REF || null,
       environment: process.env.VERCEL_ENV || null },
-    storage: { kind: s.kind, id: s.id, createdAt: s.createdAt },
+    storage: { kind: s.kind, id: s.id, createdAt: s.createdAt, perDeployment: s.perDeployment },
   });
 });
 
@@ -85,8 +86,15 @@ app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 app.use((req, res, next) => {
   req.cookies = auth.parseCookies(req.headers.cookie);
   const session = auth.loadSession(req);
+  const user = session && db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id);
+  if (req.cookies[auth.COOKIE] && !user) {
+    // A login cookie this database does not know (expired, logged out elsewhere, or made by another deployment with
+    // its own database): forget it. Otherwise pages served by two deployments at once during a new release could
+    // send the browser back and forth between "/login" and the page forever (ERR_TOO_MANY_REDIRECTS).
+    res.clearCookie(auth.COOKIE, { path: '/', secure: req.secure });
+    delete req.cookies[auth.COOKIE];
+  }
   if (session) {
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id);
     if (user) {
       req.session = session;
       // Admin rights require an active account: a blocked/suspended admin is treated as a regular user everywhere.

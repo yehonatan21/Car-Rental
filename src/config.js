@@ -62,11 +62,13 @@ function urlFromEnv(name, scheme) {
 }
 
 /**
- * Which environment variables hold the hosted database (Turso/libSQL). Besides the standard names, the Vercel Turso
- * integration can add them under a custom prefix (e.g. STORAGE_TURSO_DATABASE_URL + STORAGE_TURSO_AUTH_TOKEN).
+ * Which environment variables hold the hosted database (Turso/libSQL). LIBSQL_URL comes first: it is never set by an
+ * integration, so it pins one permanent database even when the Vercel Turso integration injects TURSO_DATABASE_URL
+ * (which it can point at a new, empty database for every deployment). The integration's variables can also carry a
+ * custom prefix (e.g. STORAGE_TURSO_DATABASE_URL + STORAGE_TURSO_AUTH_TOKEN).
  */
 function databaseEnv() {
-  for (const [url, token] of [['TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN'], ['LIBSQL_URL', 'LIBSQL_AUTH_TOKEN']]) {
+  for (const [url, token] of [['LIBSQL_URL', 'LIBSQL_AUTH_TOKEN'], ['TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN']]) {
     if (clean(process.env[url])) return { url, token };
   }
   const url = Object.keys(process.env).sort()

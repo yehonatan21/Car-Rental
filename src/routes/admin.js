@@ -105,7 +105,10 @@ function systemCard() {
   const leftovers = config.onVercel ? ['DATA_DIR', 'ALLOW_TEMPORARY_DATA', 'DB_FILE'].filter((k) => env[k]) : [];
   return html`<section class="card" id="system">
   <h2 class="section-title">${icon('settings')} מערכת ונתונים</h2>
-  ${s.kind === 'hosted'
+  ${s.perDeployment ? html`<div class="flash flash-error small"><b>מסד נתונים חדש לכל גרסה:</b> מסד הנתונים הזה נוצר במיוחד לפריסה הזו
+      על ידי האינטגרציה של Turso ב־Vercel, ולכן הנתונים לא יעברו לגרסה הבאה. יש להגדיר <code>LIBSQL_URL</code> ו־<code>LIBSQL_AUTH_TOKEN</code>
+      של מסד נתונים קבוע אחד (פירוט ב־docs/vercel.md).</div>`
+    : s.kind === 'hosted'
     ? html`<div class="flash flash-success small">הנתונים נשמרים במסד נתונים קבוע (Turso) ונשארים בין גרסאות.</div>`
     : s.kind === 'temporary'
       ? html`<div class="flash flash-error small"><b>הנתונים זמניים:</b> הם נשמרים בקובץ על השרת ונמחקים בכל גרסה חדשה. יש לחבר מסד נתונים (Turso) לסביבה הזו.</div>`
@@ -251,6 +254,9 @@ ${pageHead('לוח בקרה', {
     iconName: 'dashboard', sub: 'מה מחכה לטיפול שלך היום.',
     actions: html`<a class="btn btn-primary" href="/admin/bookings/new">${icon('plus')} הזמנה ידנית</a> <a class="btn btn-light" href="/calendar">${icon('calendar')} יומן</a>`,
   })}
+${storageInfo().perDeployment || storageInfo().kind === 'temporary' ? html`<div class="flash flash-error">
+  <b>הנתונים לא נשמרים בין גרסאות:</b> הפריסה הזו משתמשת במסד נתונים ${storageInfo().kind === 'temporary' ? 'זמני' : 'שנוצר רק בשבילה'}.
+  <a href="/admin/settings#system">פרטים ותיקון</a></div>` : ''}
 ${!config.smtp && (config.production || config.onVercel) ? html`<div class="flash flash-error">
   <b>מיילים לא נשלחים:</b> לא הוגדר שרת דואר (SMTP), ולכן מנהלים לא מקבלים הודעה על בקשות חדשות ומשתמשים לא מקבלים אישור הזמנה.
   <a href="/admin/settings#email">להגדרה</a></div>` : ''}

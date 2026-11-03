@@ -15,20 +15,26 @@ delete process.env.SMTP_HOST;
 // file: every test file gets its own fresh server, like it gets its own fresh file otherwise.
 let sqld = null;
 if (process.env.SQLD_BIN) {
-  const { spawn } = require('node:child_process');
-  const port = 20000 + (process.pid % 20000);
-  sqld = spawn(process.env.SQLD_BIN, ['--http-listen-addr', `127.0.0.1:${port}`, '--db-path', path.join(dataDir, 'sqld')],
-    { stdio: 'ignore' });
-  sqld.unref(); // don't keep the test process alive; it is killed on exit
-  process.env.TURSO_DATABASE_URL = `http://127.0.0.1:${port}`;
-  // Wait (synchronously, before the app opens the database) until the server answers.
+  const { spawnSync, spawn } = require('node:child_process');
   const Database = require('libsql');
   const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-  for (let i = 0; ; i++) {
-    try { new Database(process.env.TURSO_DATABASE_URL, {}).prepare('SELECT 1').get([]); break; } catch (err) {
-      if (i > 100) throw new Error('sqld did not start: ' + err.message);
-      sleep(100);
+  // Wait (synchronously, before the app opens the database) until the server answers. If its port was taken (the
+  // server then exits at once), start it again on another port.
+  for (let attempt = 0, port = 20000 + (process.pid % 20000); ; attempt++, port = 20000 + ((port + 7919) % 20000)) {
+    sqld = spawn(process.env.SQLD_BIN, ['--http-listen-addr', `127.0.0.1:${port}`, '--db-path', path.join(dataDir, `sqld-${port}`)],
+      { stdio: 'ignore' });
+    sqld.unref(); // don't keep the test process alive; it is killed on exit
+    process.env.TURSO_DATABASE_URL = `http://127.0.0.1:${port}`;
+    let up = false;
+    for (let i = 0; i < 300 && !up; i++) { // up to 30 s when many test files start servers at once
+      try { new Database(process.env.TURSO_DATABASE_URL, {}).prepare('SELECT 1').get([]); up = true; } catch {
+        if (spawnSync('kill', ['-0', String(sqld.pid)]).status !== 0) break; // exited: port in use
+        sleep(100);
+      }
     }
+    if (up) break;
+    try { process.kill(sqld.pid, 'SIGKILL'); } catch { /* already gone */ }
+    if (attempt >= 4) throw new Error('sqld did not start');
   }
 }
 

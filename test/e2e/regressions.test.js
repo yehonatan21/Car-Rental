@@ -185,7 +185,7 @@ test('never a bare "Not found": a form re-sent to a page address, or an action o
 
 test('redirects are never stored by the browser or the CDN', async () => {
   const r = await admin.post('/admin/settings/test-email', {}, '/admin/settings');
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   assert.equal(r.headers.get('cache-control'), 'no-store');
   await landsOn(r);
 });
@@ -199,4 +199,60 @@ test('a login cookie that is not recognised is logged with the reason (and nothi
   const line = warn.mock.calls.map((x) => x.arguments[0]).find((m) => /\[session\]/.test(m));
   assert.match(line, /login cookie not recognised \(unknown\) on GET \/admin\/settings/);
   assert.doesNotMatch(line, /not-a-real-session-token/);
+});
+
+/**
+ * What Vercel's Node.js runtime does to every request before the app sees it (its "helpers"): own properties that
+ * hide Express's methods, with res.redirect(url) answering 307. Modelled on @vercel/node's helpers.
+ */
+function addVercelHelpers(req, res) {
+  const lazy = (obj, prop, get) => Object.defineProperty(obj, prop, { configurable: true, enumerable: true,
+    get, set(v) { Object.defineProperty(obj, prop, { value: v, writable: true, configurable: true, enumerable: true }); } });
+  lazy(req, 'query', () => Object.fromEntries(new URL(req.url, 'http://x').searchParams));
+  lazy(req, 'cookies', () => ({}));
+  lazy(req, 'body', () => undefined);
+  res.status = (code) => { res.statusCode = code; return res; };
+  res.redirect = (statusOrUrl, url) => {
+    if (typeof statusOrUrl === 'string') { url = statusOrUrl; statusOrUrl = 307; }
+    res.writeHead(statusOrUrl, { Location: url }).end();
+    return res;
+  };
+  res.send = (body) => { res.end(body); return res; };
+  res.json = (obj) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(obj)); return res; };
+}
+
+test('on Vercel (its request helpers in place) every form ends on a page: no 307 that re-sends the form', async () => {
+  const http = require('node:http');
+  const handler = require('../../api/index.js');
+  const vercel = http.createServer((req, res) => { addVercelHelpers(req, res); handler(req, res); });
+  await new Promise((r) => vercel.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${vercel.address().port}`;
+  try {
+    const [c] = [new Client(base)];
+    await c.login('admin@reg.test');
+    const u = createUser({ email: 'vercel-form@reg.test' });
+    db.prepare('DELETE FROM policy_acceptances WHERE user_id = ?').run(u.id); // so the manual booking is refused
+    const fd = new FormData();
+    for (const [k, v] of Object.entries({ first_name: 'גל', last_name: 'רז', id_number: nextIdNumber(), phone: '0529876543',
+      email: 'vercel-added@reg.test', role: 'user' })) fd.set(k, v);
+    const forms = [
+      ['/admin/settings/test-email', {}, '/admin/settings'],
+      ['/admin/bookings/new', { user_id: String(u.id), start: inDays(6, '14:19'), end: inDays(6, '16:00'), notify: '1' }, '/admin/bookings/new'],
+      ['/admin/vehicle', { plate: '12-345-67', status: 'available', make: 'טויוטה', model: 'קורולה' }, '/admin/vehicle'],
+      ['/admin/users/new', fd, '/admin/users/new'],
+      ['/admin/settings', { buffer_minutes: '0', cancel_hours_before: '24', max_booking_hours: '168', max_open_bookings: '3',
+        pickup_reminder_hours: '24', return_reminder_hours: '2', pending_alert_hours: '24', license_warn_days: '30' }, '/admin/settings'],
+    ];
+    for (const [url, body, from] of forms) {
+      const r = await c.post(url, body, from);
+      assert.equal(r.status, 303, `${url}: answered ${r.status} ${r.location}`);
+      const { page, hops } = await landsOn(r, [c]);
+      assert.equal(hops.length, 1, `${url}: ${hops.join(' → ')}`);
+      assert.doesNotMatch(page, /הדף לא נטען/);
+    }
+    assert.ok(db.prepare("SELECT 1 FROM users WHERE email = 'vercel-added@reg.test'").get(), 'the user was added once');
+    assert.equal(db.prepare("SELECT plate FROM vehicles WHERE id = 1").get().plate, '12-345-67');
+  } finally {
+    await new Promise((r) => vercel.close(r));
+  }
 });

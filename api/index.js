@@ -67,7 +67,21 @@ border:1px solid #dde5e1;border-radius:8px;padding:10px;font-size:.85rem}.en{dir
 <code>${escape(redact(err && err.message))}</code></main></body></html>`);
 }
 
+/**
+ * Vercel's Node.js runtime adds its own helpers to every request before the app sees it: res.redirect, res.status,
+ * res.send, res.json, and lazy req.body, req.query, req.cookies. They are own properties, so they hide Express's
+ * methods of the same name, and Vercel's res.redirect(url) answers 307, not 302. A 307 after a form makes the browser
+ * send the same form again to the new address: on the live site every form (test e-mail, manual booking, vehicle,
+ * "add user") bounced between POSTs until the browser gave up. Removing the helpers lets Express handle everything
+ * exactly as it does locally and in the tests.
+ */
+function withoutVercelHelpers(req, res) {
+  for (const k of ['body', 'query', 'cookies']) if (Object.hasOwn(req, k)) delete req[k];
+  for (const k of ['redirect', 'status', 'send', 'json']) if (Object.hasOwn(res, k)) delete res[k];
+}
+
 module.exports = (req, res) => {
+  withoutVercelHelpers(req, res);
   if (!app) {
     try {
       app = require('../src/server').app;
@@ -78,3 +92,5 @@ module.exports = (req, res) => {
   }
   return app(req, res);
 };
+
+module.exports.withoutVercelHelpers = withoutVercelHelpers;

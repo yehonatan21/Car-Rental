@@ -22,7 +22,7 @@ after(() => srv.close());
 
 test('registration creates a pending user who cannot book yet', async () => {
   const r = await alice.post('/register', registrationForm({ email: 'alice@test.org', id_number: '123456782' }));
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   assert.equal(r.location, '/me');
   const u = db.prepare("SELECT * FROM users WHERE email = 'alice@test.org'").get();
   aliceId = u.id;

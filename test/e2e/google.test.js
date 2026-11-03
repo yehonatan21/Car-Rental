@@ -117,7 +117,7 @@ test('new person: Google pre-fills registration, e-mail is locked to the Google 
   assert.match(page, /value="newbie@gmail.com" readonly/);
 
   const reg = await c.post('/register', registrationForm({ email: 'attacker@evil.example', first_name: 'נגה', last_name: 'גוגל', password: null }));
-  assert.equal(reg.status, 302);
+  assert.equal(reg.status, 303);
   const u = db.prepare("SELECT * FROM users WHERE google_sub = 'sub-newbie'").get();
   assert.equal(u.email, 'newbie@gmail.com', 'posted e-mail is ignored');
   assert.equal(u.status, 'pending');

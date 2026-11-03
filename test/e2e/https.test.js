@@ -57,7 +57,7 @@ test('plain HTTP on the same port redirects to HTTPS', async () => {
 
 test('session cookie is Secure over HTTPS; no HSTS for localhost', async () => {
   const r = await request(https, { method: 'POST', path: '/login', body: 'email=tls%40test.org&password=Password1' });
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   const sid = r.headers['set-cookie'].find((c) => c.startsWith('sid='));
   assert.match(sid, /; Secure/);
   assert.match(sid, /HttpOnly/);
@@ -114,7 +114,7 @@ test('forms posted from the LAN address are accepted (same-origin check uses the
     method: 'POST', path: '/login', body: 'email=tls%40test.org&password=Password1',
     headers: { host: `192.168.1.50:${port}`, origin: `https://192.168.1.50:${port}` },
   });
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
 });
 
 test('forms posted through a tunnel that rewrites Host are accepted when BASE_URL matches the origin', async () => {
@@ -123,7 +123,7 @@ test('forms posted through a tunnel that rewrites Host are accepted when BASE_UR
     method: 'POST', path: '/login', body: 'email=tls%40test.org&password=Password1',
     headers: { origin: new URL(config.baseUrl).origin },
   });
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   const bad = await request(https, {
     method: 'POST', path: '/login', body: 'email=tls%40test.org&password=Password1',
     headers: { origin: 'https://evil.example' },

@@ -187,7 +187,7 @@ class Client {
 
   async login(email, password = 'Password1') {
     const r = await this.post('/login', { email, password });
-    if (r.status !== 302) throw new Error(`login failed for ${email}: ${r.status}`);
+    if (r.status !== 303) throw new Error(`login failed for ${email}: ${r.status}`); // 303: forms redirect with "see other"
     return r;
   }
 

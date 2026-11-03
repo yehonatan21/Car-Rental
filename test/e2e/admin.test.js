@@ -186,7 +186,7 @@ test('user search and status filter', async () => {
 test('manual booking is approved and optionally e-mails the user', async () => {
   const u = createUser({ email: 'manual@adm.test' });
   const r = await admin.post('/admin/bookings/new', { user_id: u.id, start: inDays(20, '09:00'), end: inDays(20, '12:00'), notify: '1' }, '/admin/bookings/new');
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   const b = db.prepare('SELECT * FROM bookings WHERE user_id = ?').get(u.id);
   assert.equal(b.status, 'approved');
   assert.ok(outbox().some((m) => m.subject === 'ההזמנה אושרה' && m.to.includes('manual@adm.test')));
@@ -403,7 +403,7 @@ test('admin adds a user manually: active with a checked license, invitation link
   assert.equal((await admin.get('/admin/users/new')).status, 200);
   const expiry = time.addDays(time.today(), 400);
   const r = await admin.post('/admin/users/new', newUserForm({ email: 'Ron@Manual.test', license_expiry: expiry }, PNG), '/admin/users/new');
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   const u = db.prepare("SELECT * FROM users WHERE email = 'ron@manual.test'").get();
   assert.ok(u, 'created (e-mail stored in lowercase)');
   assert.equal(r.location, `/admin/users/${u.id}`);

@@ -53,7 +53,7 @@ test('requests forwarded as HTTPS by the proxy are served with HSTS and Secure c
   const login = await request('/login', {
     method: 'POST', headers: { ...headers, ...form, origin: 'https://car.example.org' }, body: 'email=prod%40test.org&password=Password1',
   });
-  assert.equal(login.status, 302);
+  assert.equal(login.status, 303);
   assert.match(login.headers['set-cookie'].find((c) => c.startsWith('sid=')), /; Secure/);
 });
 

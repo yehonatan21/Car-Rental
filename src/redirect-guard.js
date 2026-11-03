@@ -19,6 +19,9 @@ function read(req) {
 function guard(req, res, next) {
   const redirect = res.redirect.bind(res);
   res.redirect = (...args) => {
+    // After a form (POST), always 303 "see other": the browser then opens the page with GET. A 307/308 would make it
+    // send the form again to the new address.
+    if (typeof args[0] !== 'number' && req.method !== 'GET' && req.method !== 'HEAD') args = [303, args[0]];
     const to = typeof args[0] === 'number' ? args[1] : args[0];
     const prev = read(req);
     // Without the query, so the cookie and the log never carry tokens; with whether this request was signed in.

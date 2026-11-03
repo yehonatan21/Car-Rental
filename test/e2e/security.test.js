@@ -107,7 +107,7 @@ test('a login page opened before signing in elsewhere still works (no token need
   assert.doesNotMatch(loginPage, /name="_csrf"/);
   await c.login('admin@sec.test'); // "another tab" signs in: the browser now sends a session cookie
   const r = await c.req('POST', '/login', { email: 'admin@sec.test', password: 'Password1' });
-  assert.equal(r.status, 302, 'signed in, not "the form expired"');
+  assert.equal(r.status, 303, 'signed in, not "the form expired"');
 });
 
 test('signed-in pages are not stored by the browser', async () => {
@@ -168,10 +168,10 @@ test('uploads: only images/PDF accepted, size limited', async () => {
   assert.equal(r.status, 400);
   assert.match(r.text, /יש להעלות צילום רישיון/);
   r = await c.post('/register', registrationForm({ licenseBlob: new Blob([Buffer.alloc(9 * 1024 * 1024)], { type: 'image/png' }) }));
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   assert.match(c.flash().text, /גדול מדי/);
   r = await c.post('/register', registrationForm({ licenseBlob: new Blob(['%PDF-1.4'], { type: 'application/pdf' }), licenseName: 'l.pdf', email: 'pdf@sec.test' }));
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   const file = db.prepare("SELECT license_file FROM users WHERE email = 'pdf@sec.test'").get().license_file;
   assert.match(file, /^[0-9a-f]{32}\.pdf$/, 'random server-side file name, never the client name');
 });

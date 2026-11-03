@@ -32,7 +32,7 @@ test('after an error the license and password are kept; resubmitting without the
   const second = await c.post('/register', registrationForm({
     email: 'keep@test.org', id_number: '123456782', password: null, license: null, draft: token,
   }));
-  assert.equal(second.status, 302, 'no need to upload or type the password again');
+  assert.equal(second.status, 303, 'no need to upload or type the password again');
   const u = db.prepare("SELECT * FROM users WHERE email = 'keep@test.org'").get();
   assert.equal(String(storedFile(u.license_file)), String(PNG), 'the license uploaded in the first attempt');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM registration_drafts').get().n, 0, 'draft removed');
@@ -48,7 +48,7 @@ test('a new file or password in a later attempt replaces the kept one', async ()
     email: 'replace@test.org', draft: token, password: 'SecondPass2',
     licenseBlob: new Blob(['%PDF-1.4 new'], { type: 'application/pdf' }), licenseName: 'new.pdf',
   }));
-  assert.equal(second.status, 302);
+  assert.equal(second.status, 303);
   const u = db.prepare("SELECT * FROM users WHERE email = 'replace@test.org'").get();
   assert.match(u.license_file, /\.pdf$/);
   assert.equal(storedFile(oldFile), null, 'replaced upload deleted');
@@ -64,7 +64,7 @@ test('a too-short password is not kept, the earlier one stays', async () => {
   assert.match(second.text, /לפחות 8 תווים/);
   assert.match(second.text, /✓ הסיסמה שהזנת נשמרה/);
   const third = await c.post('/register', registrationForm({ email: 'pw@test.org', draft: draftToken(second.text), license: null, password: null }));
-  assert.equal(third.status, 302);
+  assert.equal(third.status, 303);
   await new Client(srv.base).login('pw@test.org', 'GoodPass1');
 });
 

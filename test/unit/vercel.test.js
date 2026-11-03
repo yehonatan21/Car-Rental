@@ -160,3 +160,25 @@ test('preview deployments (the dev branch) use their own branch address; uploads
   assert.ok(preview.uploadMaxBytes < 4.5 * 1024 * 1024);
   assert.equal(configWith({}).uploadMaxBytes, 8 * 1024 * 1024);
 });
+
+test('addresses pasted without https:// / libsql:// or in quotes still work; a broken one names the variable', async () => {
+  assert.equal(configWith({ BASE_URL: 'car-rental-brown-kappa.vercel.app' }).baseUrl, 'https://car-rental-brown-kappa.vercel.app');
+  assert.equal(configWith({ BASE_URL: ' "https://car-rental.vercel.app/" ' }).baseUrl, 'https://car-rental.vercel.app');
+  const db = JSON.parse(execFileSync(process.execPath, ['--no-warnings', '-e', 'console.log(JSON.stringify(require("./src/config").database))'],
+    { cwd: root, env: { PATH: process.env.PATH, TURSO_DATABASE_URL: "'car-rental-x.turso.io'", TURSO_AUTH_TOKEN: ' "Bearer abc.def" ' }, encoding: 'utf8' }));
+  assert.deepEqual(db, { url: 'libsql://car-rental-x.turso.io', authToken: 'abc.def' }, 'never taken as a local file name');
+
+  // On Vercel the entry point explains it instead of a bare "Invalid URL".
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-url-'));
+  const out = execFileSync(process.execPath, ['--no-warnings', '-e', `
+    const http = require('node:http');
+    const s = http.createServer(require('./api/index.js')).listen(0, '127.0.0.1', () => {
+      http.get({ host: '127.0.0.1', port: s.address().port, path: '/' }, (res) => {
+        let b = ''; res.on('data', (c) => { b += c; }); res.on('end', () => { console.log(res.statusCode + ' ' + b); process.exit(0); });
+      });
+    });`], { cwd: root, env: { PATH: process.env.PATH, VERCEL: '1', NODE_ENV: 'production', TMPDIR: tmp, BASE_URL: 'https://' }, encoding: 'utf8' });
+  fs.rmSync(tmp, { recursive: true, force: true });
+  assert.match(out, /^503 /);
+  assert.match(out, /הערך של BASE_URL אינו כתובת תקינה/);
+  assert.match(out, /BASE_URL is not a valid address: &quot;https:\/\/&quot;/);
+});

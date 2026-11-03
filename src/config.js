@@ -40,6 +40,27 @@ function smtpConfig() {
   };
 }
 
+/** An environment value as people paste it into a dashboard: surrounding spaces and quotes removed. */
+const clean = (v) => String(v ?? '').trim().replace(/^(['"])(.*)\1$/, '$2').trim();
+
+/**
+ * An address from an environment variable: cleaned, with the scheme added when it was left out
+ * ("car-rental.vercel.app" → "https://car-rental.vercel.app"). A value that is still not an address stops the app
+ * with a message naming the variable, instead of a bare "Invalid URL".
+ */
+function urlFromEnv(name, scheme) {
+  let v = clean(process.env[name]);
+  if (!v) return '';
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) v = `${scheme}://${v}`;
+  try {
+    if (!new URL(v).hostname) throw new Error('no host');
+  } catch {
+    throw new Error(`${name} is not a valid address: "${clean(process.env[name])}". Use the full address, for example ${
+      scheme === 'https' ? 'https://car-rental.vercel.app' : 'libsql://car-rental-<org>.turso.io'}.`);
+  }
+  return v.replace(/\/+$/, '');
+}
+
 // Sender address. Most SMTP providers (Gmail, Outlook, SendGrid…) refuse or spam-flag mail "from" an address the
 // account does not own, so without MAIL_FROM the SMTP login (when it is an e-mail address) is used.
 function mailFrom() {
@@ -50,8 +71,8 @@ function mailFrom() {
 
 module.exports = {
   port,
-  baseUrl: (process.env.BASE_URL || (onVercel && vercelUrl ? `https://${vercelUrl}` : `${httpsEnabled ? 'https' : 'http'}://localhost:${port}`))
-    .replace(/\/$/, ''),
+  baseUrl: urlFromEnv('BASE_URL', 'https')
+    || (onVercel && vercelUrl ? `https://${vercelUrl}` : `${httpsEnabled ? 'https' : 'http'}://localhost:${port}`),
   production,
   https: {
     enabled: httpsEnabled,
@@ -66,12 +87,13 @@ module.exports = {
   // (project → Analytics → Enable). VERCEL_ANALYTICS=false turns the script off.
   vercelAnalytics: onVercel && process.env.VERCEL_ANALYTICS !== 'false',
   // Data does not survive restarts (Vercel without DATA_DIR pointing at persistent storage): warn on every page.
-  ephemeral: onVercel && !process.env.DATA_DIR && !(process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL || '').trim(),
+  ephemeral: onVercel && !process.env.DATA_DIR && !clean(process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL),
   // Hosted libSQL / Turso database (data survives redeploys). Names match Vercel's Turso integration.
-  // Trimmed: values pasted into a hosting dashboard often carry a trailing space or newline, which breaks the URL.
+  // Cleaned: values pasted into a hosting dashboard often carry spaces, a newline or quotes. A URL without its scheme
+  // would otherwise be taken as a local file name, silently using a throwaway database.
   database: {
-    url: (process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL || '').trim(),
-    authToken: (process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN || '').trim(),
+    url: urlFromEnv(process.env.TURSO_DATABASE_URL ? 'TURSO_DATABASE_URL' : 'LIBSQL_URL', 'libsql'),
+    authToken: clean(process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN).replace(/^Bearer\s+/i, ''),
   },
   dbFile: process.env.DB_FILE || path.join(dataDir, 'app.db'),
   // Private storage for license images: outside any static folder, served only through an admin-checked route.

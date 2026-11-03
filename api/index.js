@@ -19,6 +19,15 @@ const redact = (msg) => String(msg)
 
 function hint(err) {
   const msg = String(err && err.message);
+  const variable = /^(BASE_URL|TURSO_DATABASE_URL|LIBSQL_URL) is not a valid address/.exec(msg)?.[1];
+  if (variable) {
+    return {
+      he: `הערך של ${variable} אינו כתובת תקינה. ב־Vercel ← Settings ← Environment Variables יש לתקן אותו לכתובת המלאה `
+        + `(למשל ${variable === 'BASE_URL' ? 'https://car-rental.vercel.app' : 'libsql://car-rental-<org>.turso.io'}, בלי מרכאות), או למחוק אותו, ואז Redeploy.`,
+      en: `${variable} is not a valid address. In Vercel → Settings → Environment Variables fix it to the full address `
+        + '(no quotes) or delete it, then redeploy.',
+    };
+  }
   if (/Hrana|libsql|sqld|turso|dns error|tcp connect|401|403|Unauthorized|token/i.test(msg)) {
     return {
       he: 'לא ניתן להתחבר למסד הנתונים (Turso). בדקו ב־Vercel ← Settings ← Environment Variables את TURSO_DATABASE_URL ו־TURSO_AUTH_TOKEN '

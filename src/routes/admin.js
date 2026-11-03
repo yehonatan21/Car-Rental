@@ -476,7 +476,7 @@ ${permissionsCard(req, u, isSelf)}
   const SELF_ALLOWED = new Set(['note', 'license/approve', 'license/reject', 'send-reset']);
   const userAction = (name, handler) => app.post(`/admin/users/:id/${name}`, requireAdmin, async (req, res) => {
     const u = getUser(req.params.id);
-    if (!u) return res.sendStatus(404);
+    if (!u) return res.redirect(303, '/'); // the user no longer exists (old page): back to the main page
     // On your own account you may verify your own driving license, keep notes and get a reset link,
     // but never change your own status or role.
     if (u.id === req.user.id && !SELF_ALLOWED.has(name)) {

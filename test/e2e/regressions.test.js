@@ -157,3 +157,26 @@ test('registration still works end to end after all of the above', async () => {
   const { page } = await landsOn(await c.post('/register', fd), [c]);
   assert.match(page, /ממתין/);
 });
+
+test('adding a user: the browser lands on the new user card', async () => {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries({ first_name: 'יעל', last_name: 'שחר', id_number: nextIdNumber(), phone: '0527654321',
+    email: 'added@reg.test', role: 'user', send_invite: '1' })) fd.set(k, v);
+  const { page, hops } = await landsOn(await admin.post('/admin/users/new', fd, '/admin/users/new'));
+  const u = db.prepare("SELECT id FROM users WHERE email = 'added@reg.test'").get();
+  assert.deepEqual(hops, [`/admin/users/${u.id}`]);
+  assert.match(page, /יעל שחר/);
+});
+
+test('never a bare "Not found": a form re-sent to a page address, or an action on a deleted user, goes home', async () => {
+  const token = await admin.csrf('/admin/users');
+  for (const url of ['/admin/users/2', '/admin/users/999999/block', '/no-such-form']) {
+    const r = await admin.req('POST', url, { _csrf: token });
+    assert.equal(r.status, 303, url);
+    assert.equal(r.location, '/', url);
+    assert.doesNotMatch(r.text, /^Not found$/);
+    await landsOn(r);
+  }
+  // A missing file is still a plain 404 (an <img> or stylesheet must not receive a whole page).
+  assert.equal((await admin.get('/static/nope.png')).status, 404);
+});

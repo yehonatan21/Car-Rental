@@ -260,7 +260,9 @@ test('two-step verification is gone: no setup, and an account that had it on sig
   assert.doesNotMatch(security, /דו־שלבי/);
   assert.doesNotMatch((await c.get('/admin')).text, /אימות דו־שלבי/, 'no reminder on the dashboard');
   assert.equal((await c.get('/login/2fa')).location, '/', 'the old page is gone');
-  assert.equal((await c.post('/me/2fa/start', {}, '/me/security')).status, 404);
+  const old = await c.post('/me/2fa/start', {}, '/me/security');
+  assert.equal(old.status, 303, 'the old form address now just goes to the main page');
+  assert.equal(old.location, '/');
 });
 
 test('one-time code login via e-mail', async () => {

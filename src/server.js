@@ -187,12 +187,13 @@ require('./routes/public')(ctx);
 require('./routes/user')(ctx);
 require('./routes/admin')(ctx);
 
-// An unknown address (an old link, a typo) goes to the main page, which sends signed-in people on to their own home
-// page. Files (images, styles, scripts) and form posts keep a plain 404, so a missing file never gets a whole page.
+// Anything unknown (an old link, a typo, a form re-sent to the wrong address) goes to the main page, which sends
+// signed-in people on to their own home page; never a bare "not found". Only a missing file (image, style, script)
+// gets a plain 404, so a browser asking for a file never receives a whole page instead.
 app.use((req, res) => {
-  const isPage = req.method === 'GET' && !req.path.startsWith('/static/') && !/\.[a-z0-9]{1,5}$/i.test(req.path) && req.accepts('html');
-  if (isPage) return res.redirect('/');
-  res.status(404).type('text/plain').send('Not found');
+  const isFile = req.path.startsWith('/static/') || /\.[a-z0-9]{1,5}$/i.test(req.path);
+  if (isFile) return res.status(404).type('text/plain').send('Not found');
+  res.redirect(req.method === 'GET' || req.method === 'HEAD' ? 302 : 303, '/'); // 303: a POST continues as a GET
 });
 
 app.use((err, req, res, next) => {

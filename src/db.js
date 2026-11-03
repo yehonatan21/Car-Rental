@@ -195,6 +195,10 @@ function addColumn(table, column, type) {
   }
 }
 addColumn('users', 'google_sub', 'TEXT');
+// Two-step verification was removed: forget stored authenticator secrets and sessions that were waiting for a code.
+// (The columns stay, so older databases keep working.)
+db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE totp_enabled != 0 OR totp_secret IS NOT NULL').run();
+db.prepare('DELETE FROM sessions WHERE needs_2fa != 0').run();
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
 
 const DEFAULT_SETTINGS = {

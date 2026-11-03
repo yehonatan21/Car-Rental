@@ -92,7 +92,6 @@ function permissionsCard(req, u, isSelf) {
   <p class="muted small">${isAdmin
     ? 'גישה מלאה לממשק הניהול: אישור משתמשים והזמנות, צפייה ברישיונות נהיגה, ניהול הרכב, הנהלים וההגדרות. מקבל את התראות המנהל במייל.'
     : 'יכול להזמין את הרכב ולנהל את ההזמנות והפרטים שלו בלבד.'}</p>
-  ${isAdmin && !u.totp_enabled ? html`<p class="small note-line">${icon('alert', 16)} למנהל זה אין אימות דו־שלבי. מומלץ לבקש ממנו להפעיל אותו (אזור אישי ← סיסמה ואבטחה).</p>` : ''}
   ${action}
 </section>`;
 }
@@ -255,7 +254,6 @@ ${pageHead('לוח בקרה', {
 ${!config.smtp && (config.production || config.onVercel) ? html`<div class="flash flash-error">
   <b>מיילים לא נשלחים:</b> לא הוגדר שרת דואר (SMTP), ולכן מנהלים לא מקבלים הודעה על בקשות חדשות ומשתמשים לא מקבלים אישור הזמנה.
   <a href="/admin/settings#email">להגדרה</a></div>` : ''}
-${!req.user.totp_enabled ? html`<div class="flash flash-warning">מומלץ להפעיל אימות דו־שלבי לחשבון המנהל. <a href="/me/security">להפעלה</a></div>` : ''}
 <div class="stats">
   <a class="stat ${pendingUsers.length ? 'hot' : ''}" href="/admin/users?status=pending">${icon('userplus')}<b>${pendingUsers.length}</b><span>משתמשים ממתינים</span></a>
   <a class="stat ${pendingBookings.length ? 'hot' : ''}" href="/admin/bookings?status=pending">${icon('clock')}<b>${pendingBookings.length}</b><span>בקשות ממתינות</span></a>
@@ -408,7 +406,6 @@ ${pageHead(html`${fullName(u)} ${u.role === 'admin' ? badge('admin', 'מנהל')
       <dt>נרשם</dt><dd>${time.fmt(u.created_at)}</dd>
       <dt>מדיניות פרטיות</dt><dd>${u.privacy_accepted_at ? 'אושרה ' + time.fmt(u.privacy_accepted_at) : '—'}</dd>
       <dt>אישורי נהלים</dt><dd>${acceptances.map((a) => html`גרסה ${a.policy_version} – ${time.fmt(a.accepted_at)}<br>`)}</dd>
-      <dt>אימות דו־שלבי</dt><dd>${u.totp_enabled ? 'פעיל' : 'לא פעיל'}</dd>
     </dl>
     ${postForm(req, `/admin/users/${u.id}/note`, html`
       ${field('הערת מנהל (פנימית)', html`<textarea name="admin_note" rows="2">${u.admin_note}</textarea>`)}

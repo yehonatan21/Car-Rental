@@ -64,12 +64,10 @@ function loginPage(req, { error, email = '' } = {}) {
 </div>`;
 }
 
-/** After the first factor: start a session, possibly waiting for the admin's TOTP code. */
+/** Password, e-mail code or Google checked: start the session and go on. */
 function finishLogin(req, res, user, next = req.body?.next) {
   auth.resetThrottle('login:' + req.ip);
-  const needs2fa = Boolean(user.totp_enabled);
-  auth.createSession(res, user.id, needs2fa);
-  if (needs2fa) return res.redirect('/login/2fa' + (safeNext(next) ? '?next=' + encodeURIComponent(next) : ''));
+  auth.createSession(res, user.id);
   res.redirect(safeNext(next) || homeFor(user));
 }
 
@@ -283,31 +281,6 @@ module.exports = ({ app, licenseUpload }) => {
       return res.status(401).page('התחברות', loginPage(req, { error: 'הקוד שגוי או שפג תוקפו', email: req.body.email }));
     }
     finishLogin(req, res, user);
-  });
-
-  app.get('/login/2fa', (req, res) => {
-    if (!req.pendingUser) return res.redirect('/login');
-    res.page('אימות דו־שלבי', html`
-<div class="narrow">
-  <h1>אימות דו־שלבי</h1>
-  <p>יש להזין את הקוד מאפליקציית האימות.</p>
-  ${postForm(req, '/login/2fa', html`
-    <input type="hidden" name="next" value="${req.query.next || ''}">
-    ${field('קוד', html`<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required autofocus>`)}
-    <button class="btn btn-primary btn-block">אימות</button>`, 'class="card"')}
-</div>`);
-  });
-
-  app.post('/login/2fa', (req, res) => {
-    const user = req.pendingUser;
-    if (!user) return res.redirect('/login');
-    if (auth.throttled('2fa:' + user.id, 8) || !auth.verifyTotp(user.totp_secret, req.body.code)) {
-      res.flash('error', 'קוד שגוי');
-      return res.redirect('/login/2fa');
-    }
-    auth.completeTwoFactor(req);
-    auth.resetThrottle('2fa:' + user.id);
-    res.redirect(safeNext(req.body.next) || homeFor(user));
   });
 
   app.post('/logout', (req, res) => {

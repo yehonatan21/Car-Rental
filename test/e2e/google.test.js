@@ -8,7 +8,6 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const crypto = require('node:crypto');
 const config = require('../../src/config');
-const auth = require('../../src/auth');
 
 let srv, fakeGoogle;
 const codes = new Map(); // code → { claims, challenge } | { status }
@@ -139,13 +138,13 @@ test('the pre-filled registration needs the Google cookie; it cannot be reused b
   assert.doesNotMatch((await other.get('/register')).text, /מתחברים עם חשבון Google/);
 });
 
-test('admins with two-factor auth still need their code after Google', async () => {
+test('Google sign-in goes straight in for an admin (no second step any more)', async () => {
   const a = createUser({ role: 'admin', email: 'totp-admin@test.org' });
-  db.prepare('UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE id = ?').run(auth.newTotpSecret(), a.id);
+  db.prepare("UPDATE users SET totp_secret = 'JBSWY3DPEHPK3PXP', totp_enabled = 1 WHERE id = ?").run(a.id);
   const c = client();
   const r = await googleLogin(c, { email: 'totp-admin@test.org' });
-  assert.equal(r.location, '/login/2fa');
-  assert.equal((await c.get('/admin')).location, '/login/2fa');
+  assert.equal(r.location, '/admin');
+  assert.equal((await c.get('/admin')).status, 200);
 });
 
 test('rejected responses never log anyone in', async () => {

@@ -3,15 +3,12 @@
 const { db, createUser, getUser, getBooking, inDays, startServer, Client, outbox, PNG, putStoredFile, storedFile, nextIdNumber } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const auth = require('../../src/auth');
 const { getSettings } = require('../../src/db');
 const time = require('../../src/time');
 
 let srv, admin;
 const client = () => new Client(srv.base);
 const year = () => time.addDays(time.today(), 365);
-const totpNow = (secret) => auth.totpAt(secret, Math.floor(Date.now() / 30000));
-const wrongTotp = (secret) => (totpNow(secret) === '000000' ? '111111' : '000000');
 
 before(async () => {
   srv = await startServer();
@@ -116,7 +113,6 @@ test('user card has a permissions section with the right action', async () => {
   page = (await admin.get(`/admin/users/${otherAdmin.id}`)).text;
   assert.match(page, /מנהל מערכת/);
   assert.match(page, new RegExp(`action="/admin/users/${otherAdmin.id}/remove-admin"`));
-  assert.match(page, /אין אימות דו־שלבי/);
   const me = db.prepare("SELECT id FROM users WHERE email = 'admin@adm.test'").get();
   page = (await admin.get(`/admin/users/${me.id}`)).text;
   assert.match(page, /לא ניתן לשנות את ההרשאות של עצמך/);
@@ -253,31 +249,18 @@ test('policy versions are listed with acceptance counts', async () => {
   assert.match((await client().get('/policy')).text, /גרסה 2/);
 });
 
-test('two-factor authentication for admins', async () => {
+test('two-step verification is gone: no setup, and an account that had it on signs in directly', async () => {
   const a2 = createUser({ role: 'admin', email: 'twofa@adm.test' });
+  db.prepare("UPDATE users SET totp_secret = 'JBSWY3DPEHPK3PXP', totp_enabled = 1 WHERE id = ?").run(a2.id);
   const c = client();
-  await c.login('twofa@adm.test');
-  await c.post('/me/2fa/start', {}, '/me/security');
-  const secret = getUser(a2.id).totp_secret;
-  assert.ok(secret);
-  assert.match((await c.get('/me/security')).text, /data:image\/png;base64/, 'QR code shown');
-  await c.post('/me/2fa/enable', { code: wrongTotp(secret) }, '/me/security');
-  assert.equal(getUser(a2.id).totp_enabled, 0, 'wrong code does not enable');
-  await c.post('/me/2fa/enable', { code: totpNow(secret) }, '/me/security');
-  assert.equal(getUser(a2.id).totp_enabled, 1);
-
-  const fresh = client();
-  const r = await fresh.post('/login', { email: 'twofa@adm.test', password: 'Password1' });
-  assert.equal(r.location, '/login/2fa');
-  assert.equal((await fresh.get('/admin')).location, '/login/2fa', 'not logged in before the second factor');
-  await fresh.post('/login/2fa', { code: wrongTotp(secret) }, '/login/2fa');
-  assert.equal((await fresh.get('/admin')).status, 302);
-  const ok = await fresh.post('/login/2fa', { code: totpNow(secret) }, '/login/2fa');
-  assert.equal(ok.location, '/admin');
-  assert.equal((await fresh.get('/admin')).status, 200);
-
-  await c.post('/me/2fa/disable', { code: totpNow(secret) }, '/me/security');
-  assert.equal(getUser(a2.id).totp_enabled, 0);
+  const r = await c.post('/login', { email: 'twofa@adm.test', password: 'Password1' });
+  assert.equal(r.location, '/admin', 'no second step');
+  assert.equal((await c.get('/admin')).status, 200);
+  const security = (await c.get('/me/security')).text;
+  assert.doesNotMatch(security, /דו־שלבי/);
+  assert.doesNotMatch((await c.get('/admin')).text, /אימות דו־שלבי/, 'no reminder on the dashboard');
+  assert.equal((await c.get('/login/2fa')).location, '/', 'the old page is gone');
+  assert.equal((await c.post('/me/2fa/start', {}, '/me/security')).status, 404);
 });
 
 test('one-time code login via e-mail', async () => {

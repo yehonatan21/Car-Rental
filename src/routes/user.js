@@ -1,10 +1,8 @@
 'use strict';
-const QRCode = require('qrcode');
 const { db, audit, currentPolicy, userAcceptedPolicy, getSettings, defaultVehicle } = require('../db');
 const auth = require('../auth');
 const mail = require('../mail');
 const time = require('../time');
-const config = require('../config');
 const bookings = require('../bookings');
 const storage = require('../storage');
 const { renderCalendar, windowFor } = require('../views/calendar');
@@ -71,7 +69,7 @@ ${pageHead(`שלום ${u.first_name}`, { iconName: 'user', sub: 'האזור הא
   <a href="/calendar">${icon('calendar')}יומן הרכב<small>מתי הרכב פנוי</small></a>
   <a href="/me/bookings">${icon('list')}ההזמנות שלי<small>עתידיות והיסטוריה</small></a>
   <a href="/me/license">${icon('id')}רישיון נהיגה<small>תוקף והעלאת רישיון חדש</small></a>
-  <a href="/me/security">${icon('lock')}סיסמה ואבטחה<small>סיסמה ואימות דו־שלבי</small></a>
+  <a href="/me/security">${icon('lock')}סיסמה ואבטחה<small>שינוי סיסמה</small></a>
 </nav>
 
 <div class="grid2">
@@ -334,21 +332,8 @@ ${accepted?.policy_version === policy.version ? html`<p class="note-line">${icon
     res.redirect(safeNext(req.body.next) || '/me');
   });
 
-  app.get('/me/security', requireLogin, async (req, res) => {
+  app.get('/me/security', requireLogin, (req, res) => {
     const u = req.user;
-    let setup = '';
-    if (!u.totp_enabled && u.totp_secret) {
-      const uri = `otpauth://totp/${encodeURIComponent(config.appName + ':' + u.email)}?secret=${u.totp_secret}&issuer=${encodeURIComponent(config.appName)}`;
-      const qr = await QRCode.toDataURL(uri, { margin: 1, width: 200 });
-      setup = html`
-<div class="card">
-  <h2 class="section-title">${icon('shield')} סריקת קוד</h2>
-  <p>סרקו את הקוד באפליקציית אימות (Google Authenticator, Microsoft Authenticator וכדומה), או הזינו ידנית את המפתח:</p>
-  <div class="qr"><img src="${qr}" alt="QR" width="200" height="200"><code>${u.totp_secret}</code></div>
-  ${postForm(req, '/me/2fa/enable', html`${field('קוד מהאפליקציה', html`<input name="code" inputmode="numeric" maxlength="6" required>`)}
-    <button class="btn btn-primary">הפעלה</button>`)}
-</div>`;
-    }
     res.page('סיסמה ואבטחה', html`
 <div class="narrow">
   ${pageHead('סיסמה ואבטחה', { iconName: 'lock', sub: 'שמירה על החשבון שלך.' })}
@@ -358,16 +343,6 @@ ${accepted?.policy_version === policy.version ? html`<p class="note-line">${icon
     ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password">`)}
     <button class="btn btn-primary">שמירה</button>`, 'class="card"')}
   ${u.google_sub ? html`<section class="card"><h2 class="section-title">${icon('user')} חשבון Google</h2><p>${badge('active', 'מקושר')} ניתן להתחבר עם חשבון Google של ${u.email}.</p></section>` : ''}
-  <section class="card">
-    <h2 class="section-title">${icon('shield')} אימות דו־שלבי</h2>
-    ${u.role === 'admin' && !u.totp_enabled ? html`<div class="flash flash-warning">מומלץ מאוד להפעיל אימות דו־שלבי לחשבונות מנהל.</div>` : ''}
-    ${u.totp_enabled
-      ? html`<p>${badge('active', 'פעיל')} האימות הדו־שלבי מופעל.</p>
-        ${postForm(req, '/me/2fa/disable', html`${field('קוד נוכחי לביטול', html`<input name="code" inputmode="numeric" maxlength="6" required>`)}
-          <button class="btn btn-danger">ביטול אימות דו־שלבי</button>`)}`
-      : u.totp_secret ? '' : actionButton(req, '/me/2fa/start', 'הפעלת אימות דו־שלבי', { cls: 'btn-light' })}
-  </section>
-  ${setup}
 </div>`);
   });
 
@@ -383,35 +358,6 @@ ${accepted?.policy_version === policy.version ? html`<p class="note-line">${icon
       db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(u.id, req.session.token_hash);
       audit(u.id, 'user.password_change', 'user', u.id);
       res.flash('success', 'הסיסמה עודכנה');
-    }
-    res.redirect('/me/security');
-  });
-
-  app.post('/me/2fa/start', requireLogin, (req, res) => {
-    if (!req.user.totp_enabled) db.prepare('UPDATE users SET totp_secret = ? WHERE id = ?').run(auth.newTotpSecret(), req.user.id);
-    res.redirect('/me/security');
-  });
-
-  app.post('/me/2fa/enable', requireLogin, (req, res) => {
-    const u = req.user;
-    if (u.totp_secret && auth.verifyTotp(u.totp_secret, req.body.code)) {
-      db.prepare('UPDATE users SET totp_enabled = 1 WHERE id = ?').run(u.id);
-      audit(u.id, 'user.2fa_enable', 'user', u.id);
-      res.flash('success', 'האימות הדו־שלבי הופעל');
-    } else {
-      res.flash('error', 'הקוד שגוי. ודאו שהשעון בטלפון מדויק ונסו שוב');
-    }
-    res.redirect('/me/security');
-  });
-
-  app.post('/me/2fa/disable', requireLogin, (req, res) => {
-    const u = req.user;
-    if (u.totp_enabled && auth.verifyTotp(u.totp_secret, req.body.code)) {
-      db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE id = ?').run(u.id);
-      audit(u.id, 'user.2fa_disable', 'user', u.id);
-      res.flash('success', 'האימות הדו־שלבי בוטל');
-    } else {
-      res.flash('error', 'הקוד שגוי');
     }
     res.redirect('/me/security');
   });

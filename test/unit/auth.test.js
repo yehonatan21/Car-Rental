@@ -14,26 +14,6 @@ test('password hashing uses a random salt and verifies correctly', () => {
   assert.ok(!auth.verifyPassword('anything', null), 'accounts without a password cannot log in with one');
 });
 
-test('TOTP matches the RFC 6238 SHA-1 test vectors', () => {
-  const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'; // "12345678901234567890"
-  // [unix time, 8-digit value from the RFC] → we use the last 6 digits
-  for (const [t, code] of [[59, '94287082'], [1111111109, '07081804'], [1234567890, '89005924'], [2000000000, '69279037']]) {
-    assert.equal(auth.totpAt(secret, Math.floor(t / 30)), code.slice(2), `T=${t}`);
-  }
-});
-
-test('TOTP accepts ±1 time step and rejects others', () => {
-  const secret = auth.newTotpSecret();
-  const now = 1_800_000_000_000;
-  const step = Math.floor(now / 30000);
-  assert.ok(auth.verifyTotp(secret, auth.totpAt(secret, step), now));
-  assert.ok(auth.verifyTotp(secret, auth.totpAt(secret, step - 1), now));
-  assert.ok(auth.verifyTotp(secret, auth.totpAt(secret, step + 1), now));
-  assert.ok(!auth.verifyTotp(secret, auth.totpAt(secret, step + 3), now));
-  assert.ok(auth.verifyTotp(secret, auth.totpAt(secret, step).replace(/(\d{3})/, '$1 '), now), 'spaces are ignored');
-  assert.ok(!auth.verifyTotp(secret, '', now));
-});
-
 test('one-time login codes: single use, limited attempts, expiry', () => {
   const u = createUser();
   const code = auth.createLoginCode(u.id);

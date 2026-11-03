@@ -25,7 +25,6 @@
     "libsql": "^0.5.29",
     "multer": "^2.5.0",
     "nodemailer": "^10.2.0",
-    "qrcode": "^1.5.4",
     "selfsigned": "^5.5.0"
   },
   "devDependencies": {

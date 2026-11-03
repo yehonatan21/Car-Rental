@@ -89,11 +89,8 @@ app.use((req, res, next) => {
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id);
     if (user) {
       req.session = session;
-      // A session waiting for the 2FA code is not yet logged in.
       // Admin rights require an active account: a blocked/suspended admin is treated as a regular user everywhere.
-      const effective = user.role === 'admin' && user.status !== 'active' ? { ...user, role: 'user' } : user;
-      if (!session.needs_2fa) req.user = effective;
-      else req.pendingUser = user;
+      req.user = user.role === 'admin' && user.status !== 'active' ? { ...user, role: 'user' } : user;
     }
   }
   if (req.cookies.flash) {
@@ -105,7 +102,7 @@ app.use((req, res, next) => {
   res.page = (title, body) => {
     // Signed-in pages carry personal data and forms bound to this session: never keep a copy (shared computers,
     // and the Back button would otherwise show a stale form whose token no longer works).
-    if ((req.user || req.pendingUser) && !res.get('Cache-Control')) res.set('Cache-Control', 'no-store');
+    if (req.user && !res.get('Cache-Control')) res.set('Cache-Control', 'no-store');
     return res.send(layout(req, title, body));
   };
   next();
@@ -166,7 +163,6 @@ const licenseUpload = [upload.single('license'), verifyCsrf];
 
 const requireLogin = (req, res, next) => {
   if (req.user) return next();
-  if (req.pendingUser) return res.redirect('/login/2fa');
   res.redirect('/login?next=' + encodeURIComponent(req.originalUrl));
 };
 const requireAdmin = (req, res, next) => {

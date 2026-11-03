@@ -448,8 +448,6 @@ ul.upcoming .badge { margin-inline-start: auto; }
   background: var(--success-soft); color: var(--success); margin-bottom: .6rem;
 }
 .kv-inline { display: flex; flex-wrap: wrap; gap: .4rem 1rem; align-items: center; }
-.qr { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
-.qr img { border-radius: var(--radius-sm); border: 1px solid var(--border); background: #fff; padding: 6px; }
 .note-line.ok .icon { color: var(--success); }
 .note-line.bad .icon { color: var(--danger); }
 ul.plain li.note-line { margin: 0; }

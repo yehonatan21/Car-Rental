@@ -34,6 +34,14 @@ function smtpConfig() {
   };
 }
 
+// Sender address. Most SMTP providers (Gmail, Outlook, SendGrid…) refuse or spam-flag mail "from" an address the
+// account does not own, so without MAIL_FROM the SMTP login (when it is an e-mail address) is used.
+function mailFrom() {
+  if (process.env.MAIL_FROM) return process.env.MAIL_FROM.trim();
+  const user = (process.env.SMTP_USER || '').trim();
+  return process.env.SMTP_HOST && user.includes('@') ? user : 'car-booking@localhost';
+}
+
 module.exports = {
   port,
   baseUrl: (process.env.BASE_URL || (onVercel && vercelUrl ? `https://${vercelUrl}` : `${httpsEnabled ? 'https' : 'http'}://localhost:${port}`))
@@ -64,7 +72,7 @@ module.exports = {
   outboxDir: path.join(dataDir, 'outbox'),
   appName: process.env.APP_NAME || 'הזמנת רכב',
   smtp: process.env.SMTP_HOST ? smtpConfig() : null,
-  mailFrom: process.env.MAIL_FROM || 'car-booking@localhost',
+  mailFrom: mailFrom(),
   // "Sign in with Google" is shown only when both are set (Google Cloud Console → APIs & Services → Credentials).
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID || '',

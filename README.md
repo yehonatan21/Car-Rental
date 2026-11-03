@@ -208,7 +208,7 @@ docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js 
 | `NODE_ENV=production` | מפעיל עוגיות `Secure` ו־HSTS (חובה מאחורי HTTPS) |
 | `DATA_DIR` | תיקיית הנתונים: מסד הנתונים, צילומי הרישיונות ו־outbox (ברירת מחדל `./data`) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | שרת דואר יוצא |
-| `MAIL_FROM` | כתובת השולח |
+| `MAIL_FROM` | כתובת השולח (ברירת מחדל: `SMTP_USER`, אם זו כתובת מייל) |
 | `APP_NAME` | שם המערכת שמוצג בממשק ובמיילים |
 
 ### העלאה לאוויר

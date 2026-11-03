@@ -138,6 +138,7 @@ test('competing requests: admin chooses one, overlap is refused at approval', as
   await admin.post(`/admin/bookings/${bobBooking.id}/approve`, {}, `/admin/bookings/${bobBooking.id}`);
   assert.equal(getBooking(bobBooking.id).status, 'approved');
   assert.match(admin.flash().text, /בקשות ממתינות נוספות לאותו מועד/);
+  assert.match(admin.flash().text, /לא הוגדר שרת דואר/, 'without SMTP the admin is not told the e-mail was sent');
   assert.ok(outbox().some((m) => m.subject === 'ההזמנה אושרה' && m.to.includes('bob@test.org')));
 
   await admin.post(`/admin/bookings/${aliceBooking.id}/approve`, {}, `/admin/bookings/${aliceBooking.id}`);

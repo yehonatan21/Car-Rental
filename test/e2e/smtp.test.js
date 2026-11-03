@@ -1,6 +1,6 @@
 'use strict';
 // Real SMTP delivery (login codes, test e-mail, failures) against a minimal in-process SMTP server.
-const { createUser, startServer, Client } = require('../helpers');
+const { createUser, startServer, Client, inDays, db } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const net = require('node:net');
@@ -138,4 +138,63 @@ test('admin test e-mail is delivered', async () => {
   await ac.post('/admin/settings/test-email', {}, '/admin/settings');
   assert.match(ac.flash().text, /מייל בדיקה נשלח אל smtp-admin2@test.org/);
   assert.ok(received.some((x) => x.to.includes('smtp-admin2@test.org')));
+});
+
+/** Decoded text of a received message (subjects are RFC 2047-encoded, bodies base64). */
+const textOf = (m) => [...m.data.matchAll(/Content-Transfer-Encoding: base64\n\n([\s\S]*?)\n\n/g)]
+  .map((x) => Buffer.from(x[1].replace(/\n/g, ''), 'base64').toString()).join('\n');
+
+test('reservation: admin is e-mailed the pending request, client is e-mailed the approval', async () => {
+  const admin = createUser({ role: 'admin', email: 'res-admin@test.org' });
+  const client = createUser({ email: 'res-client@test.org', first_name: 'רינה' });
+  const uc = new Client(srv.base);
+  await uc.login(client.email);
+  const start = inDays(6, '09:00');
+  const r = await uc.post('/bookings/new', { start, end: inDays(6, '12:00'), purpose: 'סידורים', accept_rules: '1' });
+  assert.equal(r.status, 200);
+  const b = db.prepare('SELECT * FROM bookings WHERE user_id = ?').get(client.id);
+  assert.equal(b.status, 'pending');
+
+  const notice = received.findLast((x) => x.to.includes('res-admin@test.org'));
+  assert.ok(notice, 'the admin got the pending-approval e-mail');
+  assert.match(notice.from, /sender@test\.org|car-booking/);
+  assert.match(textOf(notice), /הבקשה ממתינה לאישור מנהל/);
+  assert.ok(textOf(notice).includes(`/admin/bookings/${b.id}`));
+  assert.ok(!received.some((x) => x.to.includes('res-client@test.org') && /אושרה סופית/.test(textOf(x))), 'no confirmation yet');
+
+  const ac = new Client(srv.base);
+  await ac.login(admin.email);
+  await ac.post(`/admin/bookings/${b.id}/approve`, {}, `/admin/bookings/${b.id}`);
+  const flash = ac.flash();
+  assert.equal(flash.type, 'success');
+  assert.match(flash.text, /נשלח מייל אישור אל res-client@test.org/);
+  const confirmation = received.findLast((x) => x.to.includes('res-client@test.org'));
+  assert.match(textOf(confirmation), /אושרה סופית/);
+  assert.match(confirmation.data, /text\/calendar/, 'calendar invite attached');
+});
+
+test('approval when the mail server rejects the login: booking approved, admin told the e-mail failed', async () => {
+  const admin = createUser({ role: 'admin', email: 'res-admin2@test.org' });
+  const client = createUser({ email: 'res-client2@test.org' });
+  const uc = new Client(srv.base);
+  await uc.login(client.email);
+  await uc.post('/bookings/new', { start: inDays(8, '09:00'), end: inDays(8, '11:00'), accept_rules: '1' });
+  const b = db.prepare('SELECT * FROM bookings WHERE user_id = ?').get(client.id);
+
+  config.smtp = smtpConfig('wrong-password');
+  try {
+    const ac = new Client(srv.base);
+    await ac.login(admin.email);
+    await ac.post(`/admin/bookings/${b.id}/approve`, {}, `/admin/bookings/${b.id}`);
+    const flash = ac.flash();
+    assert.equal(flash.type, 'warning');
+    assert.match(flash.text, /שליחת מייל האישור אל res-client2@test.org נכשלה/);
+    assert.equal(db.prepare('SELECT status FROM bookings WHERE id = ?').get(b.id).status, 'approved');
+    // Recorded in the database, so the settings page shows it even when served by another instance (Vercel).
+    const logged = db.prepare("SELECT details FROM audit_log WHERE action = 'mail.failed' AND details LIKE '%res-client2@test.org%'").get();
+    assert.ok(logged, 'failure written to the audit log');
+    assert.match(logged.details, /^ההזמנה אושרה → res-client2@test.org: .*Username and Password not accepted/);
+  } finally {
+    config.smtp = smtpConfig();
+  }
 });

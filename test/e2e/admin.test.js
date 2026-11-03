@@ -365,3 +365,19 @@ test('admins still cannot change their own status or role', async () => {
   assert.equal(row.status, 'active');
   assert.equal(row.role, 'admin');
 });
+
+test('hosted without a mail server: the dashboard says e-mails are not being sent', async () => {
+  const config = require('../../src/config');
+  const saved = { onVercel: config.onVercel, smtp: config.smtp };
+  try {
+    config.onVercel = true;
+    assert.match((await admin.get('/admin')).text, /מיילים לא נשלחים/);
+    config.smtp = { host: 'smtp.example.org', port: 465 }; // only rendered, nothing is sent
+    assert.doesNotMatch((await admin.get('/admin')).text, /מיילים לא נשלחים/);
+  } finally {
+    Object.assign(config, saved);
+  }
+  assert.doesNotMatch((await admin.get('/admin')).text, /מיילים לא נשלחים/, 'not in development, where the outbox is expected');
+  const settings = (await admin.get('/admin/settings')).text;
+  assert.match(settings, /הודעות על בקשות הזמנה חדשות נשלחות אל המנהלים הפעילים: <span dir="ltr">[^<]*admin@adm\.test/);
+});

@@ -81,7 +81,10 @@ test('booking request is pending and shows the required message', async () => {
   assert.match(r.text, /בקשת ההזמנה התקבלה וממתינה לאישור המנהל. ההזמנה אינה סופית עד לקבלת אישור./);
   aliceBooking = db.prepare('SELECT * FROM bookings WHERE user_id = ?').get(aliceId);
   assert.equal(aliceBooking.status, 'pending');
-  assert.ok(outbox().some((m) => m.subject === 'בקשת הזמנה חדשה ממתינה לאישור'));
+  const notice = outbox().find((m) => m.subject === 'בקשת הזמנה חדשה ממתינה לאישור');
+  assert.ok(notice);
+  assert.ok(notice.to.includes('admin@test.org'));
+  assert.ok(notice.body.includes(`/admin/bookings/${aliceBooking.id}`));
   assert.ok(!outbox().some((m) => m.subject === 'ההזמנה אושרה'), 'no final confirmation before approval');
 });
 
@@ -135,11 +138,14 @@ test('competing requests: admin chooses one, overlap is refused at approval', as
   await admin.post(`/admin/bookings/${bobBooking.id}/approve`, {}, `/admin/bookings/${bobBooking.id}`);
   assert.equal(getBooking(bobBooking.id).status, 'approved');
   assert.match(admin.flash().text, /בקשות ממתינות נוספות לאותו מועד/);
+  assert.match(admin.flash().text, /לא הוגדר שרת דואר/, 'without SMTP the admin is not told the e-mail was sent');
   assert.ok(outbox().some((m) => m.subject === 'ההזמנה אושרה' && m.to.includes('bob@test.org')));
 
   await admin.post(`/admin/bookings/${aliceBooking.id}/approve`, {}, `/admin/bookings/${aliceBooking.id}`);
   assert.equal(getBooking(aliceBooking.id).status, 'pending');
   assert.match(admin.flash().text, /הרכב תפוס/);
+  assert.ok(!outbox().some((m) => m.subject === 'ההזמנה אושרה' && m.to.includes('alice@test.org')),
+    'failed approval must not send a confirmation to the client');
 
   await admin.post(`/admin/bookings/${aliceBooking.id}/reject`, { note: 'הרכב תפוס' }, `/admin/bookings/${aliceBooking.id}`);
   assert.equal(getBooking(aliceBooking.id).status, 'rejected');

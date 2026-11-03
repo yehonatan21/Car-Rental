@@ -36,3 +36,13 @@ test('timeouts are set so a wrong host fails fast', () => {
   const c = smtpFor({ SMTP_HOST: 'smtp.example.org' });
   assert.ok(c.connectionTimeout <= 15000 && c.socketTimeout <= 30000);
 });
+
+test('sender address: MAIL_FROM, else the SMTP login (providers refuse other senders)', () => {
+  const fromFor = (env) => JSON.parse(execFileSync(process.execPath, ['--no-warnings', '-e',
+    'console.log(JSON.stringify(require("./src/config").mailFrom))'],
+  { cwd: path.join(__dirname, '..', '..'), env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' }));
+  assert.equal(fromFor({ SMTP_HOST: 'smtp.gmail.com', SMTP_USER: ' car.app@gmail.com ' }), 'car.app@gmail.com');
+  assert.equal(fromFor({ SMTP_HOST: 'smtp.gmail.com', SMTP_USER: 'car.app@gmail.com', MAIL_FROM: 'noreply@club.org' }), 'noreply@club.org');
+  assert.equal(fromFor({ SMTP_HOST: 'smtp.sendgrid.net', SMTP_USER: 'apikey' }), 'car-booking@localhost', 'a login that is not an address');
+  assert.equal(fromFor({}), 'car-booking@localhost');
+});

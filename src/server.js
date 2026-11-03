@@ -180,6 +180,10 @@ async function start({ port = config.port, host, jobs = true } = {}) {
 module.exports = { app, start, BookingError };
 
 if (require.main === module) {
+  // A stray error from a background task (for example a mail server dropping the connection mid-send) must not
+  // take the whole site down: log it loudly and keep serving. Requests have their own error handler above.
+  process.on('uncaughtException', (err) => console.error('[error] Unexpected error; the server keeps running:', err));
+  process.on('unhandledRejection', (err) => console.error('[error] Unhandled rejection; the server keeps running:', err));
   start().catch((err) => {
     console.error(err);
     process.exit(1);

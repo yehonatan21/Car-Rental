@@ -13,6 +13,7 @@ const { layout, html, uploadLimitLabel } = require('./views/html');
 const { BookingError } = require('./bookings');
 const { startJobs, runJobs } = require('./jobs');
 const { listenHttps, lanAddresses } = require('./tls');
+const redirectGuard = require('./redirect-guard');
 
 // HSTS applies to a whole host name (all ports), so it is never sent for localhost or raw IP addresses:
 // pinning them would force every other local/LAN dev server on that host onto HTTPS.
@@ -108,6 +109,7 @@ app.use((req, res, next) => {
   res.flash = (type, text) => res.cookie('flash', Buffer.from(JSON.stringify({ type, text })).toString('base64url'),
     { httpOnly: true, sameSite: 'lax', secure: req.secure, path: '/' });
   res.page = (title, body) => {
+    redirectGuard.reset(req, res);
     // Signed-in pages carry personal data and forms bound to this session: never keep a copy (shared computers,
     // and the Back button would otherwise show a stale form whose token no longer works).
     if (req.user && !res.get('Cache-Control')) res.set('Cache-Control', 'no-store');
@@ -115,6 +117,9 @@ app.use((req, res, next) => {
   };
   next();
 });
+
+// Counts redirects in a row and stops a loop before the browser gives up (see redirect-guard.js).
+app.use(redirectGuard.guard);
 
 const PUBLIC_ORIGIN = new URL(config.baseUrl).origin;
 

@@ -108,7 +108,9 @@ module.exports = {
     keyFile: process.env.HTTPS_KEY_FILE || null,
   },
   // In production, plain-HTTP requests (not forwarded as https by the proxy) are redirected to https.
-  forceHttps: production && process.env.FORCE_HTTPS !== 'false',
+  // Not on Vercel: it serves HTTPS only and redirects http:// itself. (A permanent 301 from the app is cached by
+  // browsers; should one ever point at the same address, the browser would loop without asking the server again.)
+  forceHttps: production && !onVercel && process.env.FORCE_HTTPS !== 'false',
   dataDir,
   onVercel,
   // Vercel Web Analytics (page views, no cookies): on by default on Vercel; enable it in the Vercel dashboard

@@ -75,6 +75,8 @@ npm run tunnel                                 # בחלון נוסף, כשהאפ
 
 ## מיילים אמיתיים (למשל Gmail)
 
+English setup guide and reservation notification behavior: [Email setup](docs/email-setup.md).
+
 בלי SMTP, המיילים לא נשלחים אלא נשמרים ב־`data/outbox`. כדי שהמשתמשים והמנהלים יקבלו אותם בפועל, כולל אישורי ההזמנה, מגדירים SMTP. לדוגמה עם Gmail:
 
 1. בחשבון Google מפעילים **אימות דו־שלבי**, ואז יוצרים **App password** בכתובת https://myaccount.google.com/apppasswords.
@@ -206,7 +208,7 @@ docker compose -f docker-compose.prod.yml exec app node scripts/create-admin.js 
 | `NODE_ENV=production` | מפעיל עוגיות `Secure` ו־HSTS (חובה מאחורי HTTPS) |
 | `DATA_DIR` | תיקיית הנתונים: מסד הנתונים, צילומי הרישיונות ו־outbox (ברירת מחדל `./data`) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | שרת דואר יוצא |
-| `MAIL_FROM` | כתובת השולח |
+| `MAIL_FROM` | כתובת השולח (ברירת מחדל: `SMTP_USER`, אם זו כתובת מייל) |
 | `APP_NAME` | שם המערכת שמוצג בממשק ובמיילים |
 
 ### העלאה לאוויר

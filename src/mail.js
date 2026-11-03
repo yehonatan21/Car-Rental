@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const nodemailer = require('nodemailer');
 const config = require('./config');
-const { db } = require('./db');
+const { db, audit } = require('./db');
 const time = require('./time');
 
 // Built from the current config (re-created if it changes, e.g. in tests).
@@ -32,8 +32,10 @@ function wrap(title, paragraphs, link) {
 <p style="color:#888;font-size:12px;margin-top:24px">${esc(config.appName)} – הודעה אוטומטית</p></div>`;
 }
 
-// Delivery status for the admin settings page.
+// Delivery status for the admin settings page. Kept in memory per process; failures are also written to the
+// audit log, because on Vercel the settings page is often served by a different instance than the one that failed.
 const state = { lastError: null, lastSentAt: null, verified: null };
+const startedAt = new Date();
 
 /** Sends (or, without SMTP, saves to data/outbox). Resolves to true on success, false on failure; never throws. */
 async function send(to, subject, paragraphs, link, { attachments } = {}) {
@@ -54,6 +56,9 @@ async function send(to, subject, paragraphs, link, { attachments } = {}) {
   } catch (err) {
     console.error(`[mail] FAILED to send "${subject}" to ${recipients.join(', ')}: ${err.message}`);
     state.lastError = { at: new Date(), message: err.message };
+    try {
+      audit(null, 'mail.failed', null, null, `${subject} → ${recipients.join(', ')}: ${err.message}`.slice(0, 500));
+    } catch { /* the database may be the problem; the console line above is enough */ }
     return false;
   }
 }
@@ -75,12 +80,45 @@ async function verifyTransport() {
   }
 }
 
+/** The newest failure: this process's, else the newest one in the audit log (another instance may have hit it). */
+function lastFailure() {
+  if (state.lastError) return state.lastError;
+  try {
+    const r = db.prepare("SELECT at, details FROM audit_log WHERE action = 'mail.failed' ORDER BY id DESC LIMIT 1").get();
+    if (!r) return null;
+    const at = new Date(r.at.replace(' ', 'T'));
+    // An old failure from before this instance started, whose SMTP login has since checked out, is fixed.
+    if (state.verified && at < startedAt) return null;
+    return { at, message: r.details };
+  } catch {
+    return null;
+  }
+}
+
 function status() {
   return {
     configured: Boolean(config.smtp),
     host: config.smtp?.host, port: config.smtp?.port, secure: config.smtp?.secure, user: config.smtp?.auth?.user,
-    from: config.mailFrom, ...state,
+    from: config.mailFrom, ...state, lastError: lastFailure(),
   };
+}
+
+/**
+ * What happened to a booking notification, so the screen can say so instead of assuming success.
+ * `user` / `admins`: true = sent, false = sending failed, null = nobody to send to. `delivered`: false means no
+ * mail server is configured, so "sent" only means saved to data/outbox.
+ */
+async function outcome(toUser, toAdmins) {
+  const attempted = (x) => (x instanceof Promise ? x : null); // `false && send(…)` means "not sent", not "failed"
+  const [user, admins] = await Promise.all([attempted(toUser), attempted(toAdmins)]);
+  return { delivered: Boolean(config.smtp), user, admins };
+}
+
+/** Admin recipients for a notification; warns when there is nobody to notify. */
+function adminRecipients(what) {
+  const list = adminEmails();
+  if (!list.length) console.warn(`[mail] No active admin to notify about ${what}`);
+  return list;
 }
 
 // ---------- Calendar invite (.ics) for confirmed bookings ----------
@@ -126,6 +164,7 @@ const vehicleLine = (b) => `<b>רכב:</b> ${esc([b.make, b.model].filter(Boolea
 
 module.exports = {
   send,
+  adminEmails,
   bookingIcs,
   verifyTransport,
   status,
@@ -184,30 +223,37 @@ module.exports = {
     'תוקף הרישיונות של המשתמשים הבאים פג והם הועברו לסטטוס "ממתין לעדכון רישיון":',
     users.map((u) => `${esc(fullName(u))} – ${esc(time.fmt(u.license_expiry))}`).join('<br>'),
   ], { href: '/admin/users?status=license_update', label: 'לרשימת המשתמשים' }),
-  bookingRequested: (b) => Promise.all([
-    send(b.email, 'בקשת ההזמנה התקבלה', [
+  /** Receipt to the user and a pending-approval notice to all active admins. Resolves to an outcome(). */
+  bookingRequested: (b) => {
+    const admins = adminRecipients(`booking request #${b.id}`);
+    return outcome(send(b.email, 'בקשת ההזמנה התקבלה', [
       `שלום ${esc(b.first_name)},`, 'בקשת ההזמנה התקבלה וממתינה לאישור המנהל. <b>ההזמנה אינה סופית עד לקבלת אישור.</b>', range(b),
     ], { href: '/me/bookings', label: 'להזמנות שלי' }),
-    send(adminEmails(), 'בקשת הזמנה חדשה ממתינה לאישור', [
-      `${esc(fullName(b))} ביקש/ה את הרכב:`, range(b), b.purpose ? `<b>מטרה:</b> ${esc(b.purpose)}` : '',
-    ].filter(Boolean), { href: `/admin/bookings/${b.id}`, label: 'לטיפול בבקשה' }),
-  ]),
-  /** Final confirmation: to the user (unless notifyUser is false) and to all admins, each with a calendar invite. */
-  bookingApproved: (b, { approvedBy, notifyUser = true } = {}) => Promise.all([
-    notifyUser && send(b.email, 'ההזמנה אושרה', [
+    admins.length && send(admins, 'בקשת הזמנה חדשה ממתינה לאישור', [
+      `${esc(fullName(b))} ביקש/ה את הרכב. הבקשה ממתינה לאישור מנהל:`, vehicleLine(b), range(b),
+      b.purpose ? `<b>מטרה:</b> ${esc(b.purpose)}` : '',
+    ].filter(Boolean), { href: `/admin/bookings/${b.id}`, label: 'לטיפול בבקשה' }));
+  },
+  /**
+   * Final confirmation: to the user (unless notifyUser is false) and to all admins, each with a calendar invite.
+   * Resolves to an outcome().
+   */
+  bookingApproved: (b, { approvedBy, notifyUser = true } = {}) => {
+    const admins = adminRecipients(`approved booking #${b.id}`);
+    return outcome(notifyUser && b.email && send(b.email, 'ההזמנה אושרה', [
       `שלום ${esc(b.first_name)},`, 'הזמנת הרכב שלך <b>אושרה סופית</b>.', vehicleLine(b), range(b),
       b.purpose ? `<b>מטרה:</b> ${esc(b.purpose)}` : '',
       b.instructions ? `<b>הנחיות:</b><br>${esc(b.instructions).replace(/\n/g, '<br>')}` : '',
       'יש להחזיר את הרכב בזמן ובהתאם לנהלי ההשאלה. מצורף זימון ליומן.',
     ].filter(Boolean), { href: '/me/bookings', label: 'להזמנות שלי' }, { attachments: [bookingIcs(b)] }),
-    send(adminEmails(), `אישור הזמנה: ${fullName(b)}`, [
+    admins.length && send(admins, `אישור הזמנה: ${fullName(b)}`, [
       `ההזמנה של <b>${esc(fullName(b))}</b> אושרה${approvedBy ? ` על ידי ${esc(approvedBy)}` : ''}.`,
       vehicleLine(b), range(b),
       `<b>טלפון:</b> ${esc(b.phone)} · <b>דוא"ל:</b> ${esc(b.email)}`,
       b.purpose ? `<b>מטרה:</b> ${esc(b.purpose)}` : '',
       notifyUser ? 'נשלח מייל אישור למשתמש.' : 'לא נשלח מייל למשתמש.',
-    ].filter(Boolean), { href: `/admin/bookings/${b.id}`, label: 'לפרטי ההזמנה' }, { attachments: [bookingIcs(b)] }),
-  ]),
+    ].filter(Boolean), { href: `/admin/bookings/${b.id}`, label: 'לפרטי ההזמנה' }, { attachments: [bookingIcs(b)] }));
+  },
   bookingRejected: (b, note) => send(b.email, 'בקשת ההזמנה לא אושרה', [
     `שלום ${esc(b.first_name)},`, 'בקשת ההזמנה הבאה לא אושרה:', range(b), note ? `הערת המנהל: ${esc(note)}` : '',
   ].filter(Boolean), { href: '/calendar', label: 'לבחירת מועד אחר' }),

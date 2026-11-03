@@ -59,6 +59,9 @@ test('booking request notifies both the user and all active admins', async () =>
   assert.equal(toUser.subject, 'בקשת ההזמנה התקבלה');
   assert.match(toAdmins.to, /admin2@mail.test/);
   assert.doesNotMatch(toAdmins.to, /blocked-admin/);
+  assert.match(toAdmins.body, /הבקשה ממתינה לאישור מנהל/);
+  assert.ok(toAdmins.body.includes(b.plate));
+  assert.ok(toAdmins.body.includes(`/admin/bookings/${b.id}`));
 });
 
 test('approval confirmation goes to the user AND all active admins, both with a calendar invite', async () => {
@@ -106,4 +109,23 @@ test('calendar invite: UTC times (incl. DST), escaping and line folding', () => 
   for (const line of content.split('\r\n')) assert.ok(Buffer.byteLength(line) <= 75, line);
   const summer = mail.bookingIcs({ id: 1, plate: 'x', start_at: '2026-07-01T09:00', end_at: '2026-07-01T10:00' }).content;
   assert.match(summer, /DTSTART:20260701T060000Z/, 'Israel summer time: UTC+3');
+});
+
+test('booking notifications report what happened (sent / nobody to send to / not configured)', async () => {
+  db.prepare("UPDATE users SET status = 'blocked' WHERE role = 'admin'").run();
+  try {
+    const u = createUser({ email: 'outcome@mail.test' });
+    const b = bookings.createRequest(u, { vehicleId: 1, start: inDays(5, '09:00'), end: inDays(5, '10:00') });
+    const r = await mail.bookingRequested(b);
+    assert.deepEqual(r, { delivered: false, user: true, admins: null }, 'no active admin: nobody notified, not "sent"');
+    assert.equal(outbox().length, 1);
+
+    const admin = createUser({ role: 'admin', email: 'outcome-admin@mail.test' });
+    assert.deepEqual(mail.adminEmails(), ['outcome-admin@mail.test']);
+    clearOutbox();
+    const approved = await mail.bookingApproved(bookings.approve(b.id, admin.id), { notifyUser: false });
+    assert.deepEqual(approved, { delivered: false, user: null, admins: true });
+  } finally {
+    db.prepare("UPDATE users SET status = 'active' WHERE role = 'admin'").run();
+  }
 });

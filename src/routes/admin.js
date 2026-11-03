@@ -51,6 +51,23 @@ function bookingsTable(list, { showUser = true } = {}) {
 </tr>`)}</tbody></table>`;
 }
 
+/**
+ * The message after an approval, built from what really happened to the e-mails (mail.bookingApproved's outcome)
+ * rather than assuming they went out. Returns [flashType, text].
+ */
+function approvalNotice(b, sent, { notifyUser = true } = {}) {
+  if (!sent.delivered) {
+    return ['warning', 'ההזמנה אושרה, אבל המיילים לא נשלחו בפועל: לא הוגדר שרת דואר (SMTP), ולכן הם נשמרו רק בתיקייה data/outbox. '
+      + 'ההגדרה מוסברת בהגדרות ← שליחת מיילים.'];
+  }
+  if (notifyUser && sent.user === false) {
+    return ['warning', `ההזמנה אושרה, אבל שליחת מייל האישור אל ${b.email} נכשלה. פרטי השגיאה מופיעים בהגדרות ← שליחת מיילים.`];
+  }
+  const toUser = notifyUser && sent.user ? `נשלח מייל אישור אל ${b.email}` : 'לא נשלח מייל למשתמש';
+  if (sent.admins === false) return ['warning', `ההזמנה אושרה (${toUser}), אבל שליחת העותק למנהלים נכשלה.`];
+  return ['success', `ההזמנה אושרה. ${toUser}${sent.admins ? ' ועותק למנהלים' : ''}.`];
+}
+
 /** "Permissions" section of the user card: current role, what it allows, and the button to change it. */
 function permissionsCard(req, u, isSelf) {
   const isAdmin = u.role === 'admin';
@@ -82,6 +99,7 @@ function permissionsCard(req, u, isSelf) {
 /** Settings page: how e-mail is sent, the last delivery error, and a test button. */
 function emailStatusCard(req) {
   const m = mail.status();
+  const admins = mail.adminEmails();
   return html`<section class="card" id="email">
   <h2 class="section-title">${icon('file')} שליחת מיילים</h2>
   ${m.configured
@@ -92,6 +110,9 @@ function emailStatusCard(req) {
   ${m.lastError ? html`<div class="flash flash-error small"><b>שגיאה אחרונה (${time.fmt(time.toLocal(m.lastError.at))}):</b> <code>${m.lastError.message}</code>
     ${/Invalid login|Username and Password not accepted|535/i.test(m.lastError.message) ? html`<br>שם המשתמש או הסיסמה נדחו. ב־Gmail יש להשתמש ב־App password (לא בסיסמה הרגילה).` : ''}
     ${/ETIMEDOUT|ECONNREFUSED|ENOTFOUND|Greeting never received|timeout/i.test(m.lastError.message) ? html`<br>אין חיבור לשרת הדואר: בדקו את SMTP_HOST ו־SMTP_PORT (ב־Gmail: 465), ושחומת האש מאפשרת יציאה.` : ''}</div>` : ''}
+  ${admins.length
+    ? html`<p class="small">הודעות על בקשות הזמנה חדשות נשלחות אל המנהלים הפעילים: <span dir="ltr">${admins.join(', ')}</span></p>`
+    : html`<div class="flash flash-warning small">אין מנהל פעיל, ולכן אף אחד לא יקבל הודעה על בקשות הזמנה חדשות.</div>`}
   ${m.lastSentAt ? html`<p class="muted small">מייל אחרון נשלח בהצלחה: ${time.fmt(time.toLocal(m.lastSentAt))}</p>` : ''}
   ${postForm(req, '/admin/settings/test-email', html`<button class="btn btn-light btn-sm">שליחת מייל בדיקה אל ${req.user.email}</button>`)}
 </section>`;
@@ -158,6 +179,9 @@ ${pageHead('לוח בקרה', {
     iconName: 'dashboard', sub: 'מה מחכה לטיפול שלך היום.',
     actions: html`<a class="btn btn-primary" href="/admin/bookings/new">${icon('plus')} הזמנה ידנית</a> <a class="btn btn-light" href="/calendar">${icon('calendar')} יומן</a>`,
   })}
+${!config.smtp && (config.production || config.onVercel) ? html`<div class="flash flash-error">
+  <b>מיילים לא נשלחים:</b> לא הוגדר שרת דואר (SMTP), ולכן מנהלים לא מקבלים הודעה על בקשות חדשות ומשתמשים לא מקבלים אישור הזמנה.
+  <a href="/admin/settings#email">להגדרה</a></div>` : ''}
 ${!req.user.totp_enabled ? html`<div class="flash flash-warning">מומלץ להפעיל אימות דו־שלבי לחשבון המנהל. <a href="/me/security">להפעלה</a></div>` : ''}
 <div class="stats">
   <a class="stat ${pendingUsers.length ? 'hot' : ''}" href="/admin/users?status=pending">${icon('userplus')}<b>${pendingUsers.length}</b><span>משתמשים ממתינים</span></a>
@@ -482,8 +506,9 @@ ${pageHead('הזמנות', {
       vehicleId: defaultVehicle().id, userId: Number(req.body.user_id), start: String(req.body.start || ''), end: String(req.body.end || ''),
       purpose: String(req.body.purpose || '').trim(), notes: String(req.body.notes || '').trim(),
     });
-    await mail.bookingApproved(b, { approvedBy: fullName(req.user), notifyUser: req.body.notify === '1' });
-    res.flash('success', 'ההזמנה נוצרה ואושרה');
+    const notifyUser = req.body.notify === '1';
+    const [type, text] = approvalNotice(b, await mail.bookingApproved(b, { approvedBy: fullName(req.user), notifyUser }), { notifyUser });
+    res.flash(type, text.replace('ההזמנה אושרה', 'ההזמנה נוצרה ואושרה'));
     res.redirect(`/admin/bookings/${b.id}`);
   }));
 
@@ -569,11 +594,11 @@ ${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id
 
   app.post('/admin/bookings/:id/approve', requireAdmin, guarded((req) => `/admin/bookings/${req.params.id}`, async (req, res) => {
     const b = bookings.approve(Number(req.params.id), req.user.id);
-    await mail.bookingApproved(b, { approvedBy: fullName(req.user) });
+    const [type, text] = approvalNotice(b, await mail.bookingApproved(b, { approvedBy: fullName(req.user) }));
     const competing = bookings.findPendingOverlaps(b.vehicle_id, b.start_at, b.end_at, b.id);
-    res.flash(competing.length ? 'warning' : 'success', competing.length
-      ? `ההזמנה אושרה ונשלח מייל למשתמש. יש ${competing.length} בקשות ממתינות נוספות לאותו מועד שכבר לא ניתן לאשר – מומלץ לדחות אותן.`
-      : 'ההזמנה אושרה ונשלחו מיילי אישור למשתמש ולמנהלים');
+    res.flash(competing.length ? 'warning' : type, competing.length
+      ? `${text} יש ${competing.length} בקשות ממתינות נוספות לאותו מועד שכבר לא ניתן לאשר – מומלץ לדחות אותן.`
+      : text);
     res.redirect(`/admin/bookings/${b.id}`);
   }));
 

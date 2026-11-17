@@ -41,10 +41,10 @@ function api(fetchImpl, base, token) {
         body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000),
       });
     } catch (err) {
-      throw new Error(`${method} ${base}${url.split('?')[0]} → no answer: ${err.cause?.message || err.message}`);
+      throw new Error(`${method} ${base}${url.split('?')[0]} → no answer: ${err.cause?.message || err.message}`, { cause: err });
     }
     const text = await res.text();
-    let data = null;
+    let data;
     try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
     if (!res.ok && !okStatuses.includes(res.status)) {
       const msg = data?.error?.message || data?.error || data?.message || text || res.statusText;

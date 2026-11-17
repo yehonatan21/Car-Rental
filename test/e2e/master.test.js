@@ -246,7 +246,7 @@ test('a site that already exists: added to the list, given its management key th
   assert.doesNotMatch((await boss.get('/master')).text, /האתר הראשון[\s\S]*?בבנייה/, 'an added site is never "being built"');
 
   const before = calls.length;
-  r = await boss.post('/master/clients/first/install-token', {}, '/master/clients/first');
+  await boss.post('/master/clients/first/install-token', {}, '/master/clients/first');
   assert.match(boss.flash().text, /מפתח הניהול הוגדר/);
   const [envCall] = callsTo('POST', /\/projects\/prj_first\/env$/);
   assert.deepEqual(envCall.body.map((e) => [e.key, e.value, e.type]), [['MANAGE_TOKEN', master.manageToken('first'), 'sensitive']]);

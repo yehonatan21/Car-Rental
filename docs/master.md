@@ -24,7 +24,25 @@
   `MANAGE_TOKEN`, derived from the console's secret, so no client key is stored anywhere. A site without
   `MANAGE_TOKEN` has no management API.
 
-## 1. Create the console (once)
+## 0. Easiest: the console inside your current site (no new project)
+
+On the site you already have, add these Production variables in Vercel, then Redeploy:
+
+| Variable | Value |
+|---|---|
+| `MASTER_CONSOLE` | `true` |
+| `ADMIN_EMAIL` | your e-mail (probably already set). Only this account sees the console |
+| `TURSO_API_TOKEN` (Sensitive), `TURSO_ORG` | to create client databases |
+| `VERCEL_TOKEN` (Sensitive), `VERCEL_TEAM_ID` | to create client projects |
+
+You then get a **מרכז ניהול** item in your admin menu, with:
+- the clients list, new client, sign in to a client's site, passwords, suspend and delete;
+- **חיבורים** (connections), to check the keys.
+
+The site's other managers don't see it, and the site works for everyone as before. The list of clients is kept in this
+site's own database. A separate console (below) is needed only if you want it apart from any client's site.
+
+## 1. Create a separate console (optional)
 
 ### Option A: from your computer
 

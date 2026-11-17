@@ -11,10 +11,10 @@ const config = require('./config');
 /**
  * The admin named in ADMIN_EMAIL. ADMIN_PASSWORD is optional: without it the account has no password, and its owner
  * signs in with a code sent by e-mail, with Google, or chooses a password through "forgot password".
- * keepAdmin (the master console): this account is the console's main admin and always stays an active admin, so the
+ * keepAdmin (the master console, also inside a site with MASTER_CONSOLE): this account is the console's main admin and always stays an active admin, so the
  * owner can never be locked out by another admin.
  */
-function ensureAdminFromEnv(env = process.env, { keepAdmin = config.master } = {}) {
+function ensureAdminFromEnv(env = process.env, { keepAdmin = config.master || config.masterConsole } = {}) {
   const email = String(env.ADMIN_EMAIL || '').trim().replace(/^(['"])(.*)\1$/, '$2').trim().toLowerCase();
   const password = String(env.ADMIN_PASSWORD || '');
   if (!email) return null;

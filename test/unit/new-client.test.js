@@ -65,7 +65,8 @@ test('creates the database, the Vercel project with its variables, and the first
   assert.equal(envs.BRAND_COLOR.value, '#1d4ed8');
   assert.equal(envs.SMTP_HOST.value, 'smtp.gmail.com');
   assert.equal(envs.SMTP_PORT.value, '465');
-  for (const e of vercel[1].body) assert.deepEqual(e.target, ['production']);
+  for (const e of vercel[1].body) assert.deepEqual(e.target, e.key === 'CLIENT_SITE' ? ['production', 'preview'] : ['production']);
+  assert.equal(envs.CLIENT_SITE.value, '1', 'only main is built for a client site');
   for (const k of ['LIBSQL_AUTH_TOKEN', 'ADMIN_PASSWORD', 'CRON_SECRET', 'SMTP_PASS']) assert.equal(envs[k].type, 'sensitive', k);
   assert.equal(envs.APP_NAME.type, 'plain');
   assert.ok(envs.ADMIN_PASSWORD.value.length >= 12, 'a random admin password');

@@ -102,6 +102,9 @@ function mailFrom() {
 // APP_MODE=master: this deployment is the master console that creates and manages all the client instances
 // (routes/master.js), not a booking site. Every client keeps its own deployment and database.
 const master = clean(process.env.APP_MODE).toLowerCase() === 'master';
+// MASTER_CONSOLE=true: a regular booking site that also hosts the console, for its main admin (ADMIN_EMAIL) only; no
+// separate deployment is needed. Its other managers see only their own site.
+const masterConsole = !master && clean(process.env.MASTER_CONSOLE).toLowerCase() === 'true';
 const appName = clean(process.env.APP_NAME) || (master ? 'מרכז ניהול לקוחות' : 'הזמנת רכב');
 // The sender name inboxes show instead of the bare address: MAIL_FROM_NAME, else the name in MAIL_FROM. Empty: the
 // client's name is used (brand.js), so mail never shows just the address.
@@ -138,6 +141,7 @@ module.exports = {
   outboxDir: path.join(dataDir, 'outbox'),
   appName,
   master,
+  masterConsole,
   smtp: process.env.SMTP_HOST ? smtpConfig() : null,
   // Largest license upload. Vercel refuses request bodies over 4.5 MB before they reach the app, so stay below it.
   uploadMaxBytes: (onVercel ? 4 : 8) * 1024 * 1024,

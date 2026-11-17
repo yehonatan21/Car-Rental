@@ -217,7 +217,7 @@ if (config.master) {
 }
 
 const ctx = { app, requireLogin, requireAdmin, licenseUpload, documentUpload, logoUpload };
-if (config.master) require('./routes/master')(ctx);
+if (config.master || config.masterConsole) require('./routes/master')(ctx);
 require('./routes/manage')(ctx);
 require('./routes/public')(ctx);
 require('./routes/user')(ctx);

@@ -103,7 +103,9 @@ test('vercel.json routes everything to the function and does not publish the sou
   assert.ok(!routed.test('/_vercel/insights/script.js') && !routed.test('/_vercel/insights/view'), 'Vercel Analytics paths are left to Vercel');
   assert.match(v.functions['api/index.js'].includeFiles, /src/);
   assert.match(v.functions['api/index.js'].includeFiles, /public/);
-  assert.match(v.functions['api/index.js'].includeFiles, /node_modules\/@libsql/, 'native libsql binary (loaded by computed name) is bundled');
+  assert.match(v.functions['api/index.js'].includeFiles, /node_modules\/@libsql\/linux-\*-gnu/, 'native libsql binary (loaded by computed name) is bundled');
+  assert.doesNotMatch(v.functions['api/index.js'].includeFiles, /musl|@libsql\}/, 'not the musl build (Vercel runs glibc): it doubled every deployment\'s size');
+  assert.equal(v.ignoreCommand, 'node scripts/vercel-ignore-build.js');
   assert.deepEqual(v.crons.map((c) => c.path), ['/internal/cron']);
 });
 
@@ -253,4 +255,19 @@ test('only the harmless url.parse() deprecation (DEP0169) is silenced', () => {
     setTimeout(() => {}, 50);`], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH } });
   assert.doesNotMatch(stderr, /DEP0169|url\.parse/);
   assert.match(stderr, /DEP0005.*something else|something else/, 'other warnings still print');
+});
+
+test('which pushes Vercel builds: main and dev of this site, only main of client sites, not docs-only changes', () => {
+  const { decide } = require('../../scripts/vercel-ignore-build');
+  const build = (env, changed) => decide(env, changed).build;
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main' }, ['src/server.js']), true);
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'dev' }, ['public/style.css']), true);
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'claude/some-work' }, ['src/server.js']), false, 'work and pull-request branches');
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'dev', CLIENT_SITE: '1' }, ['src/server.js']), false, 'client sites: no dev previews');
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main', CLIENT_SITE: '1' }, ['src/server.js']), true);
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main' }, ['README.md', 'docs/master.md', 'test/e2e/x.test.js']), false, 'docs and tests only');
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main' }, ['README.md', 'package-lock.json']), true);
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main' }, []), true, 'a redeploy of the same commit (e.g. new variables) is built');
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main' }, null), true, 'unknown changes: built, to be safe');
+  assert.equal(build({}, null), true, 'deployments made through the API or CLI are built');
 });

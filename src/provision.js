@@ -105,6 +105,9 @@ function vercel(env, fetchImpl) {
 const SECRETS = new Set(['LIBSQL_AUTH_TOKEN', 'ADMIN_PASSWORD', 'CRON_SECRET', 'SMTP_PASS', 'MANAGE_TOKEN', 'MASTER_SECRET',
   'GOOGLE_CLIENT_SECRET', 'TURSO_API_TOKEN', 'VERCEL_TOKEN']);
 
+// Also set for preview builds: CLIENT_SITE tells scripts/vercel-ignore-build.js not to build this site's branch previews.
+const ALL_TARGETS = new Set(['CLIENT_SITE']);
+
 /** A Vercel project (by name or id), or null. */
 async function getProject(nameOrId, env, fetchImpl) {
   const { call, q } = vercel(env, fetchImpl);
@@ -128,7 +131,7 @@ async function ensureProject(name, repo, env, fetchImpl, log = () => {}) {
 async function setEnv(projectId, vars, env, fetchImpl) {
   const { call, q } = vercel(env, fetchImpl);
   await call('POST', `/v10/projects/${encodeURIComponent(projectId)}/env${q('upsert=true')}`, Object.entries(vars).map(([key, value]) => ({
-    key, value: String(value), target: ['production'], type: SECRETS.has(key) ? 'sensitive' : 'plain',
+    key, value: String(value), target: ALL_TARGETS.has(key) ? ['production', 'preview'] : ['production'], type: SECRETS.has(key) ? 'sensitive' : 'plain',
   })));
 }
 
@@ -180,7 +183,8 @@ async function checkVercel(env, fetchImpl) {
  * ADMIN_EMAIL/ADMIN_PASSWORD; instances created from the master console invite their manager instead.
  */
 function instanceVars(o, env, secrets) {
-  const vars = { APP_NAME: o.name.trim(), MAIL_FROM_NAME: (o.mailFromName || o.name).trim() };
+  // CLIENT_SITE: only main is built for this site (scripts/vercel-ignore-build.js), so dev pushes add no deployments.
+  const vars = { APP_NAME: o.name.trim(), MAIL_FROM_NAME: (o.mailFromName || o.name).trim(), CLIENT_SITE: '1' };
   if (secrets.adminPassword) Object.assign(vars, { ADMIN_EMAIL: o.adminEmail.toLowerCase(), ADMIN_PASSWORD: secrets.adminPassword });
   vars.CRON_SECRET = secrets.cronSecret;
   if (secrets.manageToken) vars.MANAGE_TOKEN = secrets.manageToken;

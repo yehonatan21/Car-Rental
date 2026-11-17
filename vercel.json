@@ -1,10 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
+  "ignoreCommand": "node scripts/vercel-ignore-build.js",
   "outputDirectory": "public",
   "functions": {
     "api/index.js": {
-      "includeFiles": "{src,public,node_modules/@libsql}/**",
+      "includeFiles": "{src,public,node_modules/@libsql/linux-*-gnu}/**",
       "maxDuration": 30
     }
   },

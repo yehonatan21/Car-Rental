@@ -11,7 +11,7 @@ const config = require('../config');
 const storage = require('../storage');
 const provision = require('../provision');
 const master = require('../master');
-const { DEFAULT_COLOR } = require('../brand');
+const { DEFAULT_COLOR, brand } = require('../brand');
 const { html, raw, postForm, field, badge, icon, pageHead, pageTabs, activeTab, newPasswordPage: passwordPage } = require('../views/html');
 const { validEmail } = require('./public');
 const { emailStatusCard, googleStatusCard } = require('./admin');
@@ -57,7 +57,18 @@ function setupNotice() {
     <a href="/master/settings">להגדרת החיבורים</a></div>`;
 }
 
-module.exports = ({ app, requireAdmin, logoUpload }) => {
+module.exports = ({ app, requireAdmin: requireSiteAdmin, logoUpload }) => {
+  // Inside a regular site (MASTER_CONSOLE=true) the console belongs to the site's main admin (ADMIN_EMAIL) alone; the
+  // site's other managers run only their own site. A dedicated console (APP_MODE=master) is for all its admins.
+  const onlyMainAdmin = (req, res, next) => {
+    const main = mainAdminEmail();
+    if (main && req.user.email === main) return next();
+    res.status(403).page('אין הרשאה', html`<div class="narrow"><section class="card"><h1>אין הרשאה לעמוד זה</h1>
+      <p>מרכז הניהול זמין רק למנהל/ת הראשי/ת של האתר.</p></section></div>`);
+  };
+  const requireAdmin = config.master ? requireSiteAdmin : [requireSiteAdmin, onlyMainAdmin];
+  // The console's own admins exist only in a dedicated console; inside a site its managers are managed as usual.
+  const dedicatedOnly = (req, res, next) => (config.master ? next() : res.redirect(req.method === 'GET' ? 302 : 303, '/admin/users?role=admin'));
   const backTo = (c, hash = '') => `/master/clients/${encodeURIComponent(c.slug)}${hash}`;
   /** Loads the client of :slug, or goes back to the list. */
   const withClient = (fn) => async (req, res) => {
@@ -94,7 +105,8 @@ module.exports = ({ app, requireAdmin, logoUpload }) => {
 ${pageHead('לקוחות', {
     iconName: 'dashboard', sub: 'כל אתרי הלקוחות. לכל לקוח אתר, מסד נתונים ומנהלים משלו.',
     actions: html`<a class="btn btn-primary" href="/master/clients/new">${icon('plus')} לקוח חדש</a>
-      <a class="btn btn-light" href="/master/clients/import">${icon('login')} הוספת אתר קיים</a>`,
+      <a class="btn btn-light" href="/master/clients/import">${icon('login')} הוספת אתר קיים</a>
+      ${config.master ? '' : html`<a class="btn btn-light" href="/master/settings">${icon('settings')} חיבורים</a>`}`,
   })}
 ${setupNotice()}
 <div class="stats">
@@ -120,7 +132,8 @@ ${clients.length ? html`<table class="table">
   <td><a class="btn btn-light btn-sm" href="${backTo(c)}">ניהול</a>
     ${st.online ? html`<a class="btn btn-light btn-sm" href="${backTo(c, '/login')}">${icon('login', 16)} כניסה כמנהל</a>` : ''}</td>
 </tr>`;
-  })}</tbody></table>` : html`<p class="empty">${icon('car', 28)}<span>עדיין אין לקוחות. צרו אתר ללקוח חדש, או הוסיפו את האתר שכבר קיים.</span></p>`}
+  })}</tbody></table>` : html`<p class="empty">${icon('car', 28)}<span>${config.master ? 'עדיין אין לקוחות. צרו אתר ללקוח חדש, או הוסיפו את האתר שכבר קיים.'
+    : `עדיין אין לקוחות נוספים. האתר הזה (${brand().name}) מנוהל כרגיל מהתפריט; כאן יוצרים ומנהלים את האתרים של לקוחות אחרים.`}</span></p>`}
 </section>`);
   });
 
@@ -614,7 +627,7 @@ ${r.users.map((u) => html`<tr>
   });
 
   // ---------- The console's own admins ----------
-  app.get('/master/admins', requireAdmin, (req, res) => {
+  app.get('/master/admins', requireAdmin, dedicatedOnly, (req, res) => {
     const admins = db.prepare("SELECT * FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id").all();
     const main = mainAdminEmail();
     res.page('מנהלי המרכז', html`
@@ -645,7 +658,7 @@ ${r.users.map((u) => html`<tr>
 </div>`);
   });
 
-  app.post('/master/admins', requireAdmin, async (req, res) => {
+  app.post('/master/admins', requireAdmin, dedicatedOnly, async (req, res) => {
     const email = String(req.body.email || '').trim().toLowerCase();
     const first = String(req.body.first_name || '').trim().slice(0, 60);
     const last = String(req.body.last_name || '').trim().slice(0, 60);
@@ -675,7 +688,7 @@ ${r.users.map((u) => html`<tr>
     res.redirect(303, '/master/admins');
   });
 
-  app.post('/master/admins/:id/remove', requireAdmin, (req, res) => {
+  app.post('/master/admins/:id/remove', requireAdmin, dedicatedOnly, (req, res) => {
     const id = Number(req.params.id);
     const others = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active' AND id != ?").get(id).n;
     if (id === req.user.id || !others) {
@@ -702,13 +715,13 @@ ${r.users.map((u) => html`<tr>
     action: `/master/admins/${a.id}/password`, user: a, where: 'במרכז הניהול', back: '/master/admins', mailOn: Boolean(config.smtp), error,
   }));
 
-  app.get('/master/admins/:id/password', requireAdmin, requireMain, (req, res) => {
+  app.get('/master/admins/:id/password', requireAdmin, dedicatedOnly, requireMain, (req, res) => {
     const a = consoleAdmin(req.params.id);
     if (!a) return res.redirect('/master/admins');
     consolePasswordPage(req, res, a);
   });
 
-  app.post('/master/admins/:id/password', requireAdmin, requireMain, async (req, res) => {
+  app.post('/master/admins/:id/password', requireAdmin, dedicatedOnly, requireMain, async (req, res) => {
     const a = consoleAdmin(req.params.id);
     if (!a) return res.redirect(303, '/master/admins');
     const password = String(req.body.password || '');
@@ -785,7 +798,7 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
     <p class="muted small">החשבון הזה תמיד נשאר מנהל/ת פעיל/ה במרכז, ואי אפשר להסיר אותו מכאן. <code>ADMIN_PASSWORD</code> אינו חובה:
       בלעדיו מתחברים עם קוד שנשלח למייל, עם Google, או בוחרים סיסמה ב"שכחתי סיסמה" (כל אלה דורשים שהמיילים יהיו מוגדרים).</p>`
     : html`<p>${badge('blocked', 'חסר')} לא הוגדר <code>ADMIN_EMAIL</code>. הוסיפו אותו (עם המייל שלכם) במשתני הסביבה של הפרויקט ב־Vercel, ואז Redeploy.</p>`}
-    <p><a class="btn btn-light btn-sm" href="/master/admins">${icon('users', 16)} כל מנהלי המרכז</a></p>
+    ${config.master ? html`<p><a class="btn btn-light btn-sm" href="/master/admins">${icon('users', 16)} כל מנהלי המרכז</a></p>` : ''}
   </section>
   ${googleStatusCard(req)}
 </div>

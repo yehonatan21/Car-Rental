@@ -9,7 +9,7 @@ const { db } = require('./db');
 const time = require('./time');
 const provision = require('./provision');
 
-if (config.master) {
+if (config.master || config.masterConsole) {
   db.exec(`
 CREATE TABLE IF NOT EXISTS master_clients (
   id INTEGER PRIMARY KEY,

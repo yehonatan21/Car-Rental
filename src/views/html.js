@@ -111,7 +111,10 @@ function navLinks(user) {
   if (user.role === 'admin') {
     return [['/admin', 'לוח בקרה', 'dashboard'], ['/admin/bookings', 'הזמנות', 'list'], ['/calendar', 'יומן', 'calendar'],
       ['/admin/users', 'משתמשים', 'users'], ['/admin/vehicle', 'רכב', 'car'], ['/admin/policies', 'נהלים', 'file'],
-      ['/admin/settings', 'הגדרות', 'settings'], ['/me', 'אזור אישי', 'user']];
+      ['/admin/settings', 'הגדרות', 'settings'],
+      // The console inside this site (MASTER_CONSOLE): for the main admin only.
+      ...(config.masterConsole && user.email === require('../bootstrap').mainAdminEmail() ? [['/master', 'מרכז ניהול', 'shield']] : []),
+      ['/me', 'אזור אישי', 'user']];
   }
   return [['/calendar', 'יומן הרכב', 'calendar'], ['/bookings/new', 'הזמנה חדשה', 'plus'], ['/me/bookings', 'ההזמנות שלי', 'list'],
     ['/me', 'אזור אישי', 'user'], ['/policy', 'נהלים', 'file']];
@@ -120,7 +123,7 @@ function navLinks(user) {
 /** Is this nav link the current section? (exact page, or a sub-page of an admin section) */
 function isCurrent(req, href) {
   if (req.path === href) return true;
-  if (href === '/master') return /^\/master\/clients\/(?!new$)/.test(req.path);
+  if (href === '/master') return config.master ? /^\/master\/clients\/(?!new$)/.test(req.path) : req.path.startsWith('/master/');
   return href !== '/admin' && href.startsWith('/admin/') && req.path.startsWith(href + '/');
 }
 

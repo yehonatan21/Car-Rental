@@ -88,7 +88,7 @@ function navLinks(user) {
     // The master console: clients, not bookings.
     if (!user) return [['/login', 'התחברות', 'login']];
     return [['/master', 'לקוחות', 'dashboard'], ['/master/clients/new', 'לקוח חדש', 'plus'], ['/master/admins', 'מנהלי המרכז', 'shield'],
-      ['/master/settings', 'חיבורים', 'settings']];
+      ['/master/settings', 'הגדרות', 'settings']];
   }
   if (!user) return [['/login', 'התחברות', 'login'], ['/register', 'הרשמה', 'userplus'], ['/policy', 'נהלי השאלה', 'file']];
   if (user.role === 'admin') {
@@ -165,6 +165,14 @@ const pageHead = (title, { sub, actions, iconName } = {}) => html`
   ${actions ? html`<div class="page-actions">${actions}</div>` : ''}
 </div>`;
 
+/**
+ * Tabs for the sections of one page: [panelId, label, icon]. Each panel is an element with that id and
+ * role="tabpanel"; app.js shows one at a time and keeps it in the address (#id), so a form that returns to
+ * "page#id" (or to the id of anything inside a panel) opens that tab. Without JavaScript all panels are shown.
+ */
+const pageTabs = (items, label) => html`<nav class="page-tabs" role="tablist" aria-label="${label}" data-tabs>${items.map(([id, text, ic]) =>
+  html`<a href="#${id}" role="tab" data-tab="${id}" aria-controls="${id}">${ic ? icon(ic, 18) : ''}<span>${text}</span></a>`)}</nav>`;
+
 const csrfField = (req) => req.session ? html`<input type="hidden" name="_csrf" value="${req.session.csrf}">` : '';
 
 /** A POST form with the CSRF token already included. */
@@ -191,6 +199,6 @@ const fileInput = (name, { required = true } = {}) =>
 const licenseInput = (opts) => fileInput('license', opts);
 
 module.exports = {
-  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, field, badge, icon, pageHead, USER_STATUS, VEHICLE_STATUS,
+  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, field, badge, icon, pageHead, pageTabs, USER_STATUS, VEHICLE_STATUS,
   licenseInput, fileInput, uploadLimitLabel,
 };

@@ -12,8 +12,10 @@ const storage = require('../storage');
 const provision = require('../provision');
 const master = require('../master');
 const { DEFAULT_COLOR } = require('../brand');
-const { html, raw, postForm, field, badge, icon, pageHead } = require('../views/html');
+const { html, raw, postForm, field, badge, icon, pageHead, pageTabs } = require('../views/html');
 const { validEmail } = require('./public');
+const { emailStatusCard, googleStatusCard } = require('./admin');
+const { mainAdminEmail } = require('../bootstrap');
 
 const fullName = (u) => `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim();
 const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -532,14 +534,18 @@ ${d ? html`<section class="card" id="system">
   // ---------- The console's own admins ----------
   app.get('/master/admins', requireAdmin, (req, res) => {
     const admins = db.prepare("SELECT * FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id").all();
+    const main = mainAdminEmail();
     res.page('מנהלי המרכז', html`
 <div class="narrow">
   ${pageHead('מנהלי מרכז הניהול', { iconName: 'shield', sub: 'מי שמנהל את כל הלקוחות. מנהלי כל לקוח מנוהלים בדף הלקוח.' })}
   <section class="card">
     <ul class="plain">${admins.map((a) => html`<li><b>${fullName(a)}</b> <span class="muted" dir="ltr">${a.email}</span>
-      ${!a.password_hash && !a.google_sub ? badge('pending', 'טרם בחר/ה סיסמה') : ''}
-      ${a.id === req.user.id ? badge('admin', 'את/ה') : postForm(req, `/master/admins/${a.id}/remove`,
+      ${a.email === main ? badge('admin', 'מנהל/ת ראשי/ת (ADMIN_EMAIL)') : ''}
+      ${!a.password_hash && !a.google_sub ? badge('pending', 'ללא סיסמה') : ''}
+      ${a.id === req.user.id ? badge('active', 'את/ה') : a.email === main ? '' : postForm(req, `/master/admins/${a.id}/remove`,
     html`<button class="btn btn-light btn-sm" data-confirm="להסיר את ${a.email} ממנהלי המרכז?">הסרה</button>`, 'class="inline"')}</li>`)}</ul>
+    ${main ? html`<p class="muted small">המנהל/ת הראשי/ת נקבע/ת במשתנה <code>ADMIN_EMAIL</code> של הפרויקט ב־Vercel, ותמיד נשאר/ת מנהל/ת.
+      ${!config.smtp ? '' : 'בלי סיסמה אפשר להתחבר עם קוד חד־פעמי שנשלח למייל, או לבחור סיסמה ב"שכחתי סיסמה".'}</p>` : ''}
   </section>
   ${postForm(req, '/master/admins', html`
     <h2 class="section-title">${icon('userplus')} הוספת מנהל/ת למרכז</h2>
@@ -590,6 +596,10 @@ ${d ? html`<section class="card" id="system">
       res.flash('error', 'אי אפשר להסיר את עצמך');
       return res.redirect(303, '/master/admins');
     }
+    if (db.prepare('SELECT email FROM users WHERE id = ?').get(id)?.email === mainAdminEmail()) {
+      res.flash('error', 'המנהל/ת הראשי/ת נקבע/ת ב־ADMIN_EMAIL ואי אפשר להסיר אותו/ה מכאן');
+      return res.redirect(303, '/master/admins');
+    }
     db.prepare("UPDATE users SET role = 'user', status = 'blocked', updated_at = ? WHERE id = ? AND role = 'admin'").run(time.stamp(), id);
     auth.destroyAllSessions(id);
     audit(req.user.id, 'master.admin_remove', 'user', id);
@@ -597,22 +607,28 @@ ${d ? html`<section class="card" id="system">
     res.redirect(303, '/master/admins');
   });
 
-  // ---------- Connections to the hosting services ----------
+  // ---------- Settings: connections to the hosting services, e-mail, signing in ----------
+  const SETTINGS_TABS = [['connections', 'חיבורים', 'wrench'], ['mail', 'מיילים', 'file'], ['signin', 'התחברות ומנהל ראשי', 'shield']];
+
   function settingsPage(req, checks) {
     const p = master.providers();
     const e = process.env;
+    const main = mainAdminEmail();
+    const mainUser = main && db.prepare('SELECT * FROM users WHERE email = ?').get(main);
     const state = (ok, text) => html`${ok ? badge('active', 'מוגדר') : badge('blocked', 'חסר')} ${text || ''}`;
     const result = (k) => (checks ? html`<br>${checks[k].ok ? badge('active', 'נבדק') : badge('blocked', 'נכשל')} <small>${checks[k].detail}</small>` : '');
+    const smtp = master.sharedMailVars();
     return html`
-<div class="narrow">
-  ${pageHead('חיבורים', { iconName: 'settings', sub: 'השירותים שבהם נוצרים האתרים ומסדי הנתונים של הלקוחות.' })}
-  <section class="card">
+${pageHead('הגדרות', { iconName: 'settings', sub: 'החיבורים שבהם נוצרים אתרי הלקוחות, המיילים של מרכז הניהול וההתחברות אליו.' })}
+${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
+<div class="tab-panels">
+<div class="tab-panel" id="connections" role="tabpanel">
+  <section class="card" id="services">
+    <h2 class="section-title">${icon('wrench')} השירותים שבהם נוצרים האתרים</h2>
     <dl class="dl">
       <dt>Turso (מסדי נתונים)</dt><dd>${state(p.turso, p.turso ? html`ארגון <code dir="ltr">${provision.clean(e.TURSO_ORG)}</code>` : 'TURSO_API_TOKEN, TURSO_ORG')}${result('turso')}</dd>
       <dt>Vercel (אתרים)</dt><dd>${state(p.vercel, p.vercel ? (provision.clean(e.VERCEL_TEAM_ID) ? html`צוות <code dir="ltr">${provision.clean(e.VERCEL_TEAM_ID)}</code>` : 'חשבון אישי') : 'VERCEL_TOKEN, VERCEL_TEAM_ID')}${result('vercel')}</dd>
       <dt>מאגר הקוד</dt><dd>${master.clientRepo() ? html`<code dir="ltr">${master.clientRepo()}</code>, ענף <code dir="ltr">${master.clientBranch()}</code>` : state(false, 'CLIENT_REPO')}</dd>
-      <dt>מיילים</dt><dd>${config.smtp ? html`נשלחים מ־<span dir="ltr">${config.mailFrom}</span>; אפשר לשתף עם לקוחות חדשים` : 'לא מוגדרים (SMTP_*)'}</dd>
-      <dt>Google</dt><dd>${master.sharedGoogleVars() ? 'מוגדר; אפשר לשתף עם לקוחות חדשים' : 'לא מוגדר'}</dd>
     </dl>
     ${postForm(req, '/master/settings/check', html`<button class="btn btn-light">${icon('check')} בדיקת החיבורים</button>`)}
   </section>
@@ -628,9 +644,42 @@ ${d ? html`<section class="card" id="system">
     </ul>
     <p class="muted small">מפתח הניהול של כל לקוח נגזר מהסוד של מרכז הניהול (${provision.clean(e.MASTER_SECRET) ? 'MASTER_SECRET' : 'נוצר ונשמר במסד הנתונים של המרכז'}). אין לשנות אותו, אחרת המרכז יאבד את הגישה לאתרים.</p>
   </section>
+</div>
+<div class="tab-panel" id="mail" role="tabpanel">
+  ${emailStatusCard(req, { action: '/master/settings/test-email', recipients: false })}
+  <section class="card prose" id="mail-setup">
+    <h2>מאיפה מגיעות הגדרות המייל</h2>
+    <p>המיילים של מרכז הניהול (הזמנות למנהלי המרכז, קוד התחברות, איפוס סיסמה) נשלחים לפי משתני הסביבה של הפרויקט הזה ב־Vercel:
+      <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code> (Sensitive), ולא חובה <code>MAIL_FROM_NAME</code> (שם השולח).
+      אפשר להעתיק אותם כמו שהם מהפרויקט של האתר הקיים. אחרי שינוי: Redeploy.</p>
+    <p>${smtp ? html`${badge('active', 'משותף')} בלקוח חדש אפשר לסמן "שליחת המיילים מתיבת הדואר של מרכז הניהול": האתר שלו יקבל את אותם משתנים,
+      והמיילים יישלחו מ־<span dir="ltr">${smtp.MAIL_FROM}</span> בשם הלקוח.` : 'כשהמיילים יוגדרו כאן, אפשר יהיה לתת אותם גם ללקוחות חדשים.'}</p>
+  </section>
+</div>
+<div class="tab-panel" id="signin" role="tabpanel">
+  <section class="card" id="main-admin">
+    <h2 class="section-title">${icon('shield')} המנהל/ת הראשי/ת</h2>
+    ${main ? html`<dl class="dl">
+      <dt>מתוך <code>ADMIN_EMAIL</code></dt><dd><span dir="ltr">${main}</span> ${mainUser ? badge('active', 'מנהל/ת פעיל/ה') : badge('pending', 'ייווצר בהפעלה הבאה')}</dd>
+      <dt>התחברות</dt><dd>${mainUser?.password_hash ? 'סיסמה' : 'אין סיסמה'}${config.smtp ? ' · קוד חד־פעמי במייל' : ''}${mainUser?.google_sub || master.sharedGoogleVars() ? ' · Google' : ''}</dd>
+    </dl>
+    <p class="muted small">החשבון הזה תמיד נשאר מנהל/ת פעיל/ה במרכז, ואי אפשר להסיר אותו מכאן. <code>ADMIN_PASSWORD</code> אינו חובה:
+      בלעדיו מתחברים עם קוד שנשלח למייל, עם Google, או בוחרים סיסמה ב"שכחתי סיסמה" (כל אלה דורשים שהמיילים יהיו מוגדרים).</p>`
+    : html`<p>${badge('blocked', 'חסר')} לא הוגדר <code>ADMIN_EMAIL</code>. הוסיפו אותו (עם המייל שלכם) במשתני הסביבה של הפרויקט ב־Vercel, ואז Redeploy.</p>`}
+    <p><a class="btn btn-light btn-sm" href="/master/admins">${icon('users', 16)} כל מנהלי המרכז</a></p>
+  </section>
+  ${googleStatusCard(req)}
+</div>
 </div>`;
   }
 
-  app.get('/master/settings', requireAdmin, (req, res) => res.page('חיבורים', settingsPage(req)));
-  app.post('/master/settings/check', requireAdmin, async (req, res) => res.page('חיבורים', settingsPage(req, await master.checkConnections())));
+  app.get('/master/settings', requireAdmin, (req, res) => res.page('הגדרות', settingsPage(req)));
+  app.post('/master/settings/check', requireAdmin, async (req, res) => res.page('הגדרות', settingsPage(req, await master.checkConnections())));
+  app.post('/master/settings/test-email', requireAdmin, async (req, res) => {
+    const ok = await mail.test(req.user.email);
+    if (!ok) res.flash('error', 'שליחת מייל הבדיקה נכשלה. פרטי השגיאה מופיעים למטה.');
+    else if (config.smtp) res.flash('success', `מייל בדיקה נשלח אל ${req.user.email}. אם לא הגיע תוך דקה, בדקו בספאם.`);
+    else res.flash('warning', 'המייל לא נשלח: למרכז הניהול לא הוגדר שרת דואר (SMTP_HOST וכו׳). ההוראות מופיעות למטה.');
+    res.redirect(303, '/master/settings#mail');
+  });
 };

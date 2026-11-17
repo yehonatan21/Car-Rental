@@ -62,15 +62,18 @@ Where to get the keys:
    |---|---|
    | `APP_MODE` | `master` |
    | `LIBSQL_URL` / `LIBSQL_AUTH_TOKEN` | the new database's address and token (Sensitive) |
-   | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | your console login (password: at least 8 characters, Sensitive) |
+   | `ADMIN_EMAIL` | your e-mail: the console's **main admin**. It always stays an active admin and cannot be removed from the console |
+   | `ADMIN_PASSWORD` | optional (at least 8 characters, Sensitive). Without it, sign in with a code sent to your e-mail, with Google, or choose a password through "forgot password" (these need the `SMTP_*` variables below) |
    | `MASTER_SECRET` | a long random value (Sensitive), e.g. from `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. **Never change it later**: every client's key is derived from it |
    | `TURSO_API_TOKEN`, `TURSO_ORG` | to create client databases (token: Sensitive) |
    | `VERCEL_TOKEN`, `VERCEL_TEAM_ID` | to create client projects (token: Sensitive) |
    | `CLIENT_REPO` | `yehonatan21/Car-Rental` (optional: by default, the console's own repository) |
    | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | optional: e-mails from the console; new clients can share this mailbox, with their own sender name |
 
-4. **Deploy**, open the address and sign in. **Connections** (חיבורים) → **Check connections** should show both services
-   as connected.
+4. **Deploy**, open the address and sign in. **Settings** (הגדרות) has three tabs:
+   - **חיבורים** (connections): **Check connections** should show Turso and Vercel as connected.
+   - **מיילים** (mail): shows the mail settings read from the `SMTP_*` variables, with a **test e-mail** button.
+   - **התחברות ומנהל ראשי** (sign-in and main admin): shows the main admin from `ADMIN_EMAIL`, and Google sign-in.
 
 ## 2. Add the site you already have
 

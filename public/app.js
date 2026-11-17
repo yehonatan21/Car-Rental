@@ -116,3 +116,57 @@ for (const input of document.querySelectorAll('input[type=file][data-max-bytes]'
     }
   });
 }
+
+// Tabs between the sections of one page (settings): one panel at a time; the address keeps the open tab (#id), so a
+// form that returns to "/admin/settings#email" opens the tab holding #email. Without JavaScript all panels show.
+const tablist = document.querySelector('[data-tabs]');
+if (tablist) {
+  const tabs = [...tablist.querySelectorAll('a[data-tab]')];
+  const panels = tabs.map((t) => document.getElementById(t.dataset.tab)).filter(Boolean);
+  const panelFor = (hash) => {
+    let el = null;
+    try { el = hash.length > 1 && document.getElementById(decodeURIComponent(hash.slice(1))); } catch { /* bad hash */ }
+    return el ? panels.find((p) => p === el || p.contains(el)) : null;
+  };
+  const show = (panel, focus) => {
+    for (const p of panels) p.hidden = p !== panel;
+    for (const t of tabs) {
+      const on = t.dataset.tab === panel.id;
+      t.setAttribute('aria-selected', String(on));
+      t.tabIndex = on ? 0 : -1;
+      if (on) {
+        t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        if (focus) t.focus();
+      }
+    }
+  };
+  const initial = panelFor(location.hash);
+  show(initial || panels[0]);
+  // Opened at "#…": start at the top (the title, the message about what was just saved, the tabs), not at the anchor
+  // the browser jumps to.
+  const toTop = () => window.scrollTo(0, 0);
+  if (initial) {
+    requestAnimationFrame(toTop);
+    window.addEventListener('load', () => setTimeout(toTop, 0));
+  }
+  tablist.addEventListener('click', (e) => {
+    const t = e.target.closest('a[data-tab]');
+    if (!t) return;
+    e.preventDefault();
+    show(document.getElementById(t.dataset.tab));
+    history.replaceState(null, '', `#${t.dataset.tab}`);
+  });
+  // Arrow keys move between tabs (right-to-left: the right arrow goes back).
+  tablist.addEventListener('keydown', (e) => {
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    const n = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowLeft' ? 1 : -1) + tabs.length) % tabs.length;
+    show(document.getElementById(tabs[n].dataset.tab), true);
+    history.replaceState(null, '', `#${tabs[n].dataset.tab}`);
+  });
+  window.addEventListener('hashchange', () => {
+    const p = panelFor(location.hash);
+    if (p) { show(p); toTop(); }
+  });
+}

@@ -287,6 +287,21 @@ test('code login page: development hint when no mail server, resend button', asy
   assert.equal(bad.status, 400);
 });
 
+test('settings are organised in tabs: general, bookings and reminders, e-mail and sign-in, system health', async () => {
+  const page = (await admin.get('/admin/settings')).text;
+  const tabs = [...page.matchAll(/<a href="#(\w+)" role="tab" data-tab="\1"[^>]*>[\s\S]*?<span>([^<]+)<\/span><\/a>/g)].map((m) => [m[1], m[2]]);
+  assert.deepEqual(tabs, [['general', 'כללי'], ['bookings', 'הזמנות ותזכורות'], ['integrations', 'מיילים והתחברות'], ['health', 'תקינות המערכת']]);
+  // Each tab's panel holds its own sections, so "settings#email" (after a test e-mail) opens the right tab.
+  const panel = (id) => new RegExp(`<div class="tab-panel" id="${id}" role="tabpanel">([\\s\\S]*?)</div>\\s*(<div class="tab-panel"|</div>\\s*</main>)`).exec(page)?.[1] || '';
+  assert.match(panel('general'), /id="branding"[\s\S]*name="org_name"[\s\S]*name="brand_color"/);
+  assert.match(panel('bookings'), /id="rules"[\s\S]*name="buffer_minutes"[\s\S]*תזכורות והתראות[\s\S]*name="license_warn_days"/);
+  assert.match(panel('integrations'), /id="email"[\s\S]*id="google"/);
+  assert.match(panel('health'), /id="system"[\s\S]*href="\/admin\/audit"/);
+  const r = await admin.post('/admin/settings', { buffer_minutes: '0', cancel_hours_before: '24', max_booking_hours: '168', max_open_bookings: '3',
+    pickup_reminder_hours: '24', return_reminder_hours: '2', pending_alert_hours: '24', license_warn_days: '30' }, '/admin/settings');
+  assert.equal(r.location, '/admin/settings#rules', 'saving the rules comes back to their tab');
+});
+
 test('admin settings: e-mail status panel and test e-mail', async () => {
   const page = (await admin.get('/admin/settings')).text;
   assert.match(page, /id="email"/);

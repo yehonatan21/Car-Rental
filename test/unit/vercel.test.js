@@ -44,6 +44,19 @@ test('admin account from ADMIN_EMAIL / ADMIN_PASSWORD', () => {
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users WHERE email = 'boss@test.org'").get().n, 1);
 });
 
+test('ADMIN_EMAIL alone: an admin without a password (signs in by e-mail code / Google); the console keeps its main admin', () => {
+  const a = ensureAdminFromEnv({ ADMIN_EMAIL: ' "Owner@Test.org" ' });
+  assert.equal(a.email, 'owner@test.org');
+  assert.equal(a.role, 'admin');
+  assert.equal(a.password_hash, null);
+  assert.equal(ensureAdminFromEnv({ ADMIN_EMAIL: 'not-an-email' }), null);
+
+  db.prepare("UPDATE users SET role = 'user', status = 'blocked' WHERE id = ?").run(a.id);
+  assert.equal(ensureAdminFromEnv({ ADMIN_EMAIL: 'owner@test.org' }, { keepAdmin: false }).role, 'user', 'a client site respects its managers');
+  const back = ensureAdminFromEnv({ ADMIN_EMAIL: 'owner@test.org' }, { keepAdmin: true });
+  assert.deepEqual([back.role, back.status], ['admin', 'active'], 'the console main admin is never locked out');
+});
+
 test('the Vercel entry point serves the app without writing next to the code', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-run-'));
   const script = `

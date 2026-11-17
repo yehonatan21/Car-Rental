@@ -8,7 +8,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
 const storage = require('../storage');
-const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, pageTabs, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 const documents = require('./documents');
 const { brand, saveBrand, validColor, DEFAULT_COLOR } = require('../brand');
@@ -98,31 +98,63 @@ function permissionsCard(req, u, isSelf) {
 </section>`;
 }
 
-/** Settings page: this client's own name, colour, logo and contact details (every client runs its own instance). */
+/** Settings → General: this client's own name, contact details, colour and logo (every client runs its own instance). */
 function brandingCard(req) {
   const b = brand();
   const s = b.stored;
   return html`<section class="card" id="branding">
-  <h2 class="section-title">${icon('users')} הארגון ומיתוג</h2>
-  <p class="muted small">השם, הצבע, הלוגו ופרטי הקשר של הארגון שלכם. מופיעים באתר ובמיילים. שדה ריק חוזר לברירת המחדל של ההתקנה.</p>
+  <h2 class="section-title">${icon('users')} פרטי הארגון</h2>
+  <p class="muted small card-intro">מופיעים בראש האתר, בדף הבית ובמיילים. שדה ריק חוזר לברירת המחדל של ההתקנה.</p>
   ${postForm(req, '/admin/settings/branding', html`
     <div class="grid2">
-      ${field('שם הארגון', html`<input name="org_name" value="${s.org_name || ''}" maxlength="60" placeholder="${config.appName}">`, 'בראש כל עמוד ובמיילים')}
-      ${field('שם השולח במיילים', html`<input name="mail_from_name" value="${s.mail_from_name || ''}" maxlength="60" placeholder="${config.mailFromName || b.name}">`, 'מה שמופיע בתיבת הדואר במקום הכתובת')}
-      ${field('טלפון ליצירת קשר', html`<input type="tel" name="contact_phone" value="${s.contact_phone || ''}" maxlength="30">`)}
-      ${field('מייל ליצירת קשר', html`<input type="email" name="contact_email" value="${s.contact_email || ''}" maxlength="120">`)}
+      ${field('שם הארגון', html`<input name="org_name" value="${s.org_name || ''}" maxlength="60" placeholder="${config.appName}">`)}
+      ${field('מייל ליצירת קשר', html`<input type="email" name="contact_email" value="${s.contact_email || ''}" maxlength="120" dir="ltr" placeholder="${b.contactEmail}">`)}
+      ${field('טלפון ליצירת קשר', html`<input type="tel" name="contact_phone" value="${s.contact_phone || ''}" maxlength="30" dir="ltr" placeholder="${b.contactPhone}">`)}
+      ${field('שם השולח במיילים', html`<input name="mail_from_name" value="${s.mail_from_name || ''}" maxlength="60" placeholder="${config.mailFromName || b.name}">`,
+    'מה שמופיע בתיבת הדואר במקום הכתובת')}
     </div>
-    ${field('טקסט פתיחה בדף הבית', html`<textarea name="welcome_text" rows="2" maxlength="300" placeholder="${b.welcomeText}">${s.welcome_text || ''}</textarea>`)}
+    <hr class="form-sep">
+    <h3 class="sub-title">${icon('settings', 18)} מראה ודף הבית</h3>
     <div class="grid2">
       ${field('צבע ראשי', html`<input type="color" name="brand_color" value="${b.color}">`, 'כפתורים, קישורים והדגשות. צבע בהיר מדי מוכהה אוטומטית כדי שהטקסט יישאר קריא.')}
-      ${field('לוגו (אופציונלי)', html`<input type="file" name="logo" accept="image/png,image/jpeg,image/webp" data-max-bytes="${config.uploadMaxBytes}">`,
-        'תמונה מרובעת נראית הכי טוב. מוצג בראש העמוד ובלשונית הדפדפן.')}
+      ${field('לוגו', html`<input type="file" name="logo" accept="image/png,image/jpeg,image/webp" data-max-bytes="${config.uploadMaxBytes}">`,
+    'תמונה מרובעת נראית הכי טוב. מוצג בראש העמוד ובלשונית הדפדפן.')}
     </div>
     ${b.logoFile ? html`<p class="kv-inline"><img class="brand-logo" src="/brand/logo?v=${b.logoFile}" alt="הלוגו הנוכחי">
       <label class="check"><input type="checkbox" name="remove_logo" value="1"> <span>הסרת הלוגו</span></label></p>` : ''}
-    <button class="btn btn-primary">שמירה</button>`, 'enctype="multipart/form-data"')}
+    ${field('טקסט פתיחה בדף הבית', html`<textarea name="welcome_text" rows="2" maxlength="300" placeholder="${b.welcomeText}">${s.welcome_text || ''}</textarea>`)}
+    <div class="form-actions"><button class="btn btn-primary">שמירת השינויים</button></div>`, 'enctype="multipart/form-data"')}
 </section>`;
 }
+
+/** Settings → Bookings and reminders: the rules every booking request is checked against, and when reminders go out. */
+function bookingRulesCard(req) {
+  const s = getSettings();
+  const input = (k) => {
+    const [label, hint] = SETTING_LABELS[k];
+    return field(label, html`<input type="number" name="${k}" value="${s[k]}" min="0" step="1" required>`, hint);
+  };
+  const keys = Object.keys(SETTING_LABELS);
+  return postForm(req, '/admin/settings', html`
+    <h2 class="section-title">${icon('calendar')} כללי הזמנה</h2>
+    <p class="muted small card-intro">כל בקשת הזמנה נבדקת מול הכללים האלה, גם כשמנהל יוצר אותה.</p>
+    <div class="grid2">${keys.slice(0, 4).map(input)}</div>
+    <hr class="form-sep">
+    <h3 class="sub-title">${icon('clock', 18)} תזכורות והתראות במייל</h3>
+    <div class="grid2">${keys.slice(4).map(input)}</div>
+    <div class="form-actions"><button class="btn btn-primary">שמירת השינויים</button></div>`, 'class="card" id="rules"');
+}
+
+/** Settings → System health: a link to the log of everything the managers did. */
+const auditCard = () => html`<section class="card" id="audit">
+  <h2 class="section-title">${icon('clock')} יומן פעולות</h2>
+  <p class="muted small card-intro">כל פעולה של מנהלים (אישורים, שינויי הרשאות, הגדרות, צפייה ברישיונות ובמסמכים) נרשמת עם המועד ומי ביצע אותה.</p>
+  <a class="btn btn-light" href="/admin/audit">${icon('list', 18)} לפתיחת היומן</a>
+</section>`;
+
+const SETTINGS_TABS = [
+  ['general', 'כללי', 'users'], ['bookings', 'הזמנות ותזכורות', 'calendar'], ['integrations', 'מיילים והתחברות', 'file'], ['health', 'תקינות המערכת', 'shield'],
+];
 
 /** Settings page: which version runs and where the data is kept, so "is my data saved between versions?" is visible. */
 function systemCard() {
@@ -154,9 +186,9 @@ function systemCard() {
 }
 
 /** Settings page: how e-mail is sent, the last delivery error, and a test button. */
-function emailStatusCard(req) {
+function emailStatusCard(req, { action = '/admin/settings/test-email', recipients = true } = {}) {
   const m = mail.status();
-  const admins = mail.adminEmails();
+  const admins = recipients ? mail.adminEmails() : [];
   return html`<section class="card" id="email">
   <h2 class="section-title">${icon('file')} שליחת מיילים</h2>
   ${m.configured
@@ -175,11 +207,11 @@ function emailStatusCard(req) {
   ${m.lastError ? html`<div class="flash flash-error small"><b>שגיאה אחרונה (${time.fmt(time.toLocal(m.lastError.at))}):</b> <code>${m.lastError.message}</code>
     ${/Invalid login|Username and Password not accepted|535/i.test(m.lastError.message) ? html`<br>שם המשתמש או הסיסמה נדחו. ב־Gmail יש להשתמש ב־App password (לא בסיסמה הרגילה).` : ''}
     ${/ETIMEDOUT|ECONNREFUSED|ENOTFOUND|Greeting never received|timeout/i.test(m.lastError.message) ? html`<br>אין חיבור לשרת הדואר: בדקו את SMTP_HOST ו־SMTP_PORT (ב־Gmail: 465), ושחומת האש מאפשרת יציאה.` : ''}</div>` : ''}
-  ${admins.length
+  ${!recipients ? '' : admins.length
     ? html`<p class="small">הודעות על בקשות הזמנה חדשות נשלחות אל המנהלים הפעילים: <span dir="ltr">${admins.join(', ')}</span></p>`
     : html`<div class="flash flash-warning small">אין מנהל פעיל, ולכן אף אחד לא יקבל הודעה על בקשות הזמנה חדשות.</div>`}
   ${m.lastSentAt && m.configured ? html`<p class="muted small">מייל אחרון נשלח בהצלחה: ${time.fmt(time.toLocal(m.lastSentAt))}</p>` : ''}
-  ${postForm(req, '/admin/settings/test-email', html`<button class="btn btn-light btn-sm">שליחת מייל בדיקה אל ${req.user.email}</button>`)}
+  ${postForm(req, action, html`<button class="btn btn-light btn-sm">שליחת מייל בדיקה אל ${req.user.email}</button>`)}
 </section>`;
 }
 
@@ -865,19 +897,14 @@ ${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: `גרסה 
 
   // ---------- Settings & audit ----------
   app.get('/admin/settings', requireAdmin, (req, res) => {
-    const s = getSettings();
     res.page('הגדרות', html`
-<div class="narrow">
-  ${pageHead('הגדרות מערכת', { iconName: 'settings', sub: 'כללי הזמנה, תזכורות, מיילים והתחברות.' })}
-  ${postForm(req, '/admin/settings', html`
-    <h2 class="section-title">${icon('calendar')} כללי הזמנה ותזכורות</h2>
-    ${Object.entries(SETTING_LABELS).map(([k, [label, hint]]) => field(label, html`<input type="number" name="${k}" value="${s[k]}" min="0" step="1" required>`, hint))}
-    <button class="btn btn-primary btn-block">שמירה</button>`, 'class="card"')}
-  ${brandingCard(req)}
-  ${systemCard()}
-  ${emailStatusCard(req)}
-  ${googleStatusCard(req)}
-  <p><a class="back" href="/admin/audit">${icon('clock', 16)} יומן פעולות מנהלים</a></p>
+${pageHead('הגדרות', { iconName: 'settings', sub: 'פרטי הארגון, כללי ההזמנה והתזכורות, מיילים והתחברות, ותקינות המערכת.' })}
+${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
+<div class="tab-panels">
+  <div class="tab-panel" id="general" role="tabpanel">${brandingCard(req)}</div>
+  <div class="tab-panel" id="bookings" role="tabpanel">${bookingRulesCard(req)}</div>
+  <div class="tab-panel" id="integrations" role="tabpanel">${emailStatusCard(req)}${googleStatusCard(req)}</div>
+  <div class="tab-panel" id="health" role="tabpanel">${systemCard()}${auditCard()}</div>
 </div>`);
   });
 
@@ -930,7 +957,7 @@ ${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: `גרסה 
     }
     audit(req.user.id, 'settings.update', null, null, JSON.stringify(req.body, Object.keys(SETTING_LABELS)));
     res.flash('success', 'ההגדרות נשמרו');
-    res.redirect('/admin/settings');
+    res.redirect('/admin/settings#rules');
   });
 
   app.get('/admin/audit', requireAdmin, (req, res) => {
@@ -949,3 +976,7 @@ ${rows.map((r) => html`<tr><td data-label="מועד">${time.fmt(r.at)}</td><td d
 </section>`);
   });
 };
+
+// Shared with the master console's settings (routes/master.js).
+module.exports.emailStatusCard = emailStatusCard;
+module.exports.googleStatusCard = googleStatusCard;

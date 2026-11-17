@@ -326,3 +326,26 @@ test('the console\'s own admins, and checking the connections', async () => {
     process.env.VERCEL_TOKEN = 'vercel-key';
   }
 });
+
+test('console settings in tabs: connections, mail from the project variables (with a test e-mail), and the main admin from ADMIN_EMAIL', async () => {
+  process.env.ADMIN_EMAIL = 'Owner@Master.test';
+  const owner = require('../../src/bootstrap').ensureAdminFromEnv();
+  assert.deepEqual([owner.role, owner.password_hash], ['admin', null], 'ADMIN_EMAIL alone makes the main admin');
+
+  let page = (await boss.get('/master/settings')).text;
+  const tabs = [...page.matchAll(/role="tab" data-tab="(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual(tabs, ['connections', 'mail', 'signin']);
+  assert.match(page, /id="mail" role="tabpanel">[\s\S]*SMTP_HOST[\s\S]*action="\/master\/settings\/test-email"/);
+  assert.match(page, /id="signin" role="tabpanel">[\s\S]*owner@master\.test[\s\S]*מנהל\/ת פעיל\/ה/);
+  assert.match(page, /href="\/master\/settings" aria-current="page"><svg[^>]*>[\s\S]*?<span>הגדרות<\/span>/);
+
+  const r = await boss.post('/master/settings/test-email', {}, '/master/settings');
+  assert.equal(r.location, '/master/settings#mail');
+  assert.match(boss.flash().text, /לא הוגדר שרת דואר/);
+
+  page = (await boss.get('/master/admins')).text;
+  assert.match(page, /owner@master\.test[\s\S]*?מנהל\/ת ראשי\/ת \(ADMIN_EMAIL\)/);
+  await boss.post(`/master/admins/${owner.id}/remove`, {}, '/master/admins');
+  assert.match(boss.flash().text, /נקבע\/ת ב־ADMIN_EMAIL/);
+  assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get(owner.id).role, 'admin');
+});

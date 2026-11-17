@@ -113,3 +113,19 @@ test('command line options', () => {
   assert.deepEqual(parseArgs(['--slug', 'x', '--admin-email', 'a@b.co', '--smtp-user', 'm@g.com', '--dry-run']),
     { slug: 'x', adminEmail: 'a@b.co', smtpUser: 'm@g.com', dryRun: true });
 });
+
+test('--master creates the master console: master mode, its own secret, and the API keys it needs to create clients', async () => {
+  const { calls, files } = await run({ master: true, adminEmail: 'boss@example.org', repo: 'yehonatan21/Car-Rental' });
+  const vercel = calls.filter((c) => c.url.includes('api.vercel.com'));
+  assert.equal(vercel[0].body.name, 'car-rental-master');
+  const envs = Object.fromEntries(vercel[1].body.map((e) => [e.key, e]));
+  assert.equal(envs.APP_MODE.value, 'master');
+  assert.equal(envs.APP_NAME.value, 'מרכז ניהול לקוחות');
+  assert.equal(envs.CLIENT_REPO.value, 'yehonatan21/Car-Rental');
+  assert.equal(envs.TURSO_ORG.value, 'myorg');
+  assert.equal(envs.VERCEL_TEAM_ID.value, 'team_x');
+  for (const k of ['TURSO_API_TOKEN', 'VERCEL_TOKEN', 'MASTER_SECRET', 'ADMIN_PASSWORD', 'LIBSQL_AUTH_TOKEN']) assert.equal(envs[k].type, 'sensitive', k);
+  assert.equal(envs.TURSO_API_TOKEN.value, 'turso-api-token');
+  assert.ok(envs.MASTER_SECRET.value.length >= 64);
+  assert.match(files.master, /^APP_MODE=master$/m);
+});

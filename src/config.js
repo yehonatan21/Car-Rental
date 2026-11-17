@@ -99,7 +99,10 @@ function mailFrom() {
   const user = (process.env.SMTP_USER || '').trim();
   return process.env.SMTP_HOST && user.includes('@') ? user : 'car-booking@localhost';
 }
-const appName = clean(process.env.APP_NAME) || 'הזמנת רכב';
+// APP_MODE=master: this deployment is the master console that creates and manages all the client instances
+// (routes/master.js), not a booking site. Every client keeps its own deployment and database.
+const master = clean(process.env.APP_MODE).toLowerCase() === 'master';
+const appName = clean(process.env.APP_NAME) || (master ? 'מרכז ניהול לקוחות' : 'הזמנת רכב');
 // The sender name inboxes show instead of the bare address: MAIL_FROM_NAME, else the name in MAIL_FROM. Empty: the
 // client's name is used (brand.js), so mail never shows just the address.
 const mailFromName = clean(process.env.MAIL_FROM_NAME) || clean(mailFromParts?.[1] ?? '');
@@ -134,6 +137,7 @@ module.exports = {
   uploadsDir: path.join(dataDir, 'licenses'),
   outboxDir: path.join(dataDir, 'outbox'),
   appName,
+  master,
   smtp: process.env.SMTP_HOST ? smtpConfig() : null,
   // Largest license upload. Vercel refuses request bodies over 4.5 MB before they reach the app, so stay below it.
   uploadMaxBytes: (onVercel ? 4 : 8) * 1024 * 1024,

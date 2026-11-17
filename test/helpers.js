@@ -145,6 +145,36 @@ async function startServer() {
   return { server, base: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((r) => server.close(r)) };
 }
 
+/**
+ * Starts a client instance in a separate process with its own database (the master console manages several at once).
+ * `env`: its extra environment variables, e.g. MANAGE_TOKEN, APP_NAME.
+ */
+function startInstanceProcess(env = {}) {
+  const { spawn } = require('node:child_process');
+  const childEnv = { ...process.env };
+  for (const k of ['APP_MODE', 'DATA_DIR', 'TURSO_DATABASE_URL', 'MANAGE_TOKEN', 'MASTER_SECRET', 'TURSO_API_TOKEN', 'TURSO_ORG', 'VERCEL_TOKEN',
+    'VERCEL_TEAM_ID', 'TURSO_API_URL', 'VERCEL_API_URL', 'CLIENT_REPO', 'APP_NAME', 'BRAND_COLOR']) delete childEnv[k];
+  const child = spawn(process.execPath, ['--no-warnings', path.join(__dirname, 'fixtures', 'instance.js')],
+    { env: { ...childEnv, ...env }, stdio: ['ignore', 'pipe', 'inherit'] });
+  const kill = () => child.kill('SIGKILL');
+  process.on('exit', kill);
+  return new Promise((resolve, reject) => {
+    let out = '';
+    child.stdout.on('data', (d) => {
+      out += d;
+      const m = /LISTENING (\d+)/.exec(out);
+      if (m && !child.started) {
+        child.started = true;
+        resolve({
+          child, port: Number(m[1]), base: `http://127.0.0.1:${m[1]}`,
+          stop: () => new Promise((r) => { process.off('exit', kill); if (child.exitCode !== null) return r(); child.once('exit', r); child.kill('SIGTERM'); }),
+        });
+      }
+    });
+    child.once('exit', (code) => { if (!child.started) reject(new Error(`the instance process exited (${code}) before it started:\n${out}`)); });
+  });
+}
+
 /** Minimal browser-like HTTP client: keeps cookies, fetches CSRF tokens, never follows redirects. */
 class Client {
   constructor(base) { this.base = base; this.cookies = {}; }
@@ -216,6 +246,6 @@ function registrationForm({ license, licenseBlob, licenseName, ...fields } = {})
 }
 
 module.exports = {
-  dataDir, db, PNG, createUser, getUser, getBooking, inDays, outbox, clearOutbox, startServer, Client,
+  dataDir, db, PNG, createUser, getUser, getBooking, inDays, outbox, clearOutbox, startServer, startInstanceProcess, Client,
   registrationForm, nextIdNumber, putStoredFile, storedFile, storedFileCount, calendarSection,
 };

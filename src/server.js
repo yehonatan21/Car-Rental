@@ -73,6 +73,9 @@ app.get('/internal/cron', async (req, res) => {
   await runJobs();
   res.json({ status: 'ok' });
 });
+// A client's site suspended from the master console shows only a notice (routes/manage.js).
+app.use(require('./routes/manage').suspendedGate);
+
 if (config.onVercel) {
   let lastJobsRun = 0;
   app.use(async (req, res, next) => {
@@ -167,6 +170,8 @@ function verifyCsrf(req, res, next) {
 }
 app.use((req, res, next) => {
   if (req.method !== 'POST' || req.is('multipart/form-data')) return next(); // multipart routes verify after parsing
+  // The management API is called by the master console's server with a token, never by a browser with cookies.
+  if (req.path.startsWith('/api/manage/')) return next();
   verifyCsrf(req, res, next);
 });
 
@@ -201,7 +206,19 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
+// The master console (APP_MODE=master) is only the console: signing in and /master. Everything else, the booking
+// pages included, leads to it.
+if (config.master) {
+  const OPEN = /^\/(login|logout|password\/|auth\/google|static\/|favicon\.ico$|healthz$|brand\/logo$|master(\/|$))/;
+  app.use((req, res, next) => {
+    if (OPEN.test(req.path)) return next();
+    res.redirect(req.method === 'GET' || req.method === 'HEAD' ? 302 : 303, '/master');
+  });
+}
+
 const ctx = { app, requireLogin, requireAdmin, licenseUpload, documentUpload, logoUpload };
+if (config.master) require('./routes/master')(ctx);
+require('./routes/manage')(ctx);
 require('./routes/public')(ctx);
 require('./routes/user')(ctx);
 require('./routes/admin')(ctx);

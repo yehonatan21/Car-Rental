@@ -84,6 +84,12 @@ const icon = (name, size = 20) => raw(`<svg class="icon" width="${size}" height=
 
 /** Navigation: [href, label, icon]; the first ones also form the phone tab bar. */
 function navLinks(user) {
+  if (config.master) {
+    // The master console: clients, not bookings.
+    if (!user) return [['/login', 'התחברות', 'login']];
+    return [['/master', 'לקוחות', 'dashboard'], ['/master/clients/new', 'לקוח חדש', 'plus'], ['/master/admins', 'מנהלי המרכז', 'shield'],
+      ['/master/settings', 'חיבורים', 'settings']];
+  }
   if (!user) return [['/login', 'התחברות', 'login'], ['/register', 'הרשמה', 'userplus'], ['/policy', 'נהלי השאלה', 'file']];
   if (user.role === 'admin') {
     return [['/admin', 'לוח בקרה', 'dashboard'], ['/admin/bookings', 'הזמנות', 'list'], ['/calendar', 'יומן', 'calendar'],
@@ -97,12 +103,14 @@ function navLinks(user) {
 /** Is this nav link the current section? (exact page, or a sub-page of an admin section) */
 function isCurrent(req, href) {
   if (req.path === href) return true;
+  if (href === '/master') return /^\/master\/clients\/(?!new$)/.test(req.path);
   return href !== '/admin' && href.startsWith('/admin/') && req.path.startsWith(href + '/');
 }
 
-function layout(req, title, body) {
-  const user = req.user;
-  const links = navLinks(user);
+/** The page around `body`. bare: no navigation (a notice shown instead of the whole site). */
+function layout(req, title, body, { bare = false } = {}) {
+  const user = bare ? null : req.user;
+  const links = bare ? [] : navLinks(user);
   const flash = req.flash;
   const link = ([href, label, ic]) => html`<a href="${href}" ${isCurrent(req, href) ? raw('aria-current="page"') : ''}>${icon(ic)}<span>${label}</span></a>`;
   const logout = user ? html`<form method="post" action="/logout">${csrfField(req)}<button class="linklike">${icon('logout')}<span>יציאה</span></button></form>` : '';
@@ -131,12 +139,12 @@ ${b.customColor ? html`<style>${raw(paletteCss(b.color))}</style>` : ''}
     ${links.map(link)}
   </nav>
   ${user ? html`<div class="user-chip" title="${user.email}"><span class="avatar" aria-hidden="true">${(user.first_name || '?').slice(0, 1)}</span>
-    <span class="who"><b>${user.first_name} ${user.last_name}</b><small>${user.role === 'admin' ? 'מנהל/ת' : 'משתמש/ת'}</small></span></div>` : ''}
+    <span class="who"><b>${user.first_name} ${user.last_name}</b><small>${config.master ? 'מרכז הניהול' : user.role === 'admin' ? 'מנהל/ת' : 'משתמש/ת'}</small></span></div>` : ''}
   <div class="desktop-logout">${logout}</div>
-  <details class="menu">
+  ${bare ? '' : html`<details class="menu">
     <summary aria-label="תפריט">${icon('more', 24)}</summary>
     <nav aria-label="תפריט נוסף">${(user ? rest : links).map(link)}${logout}</nav>
-  </details>
+  </details>`}
 </header>
 ${config.ephemeral ? html`<div class="demo-banner" role="note">סביבת הדגמה: הנתונים (משתמשים, הזמנות וקבצים) זמניים ונמחקים מעת לעת.</div>` : ''}
 <main class="container" id="main">

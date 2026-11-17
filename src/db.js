@@ -198,6 +198,13 @@ CREATE TABLE IF NOT EXISTS branding (
   value TEXT NOT NULL
 );
 
+-- One-time sign-in links from the master console (routes/manage.js): only a hash of the token; 2 minutes, single use.
+CREATE TABLE IF NOT EXISTS sso_tokens (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL
+);
+
 -- Facts about the database itself: a random id and creation time written once, when it is first set up. If the id
 -- shown on the settings page changes after a new deployment, that deployment uses a different (or new) database.
 CREATE TABLE IF NOT EXISTS app_meta (

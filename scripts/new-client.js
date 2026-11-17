@@ -9,14 +9,13 @@
 // its environment variables and the first deployment. Without them it does what it can and prints the rest as steps.
 // Everything the instance needs, secrets included, is written to clients/<slug>.env (not committed). See
 // docs/new-client.md.
-const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const provision = require('../src/provision');
+const { validate, instanceVars, SECRETS, createDatabase, createDeployment, randomSecret } = provision;
 
 const ROOT = path.join(__dirname, '..');
-const TURSO_API = 'https://api.turso.tech/v1';
-const VERCEL_API = 'https://api.vercel.com';
 
 const HELP = `Create a new client instance (own database + own Vercel deployment).
 
@@ -34,6 +33,8 @@ Optional:
   --repo <owner/name>     GitHub repository (default: this checkout's origin)
   --branch <name>         default main
   --turso-group <name>    Turso group (it decides the location), default "default"
+  --master                create the master console instead (manages all client instances; see docs/master.md):
+                          slug "master", and the API keys below are copied into it
   --dry-run               only show what would be done
 
 Environment: TURSO_API_TOKEN, TURSO_ORG, VERCEL_TOKEN, VERCEL_TEAM_ID (optional), CLIENT_SMTP_PASS (optional).`;
@@ -44,7 +45,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith('--')) continue;
     const key = a.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-    if (key === 'dryRun' || key === 'help') out[key] = true;
+    if (key === 'dryRun' || key === 'help' || key === 'master') out[key] = true;
     else out[key] = argv[++i];
   }
   return out;
@@ -59,103 +60,16 @@ function originRepo() {
   }
 }
 
-/** Checks the options; returns the problems (empty when all is well). */
-function validate(o) {
-  const problems = [];
-  if (!/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(o.slug || '')) problems.push('--slug: 1–32 lower-case letters, digits or "-"');
-  if (!String(o.name || '').trim()) problems.push('--name is required');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.adminEmail || '')) problems.push('--admin-email: a valid e-mail address');
-  if (o.adminPassword && o.adminPassword.length < 8) problems.push('--admin-password: at least 8 characters');
-  if (o.color && !/^#[0-9a-f]{6}$/i.test(o.color)) problems.push('--color: like #0b7a63');
-  if (o.repo && !/^[\w.-]+\/[\w.-]+$/.test(o.repo)) problems.push('--repo: owner/name');
-  return problems;
-}
-
-/** A small API client: JSON in and out, errors with the service's own message. */
-function api(fetchImpl, base, token) {
-  return async (method, url, body, { okStatuses = [] } = {}) => {
-    const res = await fetchImpl(base + url, {
-      method, headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-    if (!res.ok && !okStatuses.includes(res.status)) {
-      const msg = data?.error?.message || data?.error || data?.message || text || res.statusText;
-      throw new Error(`${method} ${base}${url.split('?')[0]} → ${res.status}: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
-    }
-    return { status: res.status, data };
-  };
-}
-
-/** Creates (or reuses) the client's database and a never-expiring read/write token for it. */
-async function createDatabase(o, env, fetchImpl, log) {
-  const call = api(fetchImpl, TURSO_API, env.TURSO_API_TOKEN);
-  const org = encodeURIComponent(env.TURSO_ORG);
-  const name = `car-rental-${o.slug}`;
-  let r = await call('POST', `/organizations/${org}/databases`, { name, group: o.tursoGroup || 'default' }, { okStatuses: [409] });
-  if (r.status === 409) {
-    log(`  database ${name} already exists: using it`);
-    r = await call('GET', `/organizations/${org}/databases/${encodeURIComponent(name)}`);
-  }
-  const hostname = r.data?.database?.Hostname;
-  if (!hostname) throw new Error(`Turso did not return the database address for ${name}`);
-  const t = await call('POST', `/organizations/${org}/databases/${encodeURIComponent(name)}/auth/tokens?expiration=never&authorization=full-access`);
-  if (!t.data?.jwt) throw new Error('Turso did not return a database token');
-  return { name, url: `libsql://${hostname}`, token: t.data.jwt };
-}
-
-/** Creates (or reuses) the Vercel project linked to the repository, sets its variables and starts a deployment. */
-async function createDeployment(o, env, vars, fetchImpl, log) {
-  const call = api(fetchImpl, VERCEL_API, env.VERCEL_TOKEN);
-  const team = env.VERCEL_TEAM_ID ? `teamId=${encodeURIComponent(env.VERCEL_TEAM_ID)}` : '';
-  const q = (extra = '') => [extra, team].filter(Boolean).join('&').replace(/^/, '?').replace(/^\?$/, '');
-  const name = `car-rental-${o.slug}`;
-  let r = await call('POST', `/v11/projects${q()}`, { name, framework: null, gitRepository: { type: 'github', repo: o.repo } },
-    { okStatuses: [409] });
-  if (r.status === 409) {
-    log(`  Vercel project ${name} already exists: updating it`);
-    r = await call('GET', `/v9/projects/${encodeURIComponent(name)}${q()}`);
-  }
-  const project = r.data;
-  if (!project?.id) throw new Error(`Vercel did not return the project ${name}`);
-  // Secrets are "sensitive" (cannot be read back in the dashboard); the rest are plain, so they can be checked there.
-  await call('POST', `/v10/projects/${project.id}/env${q('upsert=true')}`, Object.entries(vars).map(([key, value]) => ({
-    key, value: String(value), target: ['production'], type: SECRETS.has(key) ? 'sensitive' : 'plain',
-  })));
-  const [org, repo] = o.repo.split('/');
-  const gitSource = project.link?.repoId
-    ? { type: 'github', repoId: project.link.repoId, ref: o.branch }
-    : { type: 'github', org, repo, ref: o.branch };
-  const d = await call('POST', `/v13/deployments${q()}`, { name, project: project.id, target: 'production', gitSource });
-  return { project: name, projectId: project.id, deploymentUrl: d.data?.url ? `https://${d.data.url}` : null };
-}
-
-const SECRETS = new Set(['LIBSQL_AUTH_TOKEN', 'ADMIN_PASSWORD', 'CRON_SECRET', 'SMTP_PASS']);
-
-/** The instance's environment variables (database ones are added once the database exists). */
-function instanceVars(o, env, secrets) {
-  const vars = {
-    APP_NAME: o.name.trim(),
-    MAIL_FROM_NAME: (o.mailFromName || o.name).trim(),
-    ADMIN_EMAIL: o.adminEmail.toLowerCase(),
-    ADMIN_PASSWORD: secrets.adminPassword,
-    CRON_SECRET: secrets.cronSecret,
-  };
-  if (o.color) vars.BRAND_COLOR = o.color.toLowerCase();
-  if (o.contactEmail) vars.CONTACT_EMAIL = o.contactEmail;
-  if (o.contactPhone) vars.CONTACT_PHONE = o.contactPhone;
-  if (o.smtpUser) {
-    Object.assign(vars, { SMTP_HOST: o.smtpHost || 'smtp.gmail.com', SMTP_PORT: String(o.smtpPort || 465), SMTP_USER: o.smtpUser });
-    if (env.CLIENT_SMTP_PASS) vars.SMTP_PASS = env.CLIENT_SMTP_PASS;
-  }
+/** The master console's own variables: master mode, and the API keys it uses to create and manage clients. */
+function masterVars(o, env) {
+  const vars = { APP_MODE: 'master', MASTER_SECRET: randomSecret(32), CLIENT_REPO: o.repo, CLIENT_BRANCH: o.branch };
+  for (const k of ['TURSO_API_TOKEN', 'TURSO_ORG', 'TURSO_GROUP', 'VERCEL_TOKEN', 'VERCEL_TEAM_ID']) if (env[k]) vars[k] = env[k];
   return vars;
 }
 
 function envFile(o, vars, result) {
   const lines = [
-    `# Client instance "${o.name}" (${o.slug}), created ${new Date().toISOString().slice(0, 10)}.`,
+    `# ${o.master ? 'Master console' : 'Client instance'} "${o.name}" (${o.slug}), created ${new Date().toISOString().slice(0, 10)}.`,
     '# Contains secrets: keep it private and never commit it.',
     result.deployment ? `# Vercel project: ${result.deployment.project}` : '# Vercel project: not created (see docs/new-client.md)',
     result.database ? `# Turso database: ${result.database.name}` : '# Turso database: not created (see docs/new-client.md)',
@@ -172,20 +86,21 @@ function envFile(o, vars, result) {
  */
 async function createClient(options, { env = process.env, fetchImpl = globalThis.fetch, log = console.log, write = writeEnvFile } = {}) {
   const o = { branch: 'main', ...options, repo: options.repo || originRepo() };
+  if (o.master) Object.assign(o, { slug: o.slug || 'master', name: o.name || 'מרכז ניהול לקוחות' });
   const problems = validate(o);
   if (!o.repo) problems.push('--repo: could not read the GitHub repository from git; pass --repo owner/name');
-  if (problems.length) throw new Error(`Cannot create the client:\n  - ${problems.join('\n  - ')}`);
+  if (problems.length) throw new Error(`Cannot create the ${o.master ? 'master console' : 'client'}:\n  - ${problems.join('\n  - ')}`);
 
   const secrets = {
-    adminPassword: o.adminPassword || crypto.randomBytes(12).toString('base64url'),
-    cronSecret: crypto.randomBytes(24).toString('hex'),
+    adminPassword: o.adminPassword || require('node:crypto').randomBytes(12).toString('base64url'),
+    cronSecret: randomSecret(),
   };
-  const vars = instanceVars(o, env, secrets);
+  const vars = { ...instanceVars(o, env, secrets), ...(o.master ? masterVars(o, env) : {}) };
   const canDb = Boolean(env.TURSO_API_TOKEN && env.TURSO_ORG);
   const canDeploy = Boolean(env.VERCEL_TOKEN);
   const steps = [];
 
-  log(`Client "${o.name}" (${o.slug})`);
+  log(`${o.master ? 'Master console' : 'Client'} "${o.name}" (${o.slug})`);
   log(`  database:   ${canDb ? `Turso car-rental-${o.slug} (org ${env.TURSO_ORG})` : 'not created: TURSO_API_TOKEN / TURSO_ORG not set'}`);
   log(`  deployment: ${canDeploy ? `Vercel project car-rental-${o.slug}, from ${o.repo} (${o.branch})` : 'not created: VERCEL_TOKEN not set'}`);
   log(`  variables:  ${[...Object.keys(vars), ...(canDb ? ['LIBSQL_URL', 'LIBSQL_AUTH_TOKEN'] : [])].join(', ')}`);
@@ -212,7 +127,8 @@ async function createClient(options, { env = process.env, fetchImpl = globalThis
   }
   if (!vars.SMTP_HOST) steps.push('E-mail: add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS (see docs/email-setup.md), then redeploy.');
   else if (!vars.SMTP_PASS) steps.push('E-mail: add SMTP_PASS (the app password of SMTP_USER) in Vercel as Sensitive, then redeploy.');
-  steps.push('Google sign-in (optional): register https://<the client address>/auth/google/callback and set GOOGLE_CLIENT_ID / _SECRET.');
+  steps.push('Google sign-in (optional): register https://<the address>/auth/google/callback and set GOOGLE_CLIENT_ID / _SECRET.');
+  if (o.master) steps.push('Open the console, sign in, and add the sites that already exist under "הוספת אתר קיים" (see docs/master.md).');
 
   result.file = write(o.slug, envFile(o, vars, result));
   log('');
@@ -236,7 +152,7 @@ function writeEnvFile(slug, content) {
   return file;
 }
 
-module.exports = { createClient, parseArgs, validate, instanceVars, SECRETS };
+module.exports = { createClient, parseArgs, validate, instanceVars, SECRETS, masterVars };
 
 if (require.main === module) {
   const args = parseArgs(process.argv.slice(2));

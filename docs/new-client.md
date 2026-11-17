@@ -9,6 +9,9 @@ Every client (each gmach / community / organisation) gets **its own instance** o
 All instances run the same code from this repository. A push to `main` deploys every client's project, so a fix or
 feature reaches all clients at once, and each keeps its own data and settings.
 
+> **Easiest:** create and manage clients from the **master console** (a web page, no command line); see
+> [master.md](master.md). The command below does the same from your computer, for a client the console does not manage.
+
 ## Create a client: `npm run new-client`
 
 Run it on your computer, in this repository:

@@ -43,6 +43,7 @@ const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 const safeNext = (n) => (typeof n === 'string' && /^\/(?![/\\])/.test(n) && !/[\r\n]/.test(n) ? n : null);
 
 function homeFor(user) {
+  if (config.master) return '/master';
   if (user.role === 'admin') return '/admin';
   return user.status === 'active' ? '/calendar' : '/me';
 }
@@ -52,7 +53,7 @@ function loginPage(req, { error, email = '', next = req.query.next || req.body?.
   return html`
 <div class="narrow">
   <div class="auth-head"><span class="brand-mark">${icon('car', 30)}</span><h1>התחברות</h1>
-    <p class="muted">ברוכים השבים! התחברו כדי לבדוק זמינות ולהזמין את הרכב.</p></div>
+    <p class="muted">${config.master ? 'כניסה למרכז הניהול של אתרי הלקוחות.' : 'ברוכים השבים! התחברו כדי לבדוק זמינות ולהזמין את הרכב.'}</p></div>
   ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
   ${googleOption(req, '/auth/google' + (safeNext(next) ? '?next=' + encodeURIComponent(next) : ''), 'התחברות עם Google', '/login')}
   ${google.enabled() ? html`<p class="divider"><span>או</span></p>` : ''}
@@ -71,7 +72,7 @@ function loginPage(req, { error, email = '', next = req.query.next || req.body?.
       ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required>`)}
       <button class="btn btn-light btn-block">שליחת קוד</button>`)}
   </div>` : ''}
-  <p class="auth-foot">עדיין אין לך חשבון? <a href="/register">להרשמה</a></p>
+  ${config.master ? '' : html`<p class="auth-foot">עדיין אין לך חשבון? <a href="/register">להרשמה</a></p>`}
 </div>`;
 }
 

@@ -207,6 +207,17 @@ module.exports = {
       `שם המשתמש שלך הוא כתובת הדואר האלקטרוני הזו: <b dir="ltr">${esc(u.email)}</b>.`,
     ], { href, label: 'בחירת סיסמה' });
   },
+  /** A client's manager, invited from the master console: with a link to choose a password, or (an account that has
+   * one already) to sign in. */
+  managerInvitation: (u, token, invitedBy) => {
+    const href = token ? `/password/reset?token=${encodeURIComponent(token)}` : '/login';
+    if (token && !config.smtp && !config.production) console.log(`\n  >>> Manager invitation link for ${u.email}: ${config.baseUrl}${href}  (valid 7 days)\n`);
+    return send(u.email, `הוזמנת לנהל את מערכת הזמנת הרכב של ${brand().name}`, [
+      `שלום ${esc(u.first_name)},`, `${esc(invitedBy)} הזמין/ה אותך לנהל את מערכת הזמנת הרכב של ${esc(brand().name)}: אישור משתמשים והזמנות, הרכב, הנהלים וההגדרות.`,
+      token ? 'כדי להתחבר, בחרו סיסמה בקישור הבא. הקישור תקף ל־7 ימים ולשימוש אחד.' : 'החשבון הקיים שלך קיבל הרשאות ניהול. אפשר להתחבר כרגיל.',
+      `שם המשתמש שלך הוא כתובת הדואר האלקטרוני הזו: <b dir="ltr">${esc(u.email)}</b>.`,
+    ], { href, label: token ? 'בחירת סיסמה' : 'כניסה למערכת' });
+  },
   passwordChanged: (u) => send(u.email, 'הסיסמה שלך שונתה', [
     `שלום ${esc(u.first_name)},`, 'הסיסמה לחשבון שלך שונתה, וכל החיבורים הפעילים נותקו.',
     'אם לא אתה שינית אותה, פנה מיד למנהל המערכת.',

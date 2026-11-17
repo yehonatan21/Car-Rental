@@ -115,6 +115,7 @@ function status() {
     storage: { kind: s.kind, id: s.id, createdAt: s.createdAt, perDeployment: s.perDeployment },
     mail: { configured: Boolean(config.smtp), from: config.mailFrom },
     google: google.enabled(),
+    googleRelay: google.status().relay,
   };
 }
 

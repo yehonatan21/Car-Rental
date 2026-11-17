@@ -153,6 +153,9 @@ module.exports = {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
     authUrl: process.env.GOOGLE_AUTH_URL || 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUrl: process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token',
+    // A client site created from the console signs in through the main site's Google callback (the only address
+    // registered with Google), which passes the answer on to it: no Google Cloud change for each new client.
+    relayUrl: urlFromEnv('GOOGLE_RELAY_URL', 'https'),
   },
   sessionDays: 14,
 };

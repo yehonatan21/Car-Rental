@@ -199,8 +199,11 @@ function sharedMailVars() {
 
 /** The console's "Sign in with Google" app, to share with a client (its address must be added in Google Cloud). */
 function sharedGoogleVars() {
+  // GOOGLE_RELAY_URL: the client signs in through this site's callback address, which is already registered with
+  // Google, so nothing has to be added in Google Cloud Console for a new client.
   return config.google.clientId && config.google.clientSecret
-    ? { GOOGLE_CLIENT_ID: config.google.clientId, GOOGLE_CLIENT_SECRET: config.google.clientSecret } : null;
+    ? { GOOGLE_CLIENT_ID: config.google.clientId, GOOGLE_CLIENT_SECRET: config.google.clientSecret, GOOGLE_RELAY_URL: new URL(config.baseUrl).origin }
+    : null;
 }
 
 /**

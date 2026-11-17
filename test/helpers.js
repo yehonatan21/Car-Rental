@@ -152,8 +152,9 @@ async function startServer() {
 function startInstanceProcess(env = {}) {
   const { spawn } = require('node:child_process');
   const childEnv = { ...process.env };
-  for (const k of ['APP_MODE', 'DATA_DIR', 'TURSO_DATABASE_URL', 'MANAGE_TOKEN', 'MASTER_SECRET', 'TURSO_API_TOKEN', 'TURSO_ORG', 'VERCEL_TOKEN',
-    'VERCEL_TEAM_ID', 'TURSO_API_URL', 'VERCEL_API_URL', 'CLIENT_REPO', 'APP_NAME', 'BRAND_COLOR']) delete childEnv[k];
+  for (const k of ['APP_MODE', 'MASTER_CONSOLE', 'DATA_DIR', 'TURSO_DATABASE_URL', 'MANAGE_TOKEN', 'MASTER_SECRET', 'TURSO_API_TOKEN', 'TURSO_ORG',
+    'VERCEL_TOKEN', 'VERCEL_TEAM_ID', 'TURSO_API_URL', 'VERCEL_API_URL', 'CLIENT_REPO', 'APP_NAME', 'BRAND_COLOR', 'ADMIN_EMAIL', 'ADMIN_PASSWORD',
+    'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_RELAY_URL', 'BASE_URL']) delete childEnv[k];
   const child = spawn(process.execPath, ['--no-warnings', path.join(__dirname, 'fixtures', 'instance.js')],
     { env: { ...childEnv, ...env }, stdio: ['ignore', 'pipe', 'inherit'] });
   const kill = () => child.kill('SIGKILL');

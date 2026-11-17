@@ -323,6 +323,20 @@ module.exports = ({ app, licenseUpload }) => {
   });
 
   app.get('/auth/google/callback', async (req, res) => {
+    // A client site's Google sign-in comes back here, the one address registered with Google (GOOGLE_RELAY_URL on that
+    // site): pass the answer on to that site, which checks it and signs the person in. Only to this console's clients.
+    // (The client site itself then receives the answer here too: an answer meant for this site is handled normally.)
+    const target = google.relayTarget(req.query.state);
+    if (target && target !== new URL(config.baseUrl).origin) {
+      if (!google.relayAllowed(target)) {
+        console.warn(`[google] refused to pass a sign-in on to ${target}: not one of this site's clients`);
+        return res.status(400).page('ההתחברות נכשלה', html`<div class="narrow"><section class="card"><h1>ההתחברות עם Google נכשלה</h1>
+          <p>האתר שממנו התחלתם את ההתחברות אינו מוכר כאן. חזרו לאתר ונסו שוב, או התחברו עם סיסמה.</p></section></div>`);
+      }
+      const back = new URL('/auth/google/callback', target);
+      for (const k of ['code', 'state', 'error', 'error_description']) if (req.query[k]) back.searchParams.set(k, String(req.query[k]));
+      return res.set('Cache-Control', 'no-store').redirect(302, back.href);
+    }
     if (!google.enabled()) return res.redirect('/login');
     const cookieState = req.cookies[GOOGLE_STATE_COOKIE];
     res.clearCookie(GOOGLE_STATE_COOKIE, { path: '/auth/google', secure: req.secure });

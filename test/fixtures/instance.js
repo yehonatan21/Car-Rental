@@ -5,4 +5,4 @@ require('../helpers');
 const { app } = require('../../src/server');
 
 process.on('SIGTERM', () => process.exit(0)); // runs the helpers' clean-up (temporary data, sqld)
-const server = app.listen(0, '127.0.0.1', () => process.stdout.write(`LISTENING ${server.address().port}\n`));
+const server = app.listen(Number(process.env.TEST_PORT || 0), '127.0.0.1', () => process.stdout.write(`LISTENING ${server.address().port}\n`));

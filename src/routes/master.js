@@ -171,7 +171,7 @@ ${clients.length ? html`<table class="table">
       <span>שליחת המיילים של הלקוח מתיבת הדואר של מרכז הניהול (<span dir="ltr">${smtp.MAIL_FROM}</span>), בשם הלקוח</span></label>`
     : html`<p class="muted small">למרכז הניהול לא הוגדרה תיבת דואר, ולכן לאתר החדש לא יוגדרו מיילים. אפשר להוסיף אותם אחר כך בהגדרות הפרויקט שלו ב־Vercel.</p>`}
     ${g ? html`<label class="check"><input type="checkbox" name="shared_google" value="1" ${v.shared_google ? 'checked' : ''}>
-      <span>התחברות עם Google (אותו חשבון Google Cloud; צריך להוסיף שם את כתובת האתר – ההוראות יופיעו בדף הלקוח)</span></label>` : ''}
+      <span>התחברות עם Google (דרך כתובת החזרה של האתר הזה, בלי שינוי ב־Google Cloud)</span></label>` : ''}
     <button class="btn btn-primary btn-block" ${ready ? '' : raw('disabled')}>${icon('plus')} יצירת האתר</button>
     <p class="muted small">היצירה לוקחת כמה שניות, ובניית האתר עצמו עוד כ־1–2 דקות.</p>`, 'class="card"')}
 </div>`;
@@ -352,7 +352,8 @@ ${d ? html`<section class="card" id="system">
     <dt>גרסה</dt><dd>${versionLabel(d) || '—'}</dd>
     <dt>מסד נתונים</dt><dd>${d.storage.kind === 'hosted' ? 'קבוע (Turso)' : d.storage.kind === 'temporary' ? html`<b>זמני – הנתונים נמחקים!</b>` : 'קובץ מקומי'} · מזהה <code>${d.storage.id}</code></dd>
     <dt>מיילים</dt><dd>${d.mail.configured ? html`נשלחים מ־<span dir="ltr">${d.mail.from}</span>` : html`<b>לא מוגדרים</b> – מנהלים ומשתמשים לא מקבלים מיילים`}</dd>
-    <dt>התחברות עם Google</dt><dd>${d.google ? html`פעילה. ב־Google Cloud צריך להופיע ה־Redirect URI: <code dir="ltr">${c.url}/auth/google/callback</code>` : 'לא מוגדרת'}</dd>
+    <dt>התחברות עם Google</dt><dd>${!d.google ? 'לא מוגדרת' : d.googleRelay ? html`פעילה, דרך כתובת החזרה של <span dir="ltr">${d.googleRelay}</span> (אין צורך לשנות דבר ב־Google Cloud)`
+    : html`פעילה. ב־Google Cloud צריך להופיע ה־Redirect URI: <code dir="ltr">${c.url}/auth/google/callback</code>`}</dd>
     <dt>הזמנה אחרונה</dt><dd>${d.lastBookingAt ? time.fmt(d.lastBookingAt) : '—'}</dd>
     <dt>נוסף למרכז</dt><dd>${time.fmt(c.created_at)}</dd>
   </dl>

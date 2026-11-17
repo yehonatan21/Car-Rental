@@ -232,12 +232,14 @@ function googleStatusCard(req) {
   </ul>
   ${here !== g.origin ? html`<p class="small note-line">${icon('alert', 16)} פתחת את האתר בכתובת <code>${here}</code>. Google יחזיר את המשתמשים רק לכתובת <code>${g.origin}</code>,
     ולכן כפתור Google יפעל רק שם. כדי להשתמש בכתובת אחרת, יש לעדכן את <code>BASE_URL</code> ב־.env.</p>` : ''}
+  ${g.relay ? html`<p class="small note-line">${icon('check', 16)} ההתחברות עוברת דרך כתובת החזרה של <code dir="ltr">${g.relay}</code>,
+    שכבר רשומה ב־Google, ומשם חוזרת לאתר הזה. אין צורך להוסיף את האתר הזה ב־Google Cloud Console.</p>` : html`
   <h3>מה להזין ב־Google Cloud Console</h3>
   <p class="small">APIs &amp; Services ← Credentials ← OAuth client ID (Web application):</p>
   <dl class="dl small">
     <dt>Authorized JavaScript origins</dt><dd><code>${g.origin}</code></dd>
     <dt>Authorized redirect URIs</dt><dd><code>${g.redirectUri}</code></dd>
-  </dl>
+  </dl>`}
   <p class="muted small">כל עוד מסך ההסכמה (OAuth consent screen) במצב <b>Testing</b>, רק חשבונות שהוספו ב־<b>Test users</b> יכולים להתחבר.
     אחרי עריכת .env יש להפעיל מחדש את השרת.</p>
   ${g.lastError ? html`<div class="flash flash-error small"><b>שגיאה אחרונה (${time.fmt(time.toLocal(g.lastError.at))}):</b>

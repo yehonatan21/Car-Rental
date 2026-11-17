@@ -35,13 +35,15 @@ function recordError(err) {
 }
 
 const enabled = () => Boolean(config.google.clientId && config.google.clientSecret);
-const redirectUri = () => `${config.baseUrl}/auth/google/callback`;
+// With GOOGLE_RELAY_URL, Google sends the user back to that (main) site, which forwards to this one (see relay below).
+const redirectUri = () => `${config.google.relayUrl ? new URL(config.google.relayUrl).origin : config.baseUrl}/auth/google/callback`;
 const random = (bytes = 32) => crypto.randomBytes(bytes).toString('base64url');
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest();
 
 /** Starts a login: remembers state/nonce/PKCE verifier and returns Google's consent URL. */
 function begin(next) {
-  const state = random();
+  // Through a relay, the state also says where to send the answer: "r.<this site's origin, base64url>.<random>".
+  const state = config.google.relayUrl ? `r.${Buffer.from(new URL(config.baseUrl).origin).toString('base64url')}.${random()}` : random();
   const nonce = random();
   const verifier = random(48);
   db.prepare('DELETE FROM oauth_states WHERE expires_at < ?').run(Date.now());
@@ -119,6 +121,37 @@ async function complete({ code, state, cookieState }) {
   };
 }
 
+// ---------- Relay: one registered callback address for every client site ----------
+/** The client site a Google answer is meant for (from its state), or null when it is this site's own login. */
+function relayTarget(state) {
+  const m = /^r\.([A-Za-z0-9_-]{8,400})\.[A-Za-z0-9_-]{20,}$/.exec(String(state || ''));
+  if (!m) return null;
+  try {
+    const origin = Buffer.from(m[1], 'base64url').toString('utf8');
+    const u = new URL(origin);
+    return u.origin === origin && ['https:', 'http:'].includes(u.protocol) ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
+const cleanList = (v) => String(v || '').split(/[\s,]+/).filter(Boolean)
+  .map((o) => { try { return new URL(o.includes('://') ? o : `https://${o}`).origin; } catch { return null; } }).filter(Boolean);
+
+/**
+ * May this site pass a Google answer on to `origin`? Only to the client sites in its console (or listed in
+ * GOOGLE_RELAY_ALLOWED): the answer carries a sign-in code, which must never reach an unknown site.
+ */
+function relayAllowed(origin) {
+  if (!origin || origin === new URL(config.baseUrl).origin) return false;
+  if (cleanList(process.env.GOOGLE_RELAY_ALLOWED).includes(origin)) return true;
+  if (!(config.master || config.masterConsole)) return false;
+  const host = new URL(origin).hostname;
+  // The address the console saved for the client, or its Vercel project's own <project>.vercel.app address.
+  return Boolean(db.prepare(`SELECT 1 FROM master_clients WHERE url = ?
+    OR (vercel_project IS NOT NULL AND ? = vercel_project || '.vercel.app')`).get(origin, host));
+}
+
 /** Keeps a Google profile that has no account yet; the token goes in a cookie for the registration form. */
 function rememberSignup(profile) {
   const token = random();
@@ -146,6 +179,7 @@ function status() {
     clientIdLooksRight: /\.apps\.googleusercontent\.com$/.test(config.google.clientId),
     enabled: enabled(),
     redirectUri: redirectUri(),
+    relay: config.google.relayUrl ? new URL(config.google.relayUrl).origin : null,
     origin: new URL(config.baseUrl).origin,
     lastError,
   };
@@ -157,5 +191,5 @@ const onPublicHost = (req) =>
 
 module.exports = {
   enabled, redirectUri, begin, complete, rememberSignup, pendingSignup, clearSignup, GoogleAuthError,
-  recordError, status, onPublicHost,
+  recordError, status, onPublicHost, relayTarget, relayAllowed,
 };

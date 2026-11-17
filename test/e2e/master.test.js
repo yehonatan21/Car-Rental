@@ -315,6 +315,16 @@ test('the console\'s own admins, and checking the connections', async () => {
   await boss.post(`/master/admins/${partner.id}/remove`, {}, '/master/admins');
   assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get(partner.id).role, 'user');
 
+  // Only what is really missing is named.
+  const savedToken = process.env.TURSO_API_TOKEN;
+  delete process.env.TURSO_API_TOKEN;
+  try {
+    const page = (await boss.get('/master/settings')).text;
+    assert.match(page, /חסר: <code dir="ltr">TURSO_API_TOKEN<\/code>/);
+    assert.doesNotMatch(page, /TURSO_API_TOKEN, TURSO_ORG/);
+  } finally {
+    process.env.TURSO_API_TOKEN = savedToken;
+  }
   r = await boss.post('/master/settings/check', {}, '/master/settings');
   assert.match(r.text, /מחובר · \d+ מסדי נתונים/);
   assert.match(r.text, /מחובר · \d+ פרויקטים/);

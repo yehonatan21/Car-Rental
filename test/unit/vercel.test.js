@@ -257,14 +257,16 @@ test('only the harmless url.parse() deprecation (DEP0169) is silenced', () => {
   assert.match(stderr, /DEP0005.*something else|something else/, 'other warnings still print');
 });
 
-test('which pushes Vercel builds: main and dev of this site, only main of client sites, not docs-only changes', () => {
+test('Vercel deploys production only: main is built, no other branch, and not docs-only changes', () => {
+  const v = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
+  assert.equal(v.git.deploymentEnabled.dev, false, 'dev pushes create no Vercel deployment');
+  assert.notEqual(v.git.deploymentEnabled.main, false);
   const { decide } = require('../../scripts/vercel-ignore-build');
   const build = (env, changed) => decide(env, changed).build;
   assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main' }, ['src/server.js']), true);
-  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'dev' }, ['public/style.css']), true);
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'dev' }, ['src/server.js']), false, 'no dev previews');
   assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'claude/some-work' }, ['src/server.js']), false, 'work and pull-request branches');
-  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'dev', CLIENT_SITE: '1' }, ['src/server.js']), false, 'client sites: no dev previews');
-  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main', CLIENT_SITE: '1' }, ['src/server.js']), true);
+  assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main', CLIENT_SITE: '1' }, ['src/server.js']), true, 'client sites build main too');
   assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main' }, ['README.md', 'docs/master.md', 'test/e2e/x.test.js']), false, 'docs and tests only');
   assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main' }, ['README.md', 'package-lock.json']), true);
   assert.equal(build({ VERCEL_GIT_COMMIT_REF: 'main' }, []), true, 'a redeploy of the same commit (e.g. new variables) is built');

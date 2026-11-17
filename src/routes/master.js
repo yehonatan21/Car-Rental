@@ -748,6 +748,8 @@ ${r.users.map((u) => html`<tr>
     const main = mainAdminEmail();
     const mainUser = main && db.prepare('SELECT * FROM users WHERE email = ?').get(main);
     const state = (ok, text) => html`${ok ? badge('active', 'מוגדר') : badge('blocked', 'חסר')} ${text || ''}`;
+    // Only the variables that are really missing (the page used to name both of a pair when either was).
+    const missing = (...names) => names.filter((n) => !provision.clean(e[n])).join(', ');
     const result = (k) => (checks ? html`<br>${checks[k].ok ? badge('active', 'נבדק') : badge('blocked', 'נכשל')} <small>${checks[k].detail}</small>` : '');
     const smtp = master.sharedMailVars();
     return html`
@@ -758,8 +760,8 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
   <section class="card" id="services">
     <h2 class="section-title">${icon('wrench')} השירותים שבהם נוצרים האתרים</h2>
     <dl class="dl">
-      <dt>Turso (מסדי נתונים)</dt><dd>${state(p.turso, p.turso ? html`ארגון <code dir="ltr">${provision.clean(e.TURSO_ORG)}</code>` : 'TURSO_API_TOKEN, TURSO_ORG')}${result('turso')}</dd>
-      <dt>Vercel (אתרים)</dt><dd>${state(p.vercel, p.vercel ? (provision.clean(e.VERCEL_TEAM_ID) ? html`צוות <code dir="ltr">${provision.clean(e.VERCEL_TEAM_ID)}</code>` : 'חשבון אישי') : 'VERCEL_TOKEN, VERCEL_TEAM_ID')}${result('vercel')}</dd>
+      <dt>Turso (מסדי נתונים)</dt><dd>${state(p.turso, p.turso ? html`ארגון <code dir="ltr">${provision.clean(e.TURSO_ORG)}</code>` : html`חסר: <code dir="ltr">${missing('TURSO_API_TOKEN', 'TURSO_ORG')}</code>`)}${result('turso')}</dd>
+      <dt>Vercel (אתרים)</dt><dd>${state(p.vercel, p.vercel ? (provision.clean(e.VERCEL_TEAM_ID) ? html`צוות <code dir="ltr">${provision.clean(e.VERCEL_TEAM_ID)}</code>` : 'חשבון אישי') : html`חסר: <code dir="ltr">${missing('VERCEL_TOKEN')}</code>`)}${result('vercel')}</dd>
       <dt>מאגר הקוד</dt><dd>${master.clientRepo() ? html`<code dir="ltr">${master.clientRepo()}</code>, ענף <code dir="ltr">${master.clientBranch()}</code>` : state(false, 'CLIENT_REPO')}</dd>
     </dl>
     ${postForm(req, '/master/settings/check', html`<button class="btn btn-light">${icon('check')} בדיקת החיבורים</button>`)}

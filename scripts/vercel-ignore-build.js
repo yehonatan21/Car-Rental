@@ -1,9 +1,9 @@
 'use strict';
 // Vercel "Ignored Build Step" (vercel.json → ignoreCommand): decides whether a push is built. Exit 0 = skip, 1 = build.
-// Every deployment Vercel keeps counts toward the plan's storage (Hobby: 10 GB), and one push to main rebuilds every
-// client's site. So:
-//   - client sites (created by the console: CLIENT_SITE=1) build only main: previews of other branches are never used;
-//   - this repository's own site builds main and dev (dev is the test environment), not work or pull-request branches;
+// Only production is deployed on Vercel: every deployment Vercel keeps counts toward the plan's storage (Hobby: 10 GB),
+// and one push rebuilds every client's site. So:
+//   - only the main branch is built (production); dev, work and pull-request branches are not (vercel.json also turns
+//     off automatic deployments for the usual ones: git.deploymentEnabled);
 //   - a push that changes only documentation or tests is not built.
 // A redeploy (same commit, e.g. after changing a variable) and anything this script cannot tell are always built.
 const { execFileSync } = require('node:child_process');
@@ -16,8 +16,7 @@ const isAppFile = (f) => APP_PATHS.some((p) => f === p || f.startsWith(`${p}/`))
 function decide(env, changedFiles) {
   const branch = env.VERCEL_GIT_COMMIT_REF || '';
   if (!branch) return { build: true, reason: 'not a git push (deployed through the API or CLI)' };
-  if (env.CLIENT_SITE === '1' && branch !== 'main') return { build: false, reason: `a client site builds only main, not ${branch}` };
-  if (env.CLIENT_SITE !== '1' && !['main', 'dev'].includes(branch)) return { build: false, reason: `only main and dev are built, not ${branch}` };
+  if (branch !== 'main') return { build: false, reason: `only main (production) is deployed, not ${branch}` };
   if (changedFiles && changedFiles.length && !changedFiles.some(isAppFile)) {
     return { build: false, reason: `only documentation or tests changed (${changedFiles.slice(0, 3).join(', ')}${changedFiles.length > 3 ? '…' : ''})` };
   }

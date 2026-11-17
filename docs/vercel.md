@@ -80,19 +80,19 @@ plain HTML (no React/Next.js), so it uses the HTML script rather than the `<Anal
 
 Analytics is cookieless; the privacy page mentions it. Set `VERCEL_ANALYTICS=false` to remove the script.
 
-## Branches: production (`main`) and dev (`dev`)
-Vercel deploys `main` to **Production** and every other branch (such as `dev`) as a **Preview**. In
-**Settings → Environment Variables** each variable has checkboxes for Production, Preview and Development, so the two
-sites can get different values.
+## Branches: Vercel deploys production (`main`) only
+Only `main` is deployed on Vercel, to **Production**. `dev` and every other branch are tested by CI (GitHub Actions) but
+not deployed. Every deployment Vercel keeps counts toward the plan's storage (Hobby: 10 GB), and with several clients a
+single push rebuilds every client's site. Two settings in this repository do this:
 
-- **Use a separate database for Preview.** If both sites share one Turso database, testing on dev changes real users
-  and bookings, and dev sends real e-mails to them. Create a second Turso database (for example `car-rental-dev`) and
-  set its `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` for Preview only.
-- **Addresses:** production uses the project's production domain; a preview uses its branch address, for example
-  `https://car-rental-git-dev-<team>.vercel.app` (shown in the deployment's **Domains**), so e-mail links and Google
-  sign-in on dev stay on dev. `BASE_URL` overrides either one.
-- Preview URLs may require logging in to Vercel (**Settings → Deployment Protection**).
-- Vercel Cron runs on production only; on dev the jobs run while the site is being used.
+- `vercel.json` → `git.deploymentEnabled` turns off automatic deployments for `dev`, `dependabot/**`, `claude/**`,
+  `fix/**` and `feature/**`;
+- `vercel.json` → `ignoreCommand` runs `scripts/vercel-ignore-build.js`, which skips the build of any other branch, and
+  of a push to `main` that changes only documentation or tests. A redeploy is always built.
+
+To try a change before production, run it locally (`npm run dev`), or use the Docker development image that CI publishes
+for `dev` (`ghcr.io/<owner>/car-rental:dev`, see docs/dev-environment.md). To get Vercel previews back, remove those two
+settings.
 
 ## Limits on Vercel
 - **Uploads:** Vercel refuses requests over 4.5 MB, so license uploads are limited to 4 MB there. Large photos are

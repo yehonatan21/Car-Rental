@@ -2,6 +2,15 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "ignoreCommand": "node scripts/vercel-ignore-build.js",
+  "git": {
+    "deploymentEnabled": {
+      "dev": false,
+      "dependabot/**": false,
+      "claude/**": false,
+      "fix/**": false,
+      "feature/**": false
+    }
+  },
   "outputDirectory": "public",
   "functions": {
     "api/index.js": {

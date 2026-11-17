@@ -3,3 +3,5 @@ data/
 .env
 coverage/
 lcov.info
+# Client instances: generated settings with secrets (scripts/new-client.js)
+clients/*.env

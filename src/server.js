@@ -182,6 +182,7 @@ const upload = multer({
 });
 const licenseUpload = [upload.single('license'), verifyCsrf];
 const documentUpload = [upload.single('document'), verifyCsrf];
+const logoUpload = [upload.single('logo'), verifyCsrf];
 
 const requireLogin = (req, res, next) => {
   if (req.user) return next();
@@ -200,7 +201,7 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-const ctx = { app, requireLogin, requireAdmin, licenseUpload, documentUpload };
+const ctx = { app, requireLogin, requireAdmin, licenseUpload, documentUpload, logoUpload };
 require('./routes/public')(ctx);
 require('./routes/user')(ctx);
 require('./routes/admin')(ctx);

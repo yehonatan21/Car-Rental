@@ -7,6 +7,7 @@ const time = require('../time');
 const config = require('../config');
 const { html, raw, markdown, postForm, field, icon, pageHead, licenseInput, uploadLimitLabel } = require('../views/html');
 const google = require('../google');
+const { brand } = require('../brand');
 const storage = require('../storage');
 
 const GOOGLE_STATE_COOKIE = 'gstate';
@@ -23,6 +24,15 @@ function validIsraeliId(id) {
     sum += n;
   }
   return sum % 10 === 0;
+}
+
+/** The client's contact details (Settings → Organization), or the sender address when none were set. */
+function contactLine() {
+  const b = brand();
+  const parts = [b.contactPhone && html`<a href="tel:${b.contactPhone.replace(/[^\d+]/g, '')}" dir="ltr">${b.contactPhone}</a>`,
+    b.contactEmail && html`<a href="mailto:${b.contactEmail}" dir="ltr">${b.contactEmail}</a>`].filter(Boolean);
+  if (parts.length) return html`${parts[0]}${parts[1] ? html` · ${parts[1]}` : ''}`;
+  return config.smtp ? html`<a href="mailto:${config.mailFrom}" dir="ltr">${config.mailFrom}</a>` : '';
 }
 
 const normalizePhone = (p) => String(p || '').replace(/[\s-]/g, '');
@@ -214,7 +224,7 @@ module.exports = ({ app, licenseUpload }) => {
 <section class="hero">
   <span class="hero-badge">${icon('car', 34)}</span>
   <h1>הזמנת הרכב המשותף</h1>
-  <p>בודקים מתי הרכב פנוי, שולחים בקשה ומקבלים אישור מהמנהל – הכל במקום אחד.</p>
+  <p>${brand().welcomeText}</p>
   <div class="actions"><a class="btn btn-primary" href="/login">${icon('login')} התחברות</a> <a class="btn btn-light" href="/register">${icon('userplus')} הרשמה</a></div>
 </section>
 <h2 class="steps-title">איך זה עובד?</h2>
@@ -224,7 +234,7 @@ module.exports = ({ app, licenseUpload }) => {
   <div class="card"><b>הזמנה</b><p>בוחרים מועד פנוי ביומן ושולחים בקשה.</p></div>
   <div class="card"><b>אישור סופי</b><p>לאחר אישור המנהל נשלח מייל עם כל הפרטים.</p></div>
 </section>
-<p class="site-footer"><a href="/policy">נהלי השאלת הרכב</a> · <a href="/privacy">מדיניות פרטיות</a></p>`);
+<p class="site-footer"><a href="/policy">נהלי השאלת הרכב</a> · <a href="/privacy">מדיניות פרטיות</a>${contactLine() ? html`<br>ליצירת קשר: ${contactLine()}` : ''}</p>`);
   });
 
   app.get('/login', (req, res) => {
@@ -482,6 +492,16 @@ module.exports = ({ app, licenseUpload }) => {
     res.redirect('/login');
   });
 
+  // The client's logo (Settings → Organization). Public: it is shown on the login page too. The address carries the
+  // file name (?v=…), so a new logo is a new address and the old one can be cached for long.
+  app.get('/brand/logo', (req, res) => {
+    const file = brand().logoFile;
+    const data = file && storage.read(file);
+    if (!data) return res.status(404).type('text/plain').send('Not found');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.type(require('node:path').extname(file)).send(data);
+  });
+
   app.get('/policy', (req, res) => {
     const policy = currentPolicy();
     res.page('נהלי השאלת הרכב', html`
@@ -506,7 +526,7 @@ ${req.user ? raw(`<p><a href="/policy/accept">לאישור הנהלים</a></p>`
   ${config.vercelAnalytics ? html`<h2>סטטיסטיקת שימוש</h2>
   <p>לספירת צפיות בדפים אנחנו משתמשים ב־Vercel Web Analytics. הכלי אינו משתמש בעוגיות ואינו שומר מידע מזהה אישי.</p>` : ''}
   <h2>יצירת קשר</h2>
-  <p>בכל שאלה ניתן לפנות למנהל המערכת: ${config.mailFrom}</p>
+  <p>בכל שאלה ניתן לפנות למנהל המערכת${contactLine() ? html`: ${contactLine()}` : '.'}</p>
 </article>`);
   });
 };

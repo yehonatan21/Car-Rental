@@ -2,6 +2,7 @@
 // Tagged-template HTML with automatic escaping. Interpolated values are escaped unless wrapped in raw(),
 // arrays are joined, and null/undefined/false render as nothing.
 const config = require('../config');
+const { brand, paletteCss } = require('../brand');
 
 class Raw { constructor(s) { this.s = s; } toString() { return this.s; } }
 const raw = (s) => new Raw(String(s));
@@ -106,23 +107,26 @@ function layout(req, title, body) {
   const link = ([href, label, ic]) => html`<a href="${href}" ${isCurrent(req, href) ? raw('aria-current="page"') : ''}>${icon(ic)}<span>${label}</span></a>`;
   const logout = user ? html`<form method="post" action="/logout">${csrfField(req)}<button class="linklike">${icon('logout')}<span>יציאה</span></button></form>` : '';
   const tabs = links.slice(0, 4);
+  const b = brand();
   const rest = links.slice(4);
   return html`<!doctype html>
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b7a63">
-<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-<title>${title} · ${config.appName}</title>
+<meta name="theme-color" content="${b.color}">
+${b.logoFile ? html`<link rel="icon" href="/brand/logo?v=${b.logoFile}">` : html`<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">`}
+<link rel="apple-touch-icon" href="${b.logoFile ? `/brand/logo?v=${b.logoFile}` : '/static/apple-touch-icon.png'}">
+<title>${title} · ${b.name}</title>
 <link rel="preload" href="/static/fonts/rubik-hebrew-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/style.css">
+${b.customColor ? html`<style>${raw(paletteCss(b.color))}</style>` : ''}
 </head>
 <body class="${user ? 'signed-in' : 'signed-out'}">
 <a class="skip" href="#main">דילוג לתוכן</a>
 <header class="topbar">
-  <a class="brand" href="/"><span class="brand-mark">${icon('car', 22)}</span><span>${config.appName}</span></a>
+  <a class="brand" href="/">${b.logoFile ? html`<img class="brand-logo" src="/brand/logo?v=${b.logoFile}" alt="">`
+    : html`<span class="brand-mark">${icon('car', 22)}</span>`}<span>${b.name}</span></a>
   <nav class="nav-desktop" aria-label="ניווט ראשי">
     ${links.map(link)}
   </nav>

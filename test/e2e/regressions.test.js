@@ -125,13 +125,21 @@ test('an old or mistyped link lands on the main page, signed in or not', async (
 
 test('first start of several instances at once on a new hosted database', { skip: !process.env.SQLD_BIN && 'needs SQLD_BIN' }, async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'reg-race-'));
-  const port = 30000 + (process.pid % 20000);
+  // A port the system says is free right now (a fixed formula could hit another test file's server).
+  const port = await new Promise((resolve) => {
+    const probe = require('node:net').createServer().listen(0, '127.0.0.1', () => { const p = probe.address().port; probe.close(() => resolve(p)); });
+  });
   const sqld = spawn(process.env.SQLD_BIN, ['--http-listen-addr', `127.0.0.1:${port}`, '--db-path', path.join(tmp, 'db')], { stdio: 'ignore' });
+  let exited = false;
+  sqld.on('exit', () => { exited = true; });
   try {
     const url = `http://127.0.0.1:${port}`;
     const Database = require('libsql');
     for (let i = 0; ; i++) {
-      try { new Database(url, {}).prepare('SELECT 1').get([]); break; } catch { assert.ok(i < 300, 'sqld did not start'); await new Promise((r) => setTimeout(r, 100)); }
+      try { new Database(url, {}).prepare('SELECT 1').get([]); break; } catch {
+        assert.ok(i < 300 && !exited, 'sqld did not start');
+        await new Promise((r) => setTimeout(r, 100));
+      }
     }
     const env = (i) => ({ PATH: process.env.PATH, TZ: 'Asia/Jerusalem', DATA_DIR: path.join(tmp, `d${i}`), TURSO_DATABASE_URL: url,
       ADMIN_EMAIL: 'boss@race.test', ADMIN_PASSWORD: 'RaceAdmin1' });

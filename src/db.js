@@ -191,6 +191,13 @@ CREATE TABLE IF NOT EXISTS vehicle_documents (
   uploaded_at TEXT NOT NULL
 );
 
+-- The client's name, look and contact details as set by its admin (brand.js); missing keys fall back to the
+-- instance's environment variables.
+CREATE TABLE IF NOT EXISTS branding (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 -- Facts about the database itself: a random id and creation time written once, when it is first set up. If the id
 -- shown on the settings page changes after a new deployment, that deployment uses a different (or new) database.
 CREATE TABLE IF NOT EXISTS app_meta (

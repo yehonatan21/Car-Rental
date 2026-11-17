@@ -10,6 +10,7 @@
     "seed": "node --no-warnings --env-file-if-exists=.env scripts/seed.js",
     "tunnel": "node --no-warnings --env-file-if-exists=.env scripts/tunnel.js",
     "create-admin": "node --no-warnings --env-file-if-exists=.env scripts/create-admin.js",
+    "new-client": "node --no-warnings scripts/new-client.js",
     "lint": "eslint .",
     "test": "node --no-warnings --test --test-concurrency=4 \"test/**/*.test.js\"",
     "test:unit": "node --no-warnings --test \"test/unit/*.test.js\"",

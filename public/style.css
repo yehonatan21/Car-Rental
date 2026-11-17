@@ -487,3 +487,9 @@ ul.docs .doc-main br { flex-basis: 100%; content: ''; }
 ul.docs .doc-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
 #documents form.doc-upload { border-top: 1px solid var(--border); margin-top: 1rem; padding-top: 1rem; }
 #documents h3 { margin-top: 0; }
+
+/* Client logo (Settings → Organization) */
+.brand-logo { width: 36px; height: 36px; border-radius: 10px; object-fit: contain; background: var(--surface); border: 1px solid var(--border); }
+#branding input[type=color] { height: 46px; padding: 4px; cursor: pointer; }
+/* The home-page steps are numbered by a CSS counter; card containers (container queries) would reset it per card. */
+.steps .card { container-type: normal; }

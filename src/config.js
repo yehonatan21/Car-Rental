@@ -100,8 +100,9 @@ function mailFrom() {
   return process.env.SMTP_HOST && user.includes('@') ? user : 'car-booking@localhost';
 }
 const appName = clean(process.env.APP_NAME) || 'הזמנת רכב';
-// The sender name inboxes show instead of the bare address: MAIL_FROM_NAME, else the name in MAIL_FROM, else APP_NAME.
-const mailFromName = clean(process.env.MAIL_FROM_NAME) || clean(mailFromParts?.[1] ?? '') || appName;
+// The sender name inboxes show instead of the bare address: MAIL_FROM_NAME, else the name in MAIL_FROM. Empty: the
+// client's name is used (brand.js), so mail never shows just the address.
+const mailFromName = clean(process.env.MAIL_FROM_NAME) || clean(mailFromParts?.[1] ?? '');
 
 module.exports = {
   port,

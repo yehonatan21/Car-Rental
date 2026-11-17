@@ -11,6 +11,7 @@ const storage = require('../storage');
 const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 const documents = require('./documents');
+const { brand, saveBrand, validColor, DEFAULT_COLOR } = require('../brand');
 
 const SETTING_LABELS = {
   buffer_minutes: ['זמן התארגנות בין הזמנות (דקות)', 'מרווח חובה בין החזרת הרכב להזמנה הבאה'],
@@ -94,6 +95,32 @@ function permissionsCard(req, u, isSelf) {
     ? 'גישה מלאה לממשק הניהול: אישור משתמשים והזמנות, צפייה ברישיונות נהיגה, ניהול הרכב, הנהלים וההגדרות. מקבל את התראות המנהל במייל.'
     : 'יכול להזמין את הרכב ולנהל את ההזמנות והפרטים שלו בלבד.'}</p>
   ${action}
+</section>`;
+}
+
+/** Settings page: this client's own name, colour, logo and contact details (every client runs its own instance). */
+function brandingCard(req) {
+  const b = brand();
+  const s = b.stored;
+  return html`<section class="card" id="branding">
+  <h2 class="section-title">${icon('users')} הארגון ומיתוג</h2>
+  <p class="muted small">השם, הצבע, הלוגו ופרטי הקשר של הארגון שלכם. מופיעים באתר ובמיילים. שדה ריק חוזר לברירת המחדל של ההתקנה.</p>
+  ${postForm(req, '/admin/settings/branding', html`
+    <div class="grid2">
+      ${field('שם הארגון', html`<input name="org_name" value="${s.org_name || ''}" maxlength="60" placeholder="${config.appName}">`, 'בראש כל עמוד ובמיילים')}
+      ${field('שם השולח במיילים', html`<input name="mail_from_name" value="${s.mail_from_name || ''}" maxlength="60" placeholder="${config.mailFromName || b.name}">`, 'מה שמופיע בתיבת הדואר במקום הכתובת')}
+      ${field('טלפון ליצירת קשר', html`<input type="tel" name="contact_phone" value="${s.contact_phone || ''}" maxlength="30">`)}
+      ${field('מייל ליצירת קשר', html`<input type="email" name="contact_email" value="${s.contact_email || ''}" maxlength="120">`)}
+    </div>
+    ${field('טקסט פתיחה בדף הבית', html`<textarea name="welcome_text" rows="2" maxlength="300" placeholder="${b.welcomeText}">${s.welcome_text || ''}</textarea>`)}
+    <div class="grid2">
+      ${field('צבע ראשי', html`<input type="color" name="brand_color" value="${b.color}">`, 'כפתורים, קישורים והדגשות. צבע בהיר מדי מוכהה אוטומטית כדי שהטקסט יישאר קריא.')}
+      ${field('לוגו (אופציונלי)', html`<input type="file" name="logo" accept="image/png,image/jpeg,image/webp" data-max-bytes="${config.uploadMaxBytes}">`,
+        'תמונה מרובעת נראית הכי טוב. מוצג בראש העמוד ובלשונית הדפדפן.')}
+    </div>
+    ${b.logoFile ? html`<p class="kv-inline"><img class="brand-logo" src="/brand/logo?v=${b.logoFile}" alt="הלוגו הנוכחי">
+      <label class="check"><input type="checkbox" name="remove_logo" value="1"> <span>הסרת הלוגו</span></label></p>` : ''}
+    <button class="btn btn-primary">שמירה</button>`, 'enctype="multipart/form-data"')}
 </section>`;
 }
 
@@ -229,7 +256,7 @@ function userOptions(selected) {
   return users.map((u) => html`<option value="${u.id}" ${u.id === Number(selected) ? 'selected' : ''}>${fullName(u)} (${u.email})</option>`);
 }
 
-module.exports = ({ app, requireAdmin, licenseUpload }) => {
+module.exports = ({ app, requireAdmin, licenseUpload, logoUpload }) => {
   // ---------- Dashboard ----------
   app.get('/admin', requireAdmin, (req, res) => {
     const s = getSettings();
@@ -846,11 +873,45 @@ ${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: `גרסה 
     <h2 class="section-title">${icon('calendar')} כללי הזמנה ותזכורות</h2>
     ${Object.entries(SETTING_LABELS).map(([k, [label, hint]]) => field(label, html`<input type="number" name="${k}" value="${s[k]}" min="0" step="1" required>`, hint))}
     <button class="btn btn-primary btn-block">שמירה</button>`, 'class="card"')}
+  ${brandingCard(req)}
   ${systemCard()}
   ${emailStatusCard(req)}
   ${googleStatusCard(req)}
   <p><a class="back" href="/admin/audit">${icon('clock', 16)} יומן פעולות מנהלים</a></p>
 </div>`);
+  });
+
+  app.post('/admin/settings/branding', requireAdmin, logoUpload, (req, res) => {
+    const b = req.body;
+    const color = String(b.brand_color || '').toLowerCase();
+    const values = {
+      org_name: b.org_name, mail_from_name: b.mail_from_name, contact_phone: b.contact_phone, welcome_text: b.welcome_text,
+      contact_email: b.contact_email,
+      // The default colour is stored as "no override", so the instance's BRAND_COLOR (if any) applies again.
+      brand_color: validColor(color) && color !== DEFAULT_COLOR ? color : '',
+    };
+    if (values.contact_email && !validEmail(String(values.contact_email).trim())) {
+      storage.discard(req.file);
+      res.flash('error', 'כתובת המייל ליצירת קשר אינה תקינה');
+      return res.redirect('/admin/settings#branding');
+    }
+    const old = brand().logoFile;
+    if (req.file) {
+      if (!['image/png', 'image/jpeg', 'image/webp'].includes(req.file.mimetype)) {
+        storage.discard(req.file);
+        res.flash('error', 'הלוגו צריך להיות תמונה (PNG, JPG או WebP)');
+        return res.redirect('/admin/settings#branding');
+      }
+      storage.keep(req.file);
+      values.logo_file = req.file.filename;
+    } else if (b.remove_logo === '1') {
+      values.logo_file = '';
+    }
+    saveBrand(values);
+    if ('logo_file' in values && old) storage.remove(old);
+    audit(req.user.id, 'settings.branding', null, null, Object.keys(values).filter((k) => values[k]).join(', '));
+    res.flash('success', 'פרטי הארגון נשמרו');
+    res.redirect('/admin/settings#branding');
   });
 
   app.post('/admin/settings/test-email', requireAdmin, async (req, res) => {

@@ -6,6 +6,7 @@ const path = require('node:path');
 const nodemailer = require('nodemailer');
 const config = require('./config');
 const { db, audit } = require('./db');
+const { brand } = require('./brand');
 const time = require('./time');
 
 // Built from the current config (re-created if it changes, e.g. in tests).
@@ -23,13 +24,16 @@ function getTransport() {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function wrap(title, paragraphs, link) {
+  const b = brand();
+  const color = esc(b.color);
   const body = paragraphs.map((p) => `<p style="margin:0 0 12px">${p}</p>`).join('');
   const button = link
-    ? `<p><a href="${esc(config.baseUrl + link.href)}" style="display:inline-block;background:#1f5f8b;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">${esc(link.label)}</a></p>`
+    ? `<p><a href="${esc(config.baseUrl + link.href)}" style="display:inline-block;background:${color};color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">${esc(link.label)}</a></p>`
     : '';
+  const contact = [b.contactPhone, b.contactEmail].filter(Boolean).map(esc).join(' · ');
   return `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#222;max-width:560px">
-<h2 style="color:#1f5f8b">${esc(title)}</h2>${body}${button}
-<p style="color:#888;font-size:12px;margin-top:24px">${esc(config.appName)} – הודעה אוטומטית</p></div>`;
+<h2 style="color:${color}">${esc(title)}</h2>${body}${button}
+<p style="color:#888;font-size:12px;margin-top:24px">${esc(b.name)} – הודעה אוטומטית${contact ? ` · ליצירת קשר: ${contact}` : ''}</p></div>`;
 }
 
 // Delivery status for the admin settings page. Kept in memory per process; failures are also written to the
@@ -44,7 +48,7 @@ async function send(to, subject, paragraphs, link, { attachments } = {}) {
   const html = wrap(subject, paragraphs, link);
   const text = paragraphs.map((p) => p.replace(/<[^>]+>/g, '')).join('\n\n') + (link ? `\n\n${config.baseUrl}${link.href}` : '');
   try {
-    const from = { name: config.mailFromName, address: config.mailFrom }; // inboxes show the name, not the bare address
+    const from = { name: brand().mailFromName, address: config.mailFrom }; // inboxes show the name, not the bare address
     const info = await getTransport().sendMail({ from, to: recipients.join(', '), subject, html, text, attachments });
     if (!config.smtp) {
       fs.mkdirSync(config.outboxDir, { recursive: true });
@@ -100,7 +104,7 @@ function status() {
   return {
     configured: Boolean(config.smtp),
     host: config.smtp?.host, port: config.smtp?.port, secure: config.smtp?.secure, user: config.smtp?.auth?.user,
-    from: config.mailFrom, fromName: config.mailFromName, ...state, lastError: lastFailure(),
+    from: config.mailFrom, fromName: brand().mailFromName, ...state, lastError: lastFailure(),
   };
 }
 
@@ -142,7 +146,7 @@ function bookingIcs(b) {
   const host = new URL(config.baseUrl).hostname;
   const car = [b.make, b.model].filter(Boolean).join(' ');
   const lines = [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//${icsText(config.appName)}//car-rental//HE`, 'METHOD:PUBLISH', 'CALSCALE:GREGORIAN',
+    'BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//${icsText(brand().name)}//car-rental//HE`, 'METHOD:PUBLISH', 'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
     `UID:booking-${b.id}@${host}`,
     `DTSTAMP:${icsUtc(time.now())}`,
@@ -198,7 +202,7 @@ module.exports = {
     const href = `/password/reset?token=${encodeURIComponent(token)}`;
     if (!config.smtp && !config.production) console.log(`\n  >>> Invitation link for ${u.email}: ${config.baseUrl}${href}  (valid 7 days)\n`);
     return send(u.email, 'נפתח עבורך חשבון במערכת הזמנת הרכב', [
-      `שלום ${esc(u.first_name)},`, `${esc(invitedBy)} פתח/ה עבורך חשבון במערכת הזמנת הרכב (${esc(config.appName)}).`,
+      `שלום ${esc(u.first_name)},`, `${esc(invitedBy)} פתח/ה עבורך חשבון במערכת הזמנת הרכב של ${esc(brand().name)}.`,
       'כדי להתחבר, בחרו סיסמה בקישור הבא. הקישור תקף ל־7 ימים ולשימוש אחד.',
       `שם המשתמש שלך הוא כתובת הדואר האלקטרוני הזו: <b dir="ltr">${esc(u.email)}</b>.`,
     ], { href, label: 'בחירת סיסמה' });

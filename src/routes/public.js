@@ -418,9 +418,10 @@ module.exports = ({ app, licenseUpload }) => {
     if (!v.accept_policy) errors.push('יש לאשר את נהלי השאלת הרכב');
     if (!v.accept_privacy) errors.push('יש לאשר את מדיניות הפרטיות');
     if (Number(b.policy_version) !== currentPolicy().version) errors.push('הנהלים עודכנו בזמן ההרשמה. יש לקרוא ולאשר אותם מחדש');
-    if (db.prepare('SELECT 1 FROM users WHERE email = ? OR id_number = ?').get(v.email, v.id_number)) {
-      errors.push('קיים כבר משתמש עם כתובת דואר אלקטרוני או תעודת זהות זו');
-    }
+    // Two separate messages: "this e-mail already has an account" (sign in instead) is a different problem from
+    // "this ID number belongs to another account".
+    if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(v.email)) errors.push('כבר קיים חשבון עם כתובת הדואר האלקטרוני הזו. אפשר להתחבר אליו במקום להירשם.');
+    else if (db.prepare('SELECT 1 FROM users WHERE id_number = ?').get(v.id_number)) errors.push('מספר תעודת הזהות הזה כבר רשום בחשבון אחר. בדקו את המספר, או פנו למנהל האתר.');
     if (errors.length) {
       const token = saveDraft(draft?.token, { licenseFile, licenseName, passwordHash });
       return res.status(400).page('הרשמה', registerPage(req, {

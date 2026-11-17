@@ -472,7 +472,7 @@ test('added without a license date: the person is asked to upload a license firs
 test('add user: validation errors keep the form, nothing is created', async () => {
   let r = await admin.post('/admin/users/new', newUserForm({ email: 'ron@manual.test' }), '/admin/users/new');
   assert.equal(r.status, 400);
-  assert.match(r.text, /קיים כבר משתמש/);
+  assert.match(r.text, /כבר קיים חשבון עם כתובת הדואר האלקטרוני הזו|מספר תעודת הזהות הזה כבר רשום/);
   assert.match(r.text, /value="רון"/, 'values kept');
   r = await admin.post('/admin/users/new', newUserForm({ email: 'bad-id@manual.test', id_number: '123456789' }), '/admin/users/new');
   assert.match(r.text, /תעודת הזהות אינו תקין/);

@@ -43,7 +43,7 @@ test('registration rejects invalid data and duplicates', async () => {
   const c = client();
   let r = await c.post('/register', registrationForm({ email: 'alice@test.org', id_number: '123456782' }));
   assert.equal(r.status, 400);
-  assert.match(r.text, /קיים כבר משתמש/);
+  assert.match(r.text, /כבר קיים חשבון עם כתובת הדואר האלקטרוני הזו/);
   r = await c.post('/register', registrationForm({ id_number: '123456789' }));
   assert.match(r.text, /תעודת הזהות אינו תקין/);
   r = await c.post('/register', registrationForm({ phone: '03-1234567' }));

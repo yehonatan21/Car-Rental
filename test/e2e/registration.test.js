@@ -1,6 +1,6 @@
 'use strict';
 // A failed registration keeps the uploaded license and the password, so they needn't be entered again.
-const { db, startServer, Client, registrationForm, storedFile, PNG } = require('../helpers');
+const { db, createUser, startServer, Client, registrationForm, storedFile, PNG } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -79,4 +79,14 @@ test('a forged or expired draft token gives nothing', async () => {
   const late = await c.post('/register', registrationForm({ email: 'old@test.org', license: null, draft: draftToken(first.text) }));
   assert.equal(late.status, 400);
   assert.match(late.text, /יש להעלות צילום רישיון/);
+});
+
+test('a clash says which field: the e-mail (sign in instead) or the ID number (another account)', async () => {
+  const taken = createUser({ email: 'taken@reg.test' });
+  let r = await client().post('/register', registrationForm({ email: 'taken@reg.test' }));
+  assert.match(r.text, /כבר קיים חשבון עם כתובת הדואר האלקטרוני הזו/);
+  assert.doesNotMatch(r.text, /מספר תעודת הזהות הזה כבר רשום/);
+  r = await client().post('/register', registrationForm({ email: 'fresh@reg.test', id_number: taken.id_number }));
+  assert.match(r.text, /מספר תעודת הזהות הזה כבר רשום בחשבון אחר/);
+  assert.doesNotMatch(r.text, /כבר קיים חשבון עם כתובת/);
 });

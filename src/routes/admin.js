@@ -416,9 +416,10 @@ ${users.length ? '' : html`<p class="empty">${icon('users', 28)}<span>לא נמ�
     if (!validEmail(v.email)) errors.push('כתובת הדואר האלקטרוני אינה תקינה');
     if (v.license_expiry && (!time.isValidDate(v.license_expiry) || v.license_expiry < time.today())) errors.push('תאריך תוקף הרישיון חייב להיות עתידי');
     if (req.file && !v.license_expiry) errors.push('עם צילום רישיון יש למלא גם את תאריך התוקף שלו');
-    if (db.prepare('SELECT 1 FROM users WHERE email = ? OR id_number = ?').get(v.email, v.id_number)) {
-      errors.push('קיים כבר משתמש עם כתובת דואר אלקטרוני או תעודת זהות זו');
-    }
+    // Two separate messages: "this e-mail already has an account" (sign in instead) is a different problem from
+    // "this ID number belongs to another account".
+    if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(v.email)) errors.push('כבר קיים חשבון עם כתובת הדואר האלקטרוני הזו');
+    else if (db.prepare('SELECT 1 FROM users WHERE id_number = ?').get(v.id_number)) errors.push('מספר תעודת הזהות הזה כבר רשום בחשבון אחר. בדקו את המספר, או פנו למנהל האתר.');
     if (errors.length) {
       storage.discard(req.file);
       return res.status(400).page('הוספת משתמש', newUserPage(req, { errors, v }));

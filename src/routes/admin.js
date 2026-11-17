@@ -8,7 +8,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
 const storage = require('../storage');
-const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 const documents = require('./documents');
 const { brand, saveBrand, validColor, DEFAULT_COLOR } = require('../brand');
@@ -479,7 +479,10 @@ ${pageHead(html`${fullName(u)} ${u.role === 'admin' ? badge('admin', 'מנהל')
     ${postForm(req, `/admin/users/${u.id}/note`, html`
       ${field('הערת מנהל (פנימית)', html`<textarea name="admin_note" rows="2">${u.admin_note}</textarea>`)}
       <button class="btn btn-light btn-sm">שמירת הערה</button>`)}
-    ${actionButton(req, `/admin/users/${u.id}/send-reset`, 'שליחת קישור לאיפוס סיסמה', { cls: 'btn-light btn-sm', confirm: `לשלוח אל ${u.email} קישור לאיפוס הסיסמה?` })}
+    <div class="kv-inline">
+      ${actionButton(req, `/admin/users/${u.id}/send-reset`, 'שליחת קישור לאיפוס סיסמה', { cls: 'btn-light btn-sm', confirm: `לשלוח אל ${u.email} קישור לאיפוס הסיסמה?` })}
+      ${isSelf ? '' : html`<a class="btn btn-light btn-sm" href="/admin/users/${u.id}/password">${icon('lock', 16)} הגדרת סיסמה חדשה</a>`}
+    </div>
   </section>
 
   <section class="card">
@@ -631,6 +634,41 @@ ${permissionsCard(req, u, isSelf)}
     const link = `${config.baseUrl}/password/reset?token=${encodeURIComponent(token)}`;
     return { type: 'warning', text: `${config.smtp ? 'שליחת המייל נכשלה' : 'לא הוגדר שרת דואר, ולכן לא נשלח מייל'}. `
       + `אפשר להעביר למשתמש את קישור האיפוס הזה (חד־פעמי, תקף לשעה): ${link}` };
+  });
+
+  // A new password chosen by a manager (e.g. for someone who cannot receive e-mail). Not for your own account: that is
+  // changed in the personal area, with the current password.
+  const passwordFor = (req, res, u, error) => res.status(error ? 400 : 200).page('סיסמה חדשה', newPasswordPage(req, {
+    action: `/admin/users/${u.id}/password`, user: { firstName: u.first_name, lastName: u.last_name, email: u.email },
+    back: `/admin/users/${u.id}`, mailOn: Boolean(config.smtp), error,
+  }));
+  const notSelf = (req, res, u) => {
+    if (u.id !== req.user.id) return true;
+    res.flash('warning', 'את הסיסמה שלך משנים באזור האישי ← אבטחה, עם הסיסמה הנוכחית.');
+    res.redirect(req.method === 'GET' ? 302 : 303, '/me/security');
+    return false;
+  };
+
+  app.get('/admin/users/:id/password', requireAdmin, (req, res) => {
+    const u = getUser(req.params.id);
+    if (!u) return res.redirect('/admin/users');
+    if (notSelf(req, res, u)) passwordFor(req, res, u);
+  });
+
+  app.post('/admin/users/:id/password', requireAdmin, async (req, res) => {
+    const u = getUser(req.params.id);
+    if (!u) return res.redirect(303, '/admin/users');
+    if (!notSelf(req, res, u)) return;
+    const password = String(req.body.password || '');
+    if (password.length < 8 || password.length > 200) return passwordFor(req, res, u, 'הסיסמה צריכה להכיל לפחות 8 תווים');
+    db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(auth.hashPassword(password), time.stamp(), u.id);
+    db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(u.id);
+    auth.destroyAllSessions(u.id);
+    audit(req.user.id, 'user.password_set', 'user', u.id, u.email);
+    const emailed = req.body.notify === '1' && Boolean(await mail.passwordSetByAdmin(u)) && Boolean(config.smtp);
+    res.flash('success', `נקבעה סיסמה חדשה ל־${fullName(u)}. כל החיבורים שלו/ה נותקו${emailed ? ', ונשלח מייל שהסיסמה הוחלפה' : ''}. `
+      + 'העבירו לו/ה את הסיסמה החדשה.');
+    res.redirect(303, `/admin/users/${u.id}`);
   });
 
   userAction('note', async (u, req) => {

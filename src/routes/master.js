@@ -12,7 +12,7 @@ const storage = require('../storage');
 const provision = require('../provision');
 const master = require('../master');
 const { DEFAULT_COLOR } = require('../brand');
-const { html, raw, postForm, field, badge, icon, pageHead, pageTabs, activeTab } = require('../views/html');
+const { html, raw, postForm, field, badge, icon, pageHead, pageTabs, activeTab, newPasswordPage: passwordPage } = require('../views/html');
 const { validEmail } = require('./public');
 const { emailStatusCard, googleStatusCard } = require('./admin');
 const { mainAdminEmail } = require('../bootstrap');
@@ -28,26 +28,6 @@ const VERCEL_TOKENS_URL = 'https://vercel.com/account/tokens';
  */
 const isMainAdmin = (u) => { const main = mainAdminEmail(); return Boolean(u) && (!main || u.email === main); };
 const ROLE_LABEL = (u) => (u.role === 'admin' ? badge('admin', 'מנהל/ת') : badge('completed', 'משתמש/ת'));
-
-/** The "new password" form, the same for a client site's user and for a console admin. */
-function passwordPage(req, { action, user, where, back, mailOn, error }) {
-  return html`
-<div class="narrow">
-  <p><a class="back" href="${back}">${icon('arrow', 16)} חזרה</a></p>
-  ${pageHead('סיסמה חדשה', { iconName: 'lock', sub: html`עבור <b>${user.firstName} ${user.lastName}</b> (<span dir="ltr">${user.email}</span>)${where ? html` ${where}` : ''}` })}
-  ${error ? html`<div class="flash flash-error" role="alert">${error}</div>` : ''}
-  ${postForm(req, action, html`
-    ${field('הסיסמה החדשה', html`<span class="password-row"><input type="text" name="password" minlength="8" maxlength="200" required dir="ltr"
-      autocomplete="off" spellcheck="false" autocapitalize="off" data-password-target>
-      <button type="button" class="btn btn-light btn-sm" data-generate-password>הצעת סיסמה</button></span>`,
-    'לפחות 8 תווים. הסיסמה מוצגת כדי שתוכלו להעביר אותה.')}
-    <label class="check"><input type="checkbox" name="notify" value="1" ${mailOn ? 'checked' : raw('disabled')}>
-      <span>שליחת מייל שהסיסמה הוחלפה (הסיסמה עצמה לא נשלחת)${mailOn ? '' : ' – אין שליחת מיילים באתר הזה'}</span></label>
-    <p class="muted small">${icon('alert', 16)} כל החיבורים הפעילים של ${user.firstName || 'המשתמש/ת'} ינותקו, וקישורי איפוס שנשלחו קודם יבוטלו.
-      את הסיסמה החדשה מעבירים בעצמכם.</p>
-    <button class="btn btn-primary btn-block">${icon('lock')} הגדרת הסיסמה</button>`, 'class="card"')}
-</div>`;
-}
 
 /** Created here in the last 20 minutes: a site that does not answer yet is most likely still being built. */
 const isNew = (c) => Boolean(c.provisioned) && c.created_at >= time.stamp(new Date(Date.now() - 20 * 60000));

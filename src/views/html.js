@@ -192,6 +192,29 @@ const pageTabs = (items, label, active) => html`<nav class="page-tabs" role="tab
   html`<a href="?tab=${id}" role="tab" data-tab="${id}" aria-controls="${id}" aria-selected="${String(id === active)}" tabindex="${id === active ? 0 : -1}">${ic ? icon(ic, 18) : ''}<span>${text}</span></a>`)}</nav>`;
 const tabPanel = (id, active, content) => html`<div class="tab-panel" id="${id}" role="tabpanel" ${id === active ? '' : raw('hidden')}>${content}</div>`;
 
+/**
+ * "Set a new password" for someone else: a client site's manager on a user's card, and the console's main admin.
+ * user: { firstName, lastName, email }. The password is shown (so it can be passed on); "suggest" fills a strong one.
+ */
+function newPasswordPage(req, { action, user, where, back, mailOn, error }) {
+  return html`
+<div class="narrow">
+  <p><a class="back" href="${back}">${icon('arrow', 16)} חזרה</a></p>
+  ${pageHead('סיסמה חדשה', { iconName: 'lock', sub: html`עבור <b>${user.firstName} ${user.lastName}</b> (<span dir="ltr">${user.email}</span>)${where ? html` ${where}` : ''}` })}
+  ${error ? html`<div class="flash flash-error" role="alert">${error}</div>` : ''}
+  ${postForm(req, action, html`
+    ${field('הסיסמה החדשה', html`<span class="password-row"><input type="text" name="password" minlength="8" maxlength="200" required dir="ltr"
+      autocomplete="off" spellcheck="false" autocapitalize="off" data-password-target>
+      <button type="button" class="btn btn-light btn-sm" data-generate-password>הצעת סיסמה</button></span>`,
+    'לפחות 8 תווים. הסיסמה מוצגת כדי שתוכלו להעביר אותה.')}
+    <label class="check"><input type="checkbox" name="notify" value="1" ${mailOn ? 'checked' : raw('disabled')}>
+      <span>שליחת מייל שהסיסמה הוחלפה (הסיסמה עצמה לא נשלחת)${mailOn ? '' : ' – אין שליחת מיילים באתר הזה'}</span></label>
+    <p class="muted small">${icon('alert', 16)} כל החיבורים הפעילים של ${user.firstName || 'המשתמש/ת'} ינותקו, וקישורי איפוס שנשלחו קודם יבוטלו.
+      את הסיסמה החדשה מעבירים בעצמכם.</p>
+    <button class="btn btn-primary btn-block">${icon('lock')} הגדרת הסיסמה</button>`, 'class="card"')}
+</div>`;
+}
+
 const csrfField = (req) => req.session ? html`<input type="hidden" name="_csrf" value="${req.session.csrf}">` : '';
 
 /** A POST form with the CSRF token already included. */
@@ -218,6 +241,6 @@ const fileInput = (name, { required = true } = {}) =>
 const licenseInput = (opts) => fileInput('license', opts);
 
 module.exports = {
-  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, asset, USER_STATUS, VEHICLE_STATUS,
+  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, asset, newPasswordPage, USER_STATUS, VEHICLE_STATUS,
   licenseInput, fileInput, uploadLimitLabel,
 };

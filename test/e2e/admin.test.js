@@ -495,3 +495,40 @@ test('settings show where the data is kept and the database id', async () => {
     config.onVercel = saved;
   }
 });
+
+test('a manager sets a new password for a user: signed out everywhere, signs in with it; not for your own account', async () => {
+  const u = createUser({ email: 'forgot@adm.test', first_name: 'שירה' });
+  const them = client();
+  await them.login('forgot@adm.test');
+  const card = (await admin.get(`/admin/users/${u.id}`)).text;
+  assert.match(card, new RegExp(`href="/admin/users/${u.id}/password"`));
+
+  const form = await admin.get(`/admin/users/${u.id}/password`);
+  assert.equal(form.status, 200);
+  assert.match(form.text, /סיסמה חדשה[\s\S]*forgot@adm\.test[\s\S]*data-generate-password/);
+  let r = await admin.post(`/admin/users/${u.id}/password`, { password: 'short' }, `/admin/users/${u.id}/password`);
+  assert.equal(r.status, 400);
+  assert.match(r.text, /לפחות 8 תווים/);
+
+  r = await admin.post(`/admin/users/${u.id}/password`, { password: 'Shira-New-77', notify: '1' }, `/admin/users/${u.id}/password`);
+  assert.equal(r.location, `/admin/users/${u.id}`);
+  assert.match(admin.flash().text, /נקבעה סיסמה חדשה ל־שירה/);
+  assert.equal((await them.get('/me')).status, 401, 'signed out everywhere');
+  await assert.rejects(client().login('forgot@adm.test', 'Password1'), /login failed/);
+  await client().login('forgot@adm.test', 'Shira-New-77');
+  const m = outbox().find((x) => x.to.includes('forgot@adm.test') && /סיסמה חדשה/.test(x.subject));
+  assert.ok(m);
+  assert.doesNotMatch(m.body, /Shira-New-77/, 'the password itself is never e-mailed');
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'user.password_set' AND target_id = ?").get(u.id));
+
+  // Your own password is changed in the personal area, with the current one.
+  const me = db.prepare("SELECT id FROM users WHERE email = 'admin@adm.test'").get().id;
+  assert.equal((await admin.get(`/admin/users/${me}/password`)).location, '/me/security');
+  assert.doesNotMatch((await admin.get(`/admin/users/${me}`)).text, new RegExp(`href="/admin/users/${me}/password"`));
+  // Only managers.
+  const plain = client();
+  await plain.login('forgot@adm.test', 'Shira-New-77');
+  assert.equal((await plain.get(`/admin/users/${u.id}/password`)).status, 403);
+  assert.equal((await plain.req('POST', `/admin/users/${u.id}/password`, { password: 'Hacked-123' })).status, 303);
+  await client().login('forgot@adm.test', 'Shira-New-77');
+});

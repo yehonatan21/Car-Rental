@@ -33,3 +33,15 @@ test('markdown escapes HTML in the source', () => {
   assert.doesNotMatch(out, /<img|<script|<i>/);
   assert.match(out, /&lt;script&gt;/);
 });
+
+test('style and script addresses carry a hash of the file, so a new version is never shown with a stale cached copy', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const crypto = require('node:crypto');
+  const { layout: page } = require('../../src/views/html');
+  const out = page({ path: '/', query: {} }, 'בדיקה', '');
+  for (const name of ['style.css', 'app.js']) {
+    const hash = crypto.createHash('sha1').update(fs.readFileSync(path.join(__dirname, '..', '..', 'public', name))).digest('hex').slice(0, 10);
+    assert.ok(out.includes(`/static/${name}?v=${hash}`), `${name} with its current hash`);
+  }
+});

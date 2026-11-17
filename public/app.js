@@ -117,8 +117,9 @@ for (const input of document.querySelectorAll('input[type=file][data-max-bytes]'
   });
 }
 
-// Tabs between the sections of one page (settings): one panel at a time; the address keeps the open tab (#id), so a
-// form that returns to "/admin/settings#email" opens the tab holding #email. Without JavaScript all panels show.
+// Tabs between the sections of one page (settings). The server already shows the tab of ?tab=…; here a click switches
+// at once without reloading (and the address keeps ?tab=… for a reload or the Back button), and an old "#section"
+// address opens the tab that holds that section.
 const tablist = document.querySelector('[data-tabs]');
 if (tablist) {
   const tabs = [...tablist.querySelectorAll('a[data-tab]')];
@@ -140,21 +141,26 @@ if (tablist) {
       }
     }
   };
-  const initial = panelFor(location.hash);
-  show(initial || panels[0]);
-  // Opened at "#…": start at the top (the title, the message about what was just saved, the tabs), not at the anchor
-  // the browser jumps to.
+  const remember = (id) => {
+    const u = new URL(location.href);
+    u.searchParams.set('tab', id);
+    u.hash = '';
+    history.replaceState(null, '', u.pathname + u.search);
+  };
   const toTop = () => window.scrollTo(0, 0);
-  if (initial) {
+  const fromHash = panelFor(location.hash);
+  show(fromHash || panels.find((p) => !p.hidden) || panels[0]);
+  if (fromHash) {
+    // Start at the top (title, the message about what was just saved, the tabs), not at the anchor.
     requestAnimationFrame(toTop);
     window.addEventListener('load', () => setTimeout(toTop, 0));
   }
   tablist.addEventListener('click', (e) => {
     const t = e.target.closest('a[data-tab]');
-    if (!t) return;
+    if (!t || e.ctrlKey || e.metaKey || e.shiftKey) return; // a new tab/window: let the browser open ?tab=…
     e.preventDefault();
     show(document.getElementById(t.dataset.tab));
-    history.replaceState(null, '', `#${t.dataset.tab}`);
+    remember(t.dataset.tab);
   });
   // Arrow keys move between tabs (right-to-left: the right arrow goes back).
   tablist.addEventListener('keydown', (e) => {
@@ -163,10 +169,23 @@ if (tablist) {
     e.preventDefault();
     const n = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowLeft' ? 1 : -1) + tabs.length) % tabs.length;
     show(document.getElementById(tabs[n].dataset.tab), true);
-    history.replaceState(null, '', `#${tabs[n].dataset.tab}`);
+    remember(tabs[n].dataset.tab);
   });
   window.addEventListener('hashchange', () => {
     const p = panelFor(location.hash);
     if (p) { show(p); toTop(); }
   });
 }
+
+// "Suggest a password": fills the field with a strong random one (shown, so the admin can pass it on).
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-generate-password]');
+  const input = btn && btn.closest('form')?.querySelector('[data-password-target]');
+  if (!input) return;
+  const abc = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no look-alikes (l/1, O/0)
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  let pw = [...bytes].map((b) => abc[b % abc.length]).join('');
+  if (!/\d/.test(pw)) pw = pw.slice(0, -1) + '23456789'[bytes[0] % 8];
+  input.value = pw;
+  input.select();
+});

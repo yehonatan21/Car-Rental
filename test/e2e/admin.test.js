@@ -289,17 +289,28 @@ test('code login page: development hint when no mail server, resend button', asy
 
 test('settings are organised in tabs: general, bookings and reminders, e-mail and sign-in, system health', async () => {
   const page = (await admin.get('/admin/settings')).text;
-  const tabs = [...page.matchAll(/<a href="#(\w+)" role="tab" data-tab="\1"[^>]*>[\s\S]*?<span>([^<]+)<\/span><\/a>/g)].map((m) => [m[1], m[2]]);
-  assert.deepEqual(tabs, [['general', 'כללי'], ['bookings', 'הזמנות ותזכורות'], ['integrations', 'מיילים והתחברות'], ['health', 'תקינות המערכת']]);
-  // Each tab's panel holds its own sections, so "settings#email" (after a test e-mail) opens the right tab.
-  const panel = (id) => new RegExp(`<div class="tab-panel" id="${id}" role="tabpanel">([\\s\\S]*?)</div>\\s*(<div class="tab-panel"|</div>\\s*</main>)`).exec(page)?.[1] || '';
-  assert.match(panel('general'), /id="branding"[\s\S]*name="org_name"[\s\S]*name="brand_color"/);
-  assert.match(panel('bookings'), /id="rules"[\s\S]*name="buffer_minutes"[\s\S]*תזכורות והתראות[\s\S]*name="license_warn_days"/);
-  assert.match(panel('integrations'), /id="email"[\s\S]*id="google"/);
-  assert.match(panel('health'), /id="system"[\s\S]*href="\/admin\/audit"/);
+  const tabs = [...page.matchAll(/<a href="\?tab=(\w+)" role="tab" data-tab="\1"[^>]*aria-selected="(\w+)"[^>]*>[\s\S]*?<span>([^<]+)<\/span><\/a>/g)]
+    .map((m) => [m[1], m[3], m[2]]);
+  assert.deepEqual(tabs, [['general', 'כללי', 'true'], ['bookings', 'הזמנות ותזכורות', 'false'], ['integrations', 'מיילים והתחברות', 'false'],
+    ['health', 'תקינות המערכת', 'false']]);
+  // Each tab's panel holds its own sections.
+  const panel = (text, id) => new RegExp(`<div class="tab-panel" id="${id}" role="tabpanel" ?(hidden)?>([\\s\\S]*?)</div>\\s*(<div class="tab-panel"|</div>\\s*</main>)`).exec(text);
+  assert.match(panel(page, 'general')[2], /id="branding"[\s\S]*name="org_name"[\s\S]*name="brand_color"/);
+  assert.match(panel(page, 'bookings')[2], /id="rules"[\s\S]*name="buffer_minutes"[\s\S]*תזכורות והתראות[\s\S]*name="license_warn_days"/);
+  assert.match(panel(page, 'integrations')[2], /id="email"[\s\S]*id="google"/);
+  assert.match(panel(page, 'health')[2], /id="system"[\s\S]*href="\/admin\/audit"/);
+  // The server shows one tab: no JavaScript is needed (and a stale cached script cannot break the page).
+  assert.deepEqual(['general', 'bookings', 'integrations', 'health'].map((id) => Boolean(panel(page, id)[1])), [false, true, true, true]);
+  const bookingsTab = (await admin.get('/admin/settings?tab=bookings')).text;
+  assert.deepEqual(['general', 'bookings', 'integrations', 'health'].map((id) => Boolean(panel(bookingsTab, id)[1])), [true, false, true, true]);
+  assert.match(bookingsTab, /data-tab="bookings"[^>]*aria-selected="true"/);
+  assert.equal(panel((await admin.get('/admin/settings?tab=nonsense')).text, 'general')[1], undefined, 'an unknown tab shows the first');
+
   const r = await admin.post('/admin/settings', { buffer_minutes: '0', cancel_hours_before: '24', max_booking_hours: '168', max_open_bookings: '3',
     pickup_reminder_hours: '24', return_reminder_hours: '2', pending_alert_hours: '24', license_warn_days: '30' }, '/admin/settings');
-  assert.equal(r.location, '/admin/settings#rules', 'saving the rules comes back to their tab');
+  assert.equal(r.location, '/admin/settings?tab=bookings', 'saving the rules comes back to their tab');
+  await admin.post('/admin/settings/test-email', {}, '/admin/settings');
+  admin.flash();
 });
 
 test('admin settings: e-mail status panel and test e-mail', async () => {

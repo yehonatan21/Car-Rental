@@ -8,7 +8,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
 const storage = require('../storage');
-const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, pageTabs, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 const documents = require('./documents');
 const { brand, saveBrand, validColor, DEFAULT_COLOR } = require('../brand');
@@ -319,10 +319,10 @@ ${pageHead('לוח בקרה', {
   })}
 ${storageInfo().perDeployment || storageInfo().kind === 'temporary' ? html`<div class="flash flash-error">
   <b>הנתונים לא נשמרים בין גרסאות:</b> הפריסה הזו משתמשת במסד נתונים ${storageInfo().kind === 'temporary' ? 'זמני' : 'שנוצר רק בשבילה'}.
-  <a href="/admin/settings#system">פרטים ותיקון</a></div>` : ''}
+  <a href="/admin/settings?tab=health">פרטים ותיקון</a></div>` : ''}
 ${!config.smtp && (config.production || config.onVercel) ? html`<div class="flash flash-error">
   <b>מיילים לא נשלחים:</b> לא הוגדר שרת דואר (SMTP), ולכן מנהלים לא מקבלים הודעה על בקשות חדשות ומשתמשים לא מקבלים אישור הזמנה.
-  <a href="/admin/settings#email">להגדרה</a></div>` : ''}
+  <a href="/admin/settings?tab=integrations">להגדרה</a></div>` : ''}
 <div class="stats">
   <a class="stat ${pendingUsers.length ? 'hot' : ''}" href="/admin/users?status=pending">${icon('userplus')}<b>${pendingUsers.length}</b><span>משתמשים ממתינים</span></a>
   <a class="stat ${pendingBookings.length ? 'hot' : ''}" href="/admin/bookings?status=pending">${icon('clock')}<b>${pendingBookings.length}</b><span>בקשות ממתינות</span></a>
@@ -897,14 +897,15 @@ ${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: `גרסה 
 
   // ---------- Settings & audit ----------
   app.get('/admin/settings', requireAdmin, (req, res) => {
+    const tab = activeTab(req, SETTINGS_TABS);
     res.page('הגדרות', html`
 ${pageHead('הגדרות', { iconName: 'settings', sub: 'פרטי הארגון, כללי ההזמנה והתזכורות, מיילים והתחברות, ותקינות המערכת.' })}
-${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
+${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
 <div class="tab-panels">
-  <div class="tab-panel" id="general" role="tabpanel">${brandingCard(req)}</div>
-  <div class="tab-panel" id="bookings" role="tabpanel">${bookingRulesCard(req)}</div>
-  <div class="tab-panel" id="integrations" role="tabpanel">${emailStatusCard(req)}${googleStatusCard(req)}</div>
-  <div class="tab-panel" id="health" role="tabpanel">${systemCard()}${auditCard()}</div>
+  ${tabPanel('general', tab, brandingCard(req))}
+  ${tabPanel('bookings', tab, bookingRulesCard(req))}
+  ${tabPanel('integrations', tab, html`${emailStatusCard(req)}${googleStatusCard(req)}`)}
+  ${tabPanel('health', tab, html`${systemCard()}${auditCard()}`)}
 </div>`);
   });
 
@@ -920,14 +921,14 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
     if (values.contact_email && !validEmail(String(values.contact_email).trim())) {
       storage.discard(req.file);
       res.flash('error', 'כתובת המייל ליצירת קשר אינה תקינה');
-      return res.redirect('/admin/settings#branding');
+      return res.redirect('/admin/settings?tab=general');
     }
     const old = brand().logoFile;
     if (req.file) {
       if (!['image/png', 'image/jpeg', 'image/webp'].includes(req.file.mimetype)) {
         storage.discard(req.file);
         res.flash('error', 'הלוגו צריך להיות תמונה (PNG, JPG או WebP)');
-        return res.redirect('/admin/settings#branding');
+        return res.redirect('/admin/settings?tab=general');
       }
       storage.keep(req.file);
       values.logo_file = req.file.filename;
@@ -938,7 +939,7 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
     if ('logo_file' in values && old) storage.remove(old);
     audit(req.user.id, 'settings.branding', null, null, Object.keys(values).filter((k) => values[k]).join(', '));
     res.flash('success', 'פרטי הארגון נשמרו');
-    res.redirect('/admin/settings#branding');
+    res.redirect('/admin/settings?tab=general');
   });
 
   app.post('/admin/settings/test-email', requireAdmin, async (req, res) => {
@@ -947,7 +948,7 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
     else if (config.smtp) res.flash('success', `מייל בדיקה נשלח אל ${req.user.email}. אם לא הגיע תוך דקה, בדקו בספאם.`);
     else if (config.onVercel || config.production) res.flash('warning', 'המייל לא נשלח: באתר הזה לא הוגדר שרת דואר (SMTP). ההוראות מופיעות למטה.');
     else res.flash('warning', 'מייל הבדיקה לא נשלח אלא נשמר בתיקייה data/outbox, כי לא הוגדר שרת דואר (SMTP).');
-    res.redirect('/admin/settings#email');
+    res.redirect('/admin/settings?tab=integrations');
   });
 
   app.post('/admin/settings', requireAdmin, (req, res) => {
@@ -957,7 +958,7 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
     }
     audit(req.user.id, 'settings.update', null, null, JSON.stringify(req.body, Object.keys(SETTING_LABELS)));
     res.flash('success', 'ההגדרות נשמרו');
-    res.redirect('/admin/settings#rules');
+    res.redirect('/admin/settings?tab=bookings');
   });
 
   app.get('/admin/audit', requireAdmin, (req, res) => {

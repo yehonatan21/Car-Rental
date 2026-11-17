@@ -335,12 +335,13 @@ test('console settings in tabs: connections, mail from the project variables (wi
   let page = (await boss.get('/master/settings')).text;
   const tabs = [...page.matchAll(/role="tab" data-tab="(\w+)"/g)].map((m) => m[1]);
   assert.deepEqual(tabs, ['connections', 'mail', 'signin']);
-  assert.match(page, /id="mail" role="tabpanel">[\s\S]*SMTP_HOST[\s\S]*action="\/master\/settings\/test-email"/);
-  assert.match(page, /id="signin" role="tabpanel">[\s\S]*owner@master\.test[\s\S]*מנהל\/ת פעיל\/ה/);
+  assert.match(page, /id="mail" role="tabpanel" hidden>[\s\S]*SMTP_HOST[\s\S]*action="\/master\/settings\/test-email"/);
+  assert.match(page, /id="signin" role="tabpanel" hidden>[\s\S]*owner@master\.test[\s\S]*מנהל\/ת פעיל\/ה/);
+  assert.match((await boss.get('/master/settings?tab=mail')).text, /id="connections" role="tabpanel" hidden>[\s\S]*id="mail" role="tabpanel" >/);
   assert.match(page, /href="\/master\/settings" aria-current="page"><svg[^>]*>[\s\S]*?<span>הגדרות<\/span>/);
 
   const r = await boss.post('/master/settings/test-email', {}, '/master/settings');
-  assert.equal(r.location, '/master/settings#mail');
+  assert.equal(r.location, '/master/settings?tab=mail');
   assert.match(boss.flash().text, /לא הוגדר שרת דואר/);
 
   page = (await boss.get('/master/admins')).text;
@@ -348,4 +349,47 @@ test('console settings in tabs: connections, mail from the project variables (wi
   await boss.post(`/master/admins/${owner.id}/remove`, {}, '/master/admins');
   assert.match(boss.flash().text, /נקבע\/ת ב־ADMIN_EMAIL/);
   assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get(owner.id).role, 'admin');
+});
+
+test('the main admin sets a new password for any user: on a client site, and for console admins', async () => {
+  // Only the main admin (ADMIN_EMAIL, set in the test above) may do this.
+  const site = await launch({ MANAGE_TOKEN: master.manageToken('pw-site'), APP_NAME: 'אתר סיסמאות' });
+  master.add({ slug: 'pw-site', name: 'אתר סיסמאות', url: site.base });
+  await master.call(master.get('pw-site'), 'POST', '/api/manage/admins', { email: 'manager@pw-site.org', first_name: 'מיכל', send_email: false });
+  assert.equal((await boss.get('/master/clients/pw-site/users')).status, 403, 'another console admin cannot');
+  assert.doesNotMatch((await boss.get('/master/clients/pw-site')).text, /id="users"/);
+
+  const ownerRow = db.prepare("SELECT * FROM users WHERE email = 'owner@master.test'").get();
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(require('../../src/auth').hashPassword('OwnerPass1'), ownerRow.id);
+  const owner = new Client(srv.base);
+  await owner.login('owner@master.test', 'OwnerPass1');
+  assert.match((await owner.get('/master/clients/pw-site')).text, /id="users"[\s\S]*משתמשי האתר/);
+
+  const list = await owner.get('/master/clients/pw-site/users?q=manager%40pw-site');
+  assert.equal(list.status, 200);
+  const href = /href="(\/master\/clients\/pw-site\/users\/\d+\/password)"/.exec(list.text)[1];
+  assert.match(list.text, /manager@pw-site\.org[\s\S]*ללא סיסמה/);
+  const form = await owner.get(href);
+  assert.match(form.text, /סיסמה חדשה[\s\S]*manager@pw-site\.org[\s\S]*data-generate-password/);
+
+  let r = await owner.post(href, { password: 'short' }, href);
+  assert.equal(r.status, 400);
+  assert.match(r.text, /לפחות 8 תווים/);
+  r = await owner.post(href, { password: 'Michal-2026!' }, href);
+  assert.equal(r.status, 303);
+  assert.match(owner.flash().text, /נקבעה סיסמה חדשה ל־מיכל[\s\S]*manager@pw-site\.org/);
+  const michal = new Client(site.base);
+  await michal.login('manager@pw-site.org', 'Michal-2026!');
+  assert.equal((await michal.get('/admin')).status, 200, 'the manager signs in to their site with it');
+
+  // Console admins: another admin is signed out; the main admin's own change keeps them signed in.
+  const bossId = db.prepare("SELECT id FROM users WHERE email = 'boss@master.test'").get().id;
+  assert.match((await owner.get('/master/admins')).text, new RegExp(`href="/master/admins/${bossId}/password"`));
+  r = await owner.post(`/master/admins/${bossId}/password`, { password: 'BossNew123' }, `/master/admins/${bossId}/password`);
+  assert.equal(r.location, '/master/admins');
+  assert.equal((await boss.get('/master')).status, 401, 'signed out');
+  await new Client(srv.base).login('boss@master.test', 'BossNew123');
+  await owner.post(`/master/admins/${ownerRow.id}/password`, { password: 'OwnerPass2' }, `/master/admins/${ownerRow.id}/password`);
+  assert.equal((await owner.get('/master')).status, 200, 'still signed in after changing their own');
+  await new Client(srv.base).login('owner@master.test', 'OwnerPass2');
 });

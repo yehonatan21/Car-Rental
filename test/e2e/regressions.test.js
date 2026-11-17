@@ -55,7 +55,7 @@ test('test e-mail: back on the settings page with a message, whatever the mail s
       config.smtp = smtp;
       const r = await admin.post('/admin/settings/test-email', {}, '/admin/settings');
       const { page, hops } = await landsOn(r);
-      assert.deepEqual(hops, ['/admin/settings']);
+      assert.deepEqual(hops, ['/admin/settings?tab=integrations'], 'back on the e-mail tab');
       assert.match(page, /מערכת ונתונים/, 'the settings page itself renders');
       assert.match(admin.flash()?.text || page, expected);
     }

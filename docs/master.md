@@ -119,6 +119,8 @@ client page shows the exact value.
 | Name, colour, logo, contacts | client page → **Name, look and contact details** (שם, מראה ופרטי קשר). The client's managers can also change these in their own Settings |
 | Close a site temporarily | client page → **Suspend** (השהיית האתר), with a message for visitors |
 | Apply new code or new variables to one site | client page → **Rebuild** (בנייה מחדש). A push to `main` rebuilds all sites anyway |
+| Set a new password for any user of a client site | **Main admin only.** On the client's page, go to **Site users** (משתמשי האתר) → search → **New password** (סיסמה חדשה). The user is signed out everywhere. Optionally they get an e-mail that the password was changed; the password itself is never sent |
+| Set a new password for a console admin (or yourself) | **Main admin only.** **Console admins** (מנהלי המרכז) → **New password** (סיסמה חדשה) |
 | Add another console admin | **Console admins** (מנהלי המרכז) |
 | Remove a client | client page → **Delete client** (מחיקת הלקוח); type its id. **Full delete** removes its Vercel project and database, with all its data, permanently. To keep a backup first: `turso db shell car-rental-<id> .dump > backup.sql` |
 

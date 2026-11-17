@@ -1,8 +1,25 @@
 'use strict';
 // Tagged-template HTML with automatic escaping. Interpolated values are escaped unless wrapped in raw(),
 // arrays are joined, and null/undefined/false render as nothing.
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
 const config = require('../config');
 const { brand, paletteCss } = require('../brand');
+
+// Addresses of public/ files carry a hash of their content (/static/style.css?v=…): browsers keep these files for an
+// hour, and without it a new version of the site could run with the previous style and script for that long.
+const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
+const assetHashes = new Map();
+function asset(name) {
+  let v = assetHashes.get(name);
+  if (v === undefined) {
+    try { v = crypto.createHash('sha1').update(fs.readFileSync(path.join(PUBLIC_DIR, name))).digest('hex').slice(0, 10); } catch { v = ''; }
+    // In development the files change while the server runs: hash them again each time.
+    if (config.production || config.onVercel) assetHashes.set(name, v);
+  }
+  return `/static/${name}${v ? `?v=${v}` : ''}`;
+}
 
 class Raw { constructor(s) { this.s = s; } toString() { return this.s; } }
 const raw = (s) => new Raw(String(s));
@@ -127,7 +144,7 @@ ${b.logoFile ? html`<link rel="icon" href="/brand/logo?v=${b.logoFile}">` : html
 <link rel="apple-touch-icon" href="${b.logoFile ? `/brand/logo?v=${b.logoFile}` : '/static/apple-touch-icon.png'}">
 <title>${title} · ${b.name}</title>
 <link rel="preload" href="/static/fonts/rubik-hebrew-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="${asset('style.css')}">
 ${b.customColor ? html`<style>${raw(paletteCss(b.color))}</style>` : ''}
 </head>
 <body class="${user ? 'signed-in' : 'signed-out'}">
@@ -152,7 +169,7 @@ ${config.ephemeral ? html`<div class="demo-banner" role="note">סביבת הדג
   ${body}
 </main>
 ${user ? html`<nav class="tabbar" aria-label="ניווט מהיר">${tabs.map(link)}</nav>` : ''}
-<script src="/static/app.js" defer></script>
+<script src="${asset('app.js')}" defer></script>
 ${config.vercelAnalytics ? raw('<script defer src="/_vercel/insights/script.js"></script>') : ''}
 </body>
 </html>`.toString();
@@ -166,12 +183,14 @@ const pageHead = (title, { sub, actions, iconName } = {}) => html`
 </div>`;
 
 /**
- * Tabs for the sections of one page: [panelId, label, icon]. Each panel is an element with that id and
- * role="tabpanel"; app.js shows one at a time and keeps it in the address (#id), so a form that returns to
- * "page#id" (or to the id of anything inside a panel) opens that tab. Without JavaScript all panels are shown.
+ * Tabs for the sections of one page: items are [id, label, icon]. The server shows the panel of ?tab=… (the first one
+ * otherwise), so the tabs work with no JavaScript at all; app.js only switches between them without reloading, and
+ * opens the right one for an old "#section" address. Panels: tabPanel(id, active, content).
  */
-const pageTabs = (items, label) => html`<nav class="page-tabs" role="tablist" aria-label="${label}" data-tabs>${items.map(([id, text, ic]) =>
-  html`<a href="#${id}" role="tab" data-tab="${id}" aria-controls="${id}">${ic ? icon(ic, 18) : ''}<span>${text}</span></a>`)}</nav>`;
+const activeTab = (req, items) => (items.some(([id]) => id === req.query.tab) ? req.query.tab : items[0][0]);
+const pageTabs = (items, label, active) => html`<nav class="page-tabs" role="tablist" aria-label="${label}" data-tabs>${items.map(([id, text, ic]) =>
+  html`<a href="?tab=${id}" role="tab" data-tab="${id}" aria-controls="${id}" aria-selected="${String(id === active)}" tabindex="${id === active ? 0 : -1}">${ic ? icon(ic, 18) : ''}<span>${text}</span></a>`)}</nav>`;
+const tabPanel = (id, active, content) => html`<div class="tab-panel" id="${id}" role="tabpanel" ${id === active ? '' : raw('hidden')}>${content}</div>`;
 
 const csrfField = (req) => req.session ? html`<input type="hidden" name="_csrf" value="${req.session.csrf}">` : '';
 
@@ -199,6 +218,6 @@ const fileInput = (name, { required = true } = {}) =>
 const licenseInput = (opts) => fileInput('license', opts);
 
 module.exports = {
-  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, field, badge, icon, pageHead, pageTabs, USER_STATUS, VEHICLE_STATUS,
+  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, asset, USER_STATUS, VEHICLE_STATUS,
   licenseInput, fileInput, uploadLimitLabel,
 };

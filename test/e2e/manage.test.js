@@ -182,6 +182,32 @@ test('suspending: every page shows the notice; the health check and the API keep
   assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'manage.resume'").get());
 });
 
+test('users: found by name or e-mail, and a new password set from the console signs them out everywhere', async () => {
+  const u = createUser({ first_name: 'רונית', last_name: 'שמש', email: 'ronit@client.org' });
+  const r = await api('GET', '/api/manage/users?q=' + encodeURIComponent('רונית שמש'));
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.data.users.map((x) => x.email), ['ronit@client.org']);
+  assert.equal(r.data.users[0].hasPassword, true);
+  assert.equal(r.data.users[0].id_number, undefined, 'no ID numbers leave the site');
+  assert.equal((await api('GET', '/api/manage/users?q=ronit%40client')).data.users.length, 1);
+  assert.equal((await api('GET', '/api/manage/users?q=%25')).data.users.length, 0, 'a % is searched as itself');
+  assert.equal((await api('GET', `/api/manage/users/${u.id}`)).data.user.email, 'ronit@client.org');
+  assert.equal((await api('GET', '/api/manage/users/999999')).status, 404);
+
+  const before = new Client(srv.base);
+  await before.login('ronit@client.org');
+  assert.equal((await api('POST', `/api/manage/users/${u.id}/password`, { password: 'short' })).status, 400);
+  const set = await api('POST', `/api/manage/users/${u.id}/password`, { password: 'NewSecret123', notify: true, by: 'owner@master.org' });
+  assert.equal(set.status, 200);
+  assert.equal((await before.get('/me')).status, 401, 'signed out everywhere');
+  await assert.rejects(new Client(srv.base).login('ronit@client.org', 'Password1'), /login failed/);
+  await new Client(srv.base).login('ronit@client.org', 'NewSecret123');
+  const m = outbox().find((x) => x.to.includes('ronit@client.org') && /סיסמה חדשה/.test(x.subject));
+  assert.ok(m, 'told by e-mail');
+  assert.doesNotMatch(m.body, /NewSecret123/, 'the password itself is never e-mailed');
+  assert.match(db.prepare("SELECT details FROM audit_log WHERE action = 'manage.password_set' ORDER BY id DESC").get().details, /owner@master\.org/);
+});
+
 test('guessing the token is cut off', async () => {
   let last;
   for (let i = 0; i < 22; i++) last = await api('GET', '/api/manage/status', null, 'wrong-token');

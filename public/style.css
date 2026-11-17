@@ -523,3 +523,6 @@ ul.docs .doc-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
 .form-actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-top: .4rem; }
 .card-intro { margin: -.35rem 0 1.1rem; }
 @media (max-width: 640px) { .page-tabs { border-radius: 16px; } .page-tabs a { padding: .55rem .9rem; } }
+.field > .password-row { display: flex; gap: .5rem; align-items: center; font-weight: normal; margin: 0; }
+.password-row .btn { flex: none; }
+.password-row input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .03em; }

@@ -12,7 +12,7 @@ const storage = require('../storage');
 const provision = require('../provision');
 const master = require('../master');
 const { DEFAULT_COLOR } = require('../brand');
-const { html, raw, postForm, field, badge, icon, pageHead, pageTabs } = require('../views/html');
+const { html, raw, postForm, field, badge, icon, pageHead, pageTabs, activeTab } = require('../views/html');
 const { validEmail } = require('./public');
 const { emailStatusCard, googleStatusCard } = require('./admin');
 const { mainAdminEmail } = require('../bootstrap');
@@ -21,6 +21,33 @@ const fullName = (u) => `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim();
 const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const LOGO_MAX_BYTES = 1024 * 1024;
 const VERCEL_TOKENS_URL = 'https://vercel.com/account/tokens';
+
+/**
+ * Setting other people's passwords is for the main admin only: the ADMIN_EMAIL account (or, while ADMIN_EMAIL is not
+ * set, every console admin).
+ */
+const isMainAdmin = (u) => { const main = mainAdminEmail(); return Boolean(u) && (!main || u.email === main); };
+const ROLE_LABEL = (u) => (u.role === 'admin' ? badge('admin', 'מנהל/ת') : badge('completed', 'משתמש/ת'));
+
+/** The "new password" form, the same for a client site's user and for a console admin. */
+function passwordPage(req, { action, user, where, back, mailOn, error }) {
+  return html`
+<div class="narrow">
+  <p><a class="back" href="${back}">${icon('arrow', 16)} חזרה</a></p>
+  ${pageHead('סיסמה חדשה', { iconName: 'lock', sub: html`עבור <b>${user.firstName} ${user.lastName}</b> (<span dir="ltr">${user.email}</span>)${where ? html` ${where}` : ''}` })}
+  ${error ? html`<div class="flash flash-error" role="alert">${error}</div>` : ''}
+  ${postForm(req, action, html`
+    ${field('הסיסמה החדשה', html`<span class="password-row"><input type="text" name="password" minlength="8" maxlength="200" required dir="ltr"
+      autocomplete="off" spellcheck="false" autocapitalize="off" data-password-target>
+      <button type="button" class="btn btn-light btn-sm" data-generate-password>הצעת סיסמה</button></span>`,
+    'לפחות 8 תווים. הסיסמה מוצגת כדי שתוכלו להעביר אותה.')}
+    <label class="check"><input type="checkbox" name="notify" value="1" ${mailOn ? 'checked' : raw('disabled')}>
+      <span>שליחת מייל שהסיסמה הוחלפה (הסיסמה עצמה לא נשלחת)${mailOn ? '' : ' – אין שליחת מיילים באתר הזה'}</span></label>
+    <p class="muted small">${icon('alert', 16)} כל החיבורים הפעילים של ${user.firstName || 'המשתמש/ת'} ינותקו, וקישורי איפוס שנשלחו קודם יבוטלו.
+      את הסיסמה החדשה מעבירים בעצמכם.</p>
+    <button class="btn btn-primary btn-block">${icon('lock')} הגדרת הסיסמה</button>`, 'class="card"')}
+</div>`;
+}
 
 /** Created here in the last 20 minutes: a site that does not answer yet is most likely still being built. */
 const isNew = (c) => Boolean(c.provisioned) && c.created_at >= time.stamp(new Date(Date.now() - 20 * 60000));
@@ -338,6 +365,15 @@ ${d ? html`<section class="card" id="system">
   </dl>
 </section>` : ''}
 
+${st.online && isMainAdmin(req.user) ? html`<section class="card" id="users">
+  <h2 class="section-title">${icon('users')} משתמשי האתר</h2>
+  <p class="muted small card-intro">חיפוש משתמש/ת באתר של ${c.name} כדי להגדיר לו/ה סיסמה חדשה.</p>
+  <form method="get" action="${backTo(c, '/users')}" class="kv-inline">
+    <input name="q" placeholder="שם, מייל, טלפון או ת״ז" aria-label="חיפוש משתמש" class="inline-note">
+    <button class="btn btn-light">${icon('users', 16)} חיפוש</button>
+  </form>
+</section>` : ''}
+
 <section class="card" id="suspend">
   <h2 class="section-title">${icon('lock')} השהיית האתר</h2>
   ${d?.suspended ? html`<p>${badge('pending', 'האתר מושהה')} מאז ${time.fmt(d.suspended.at)}. כל מי שנכנס רואה: "${d.suspended.message || 'האתר אינו זמין כרגע'}".</p>
@@ -442,6 +478,72 @@ ${d ? html`<section class="card" id="system">
     res.redirect(303, backTo(c, '#branding'));
   }, logoUpload);
 
+  // ---------- Users of a client site: a new password, by the main admin ----------
+  const requireMain = (req, res, next) => (isMainAdmin(req.user) ? next()
+    : res.status(403).page('אין הרשאה', html`<div class="narrow"><section class="card"><h1>רק המנהל/ת הראשי/ת</h1>
+      <p>הגדרת סיסמה למשתמשים אחרים שמורה למנהל/ת הראשי/ת של מרכז הניהול (<span dir="ltr">${mainAdminEmail()}</span>).</p></section></div>`));
+
+  app.get('/master/clients/:slug/users', requireAdmin, requireMain, withClient(async (req, res, c) => {
+    const q = String(req.query.q || '').trim().slice(0, 100);
+    let r;
+    try {
+      r = await master.call(c, 'GET', `/api/manage/users${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+    } catch (err) {
+      if (!(err instanceof master.InstanceError)) throw err;
+      res.flash('error', err.message);
+      return res.redirect(backTo(c));
+    }
+    res.page(`משתמשים · ${c.name}`, html`
+<p><a class="back" href="${backTo(c)}">${icon('arrow', 16)} ${c.name}</a></p>
+${pageHead('משתמשי האתר', { iconName: 'users', sub: `באתר של ${c.name}: ${r.total} משתמשים. מוצגים עד 50.` })}
+<form method="get" class="filters card">
+  <input name="q" value="${q}" placeholder="שם, מייל, טלפון או ת״ז" aria-label="חיפוש משתמש" class="inline-note">
+  <button class="btn btn-primary">${icon('users', 16)} חיפוש</button>
+  ${q ? html`<a class="btn btn-light" href="${backTo(c, '/users')}">ניקוי</a>` : ''}
+</form>
+<section class="card">
+${r.users.length ? html`<table class="table"><thead><tr><th>שם</th><th>דואר אלקטרוני</th><th>תפקיד</th><th>התחברות</th><th></th></tr></thead><tbody>
+${r.users.map((u) => html`<tr>
+  <td data-label="שם"><b>${u.firstName} ${u.lastName}</b></td>
+  <td data-label="דואר אלקטרוני"><span dir="ltr">${u.email}</span></td>
+  <td data-label="תפקיד">${ROLE_LABEL(u)} ${u.status === 'blocked' ? badge('blocked', 'חסום/ה') : ''}</td>
+  <td data-label="התחברות">${[u.hasPassword && 'סיסמה', u.google && 'Google'].filter(Boolean).join(' · ') || badge('pending', 'ללא סיסמה')}</td>
+  <td><a class="btn btn-light btn-sm" href="${backTo(c, `/users/${u.id}/password`)}">${icon('lock', 16)} סיסמה חדשה</a></td>
+</tr>`)}</tbody></table>` : html`<p class="empty">${icon('users', 28)}<span>לא נמצאו משתמשים.</span></p>`}
+</section>`);
+  }));
+
+  const sitePasswordPage = async (req, res, c, error) => {
+    const { user } = await master.call(c, 'GET', `/api/manage/users/${Number(req.params.id)}`);
+    const st = await master.statusOf(c);
+    res.status(error ? 400 : 200).page('סיסמה חדשה', passwordPage(req, {
+      action: backTo(c, `/users/${user.id}/password`), user, where: `באתר של ${c.name}`, back: `${backTo(c, '/users')}?q=${encodeURIComponent(user.email)}`,
+      mailOn: Boolean(st.online && st.data.mail?.configured), error,
+    }));
+  };
+
+  app.get('/master/clients/:slug/users/:id/password', requireAdmin, requireMain, withClient(async (req, res, c) => {
+    try {
+      await sitePasswordPage(req, res, c);
+    } catch (err) {
+      if (!(err instanceof master.InstanceError)) throw err;
+      res.flash('error', err.message);
+      res.redirect(backTo(c, '/users'));
+    }
+  }));
+
+  clientAction('users/:id/password', async (req, res, c) => {
+    const password = String(req.body.password || '');
+    if (password.length < 8) return sitePasswordPage(req, res, c, 'הסיסמה צריכה להכיל לפחות 8 תווים');
+    const r = await master.call(c, 'POST', `/api/manage/users/${Number(req.params.id)}/password`, {
+      password, notify: req.body.notify === '1', by: req.user.email,
+    });
+    audit(req.user.id, 'master.user_password', null, null, `${c.slug}: ${r.user.email}`);
+    res.flash('success', `נקבעה סיסמה חדשה ל־${r.user.firstName} ${r.user.lastName} (${r.user.email}) באתר של ${c.name}. כל החיבורים שלו/ה נותקו`
+      + `${r.emailed ? ', ונשלח מייל שהסיסמה הוחלפה' : ''}. העבירו לו/ה את הסיסמה החדשה.`);
+    res.redirect(303, `${backTo(c, '/users')}?q=${encodeURIComponent(r.user.email)}`);
+  }, requireMain);
+
   clientAction('suspend', async (req, res, c) => {
     await master.call(c, 'POST', '/api/manage/suspend', { suspended: true, message: req.body.message, by: req.user.email });
     audit(req.user.id, 'master.client_suspend', null, null, c.slug);
@@ -542,8 +644,12 @@ ${d ? html`<section class="card" id="system">
     <ul class="plain">${admins.map((a) => html`<li><b>${fullName(a)}</b> <span class="muted" dir="ltr">${a.email}</span>
       ${a.email === main ? badge('admin', 'מנהל/ת ראשי/ת (ADMIN_EMAIL)') : ''}
       ${!a.password_hash && !a.google_sub ? badge('pending', 'ללא סיסמה') : ''}
-      ${a.id === req.user.id ? badge('active', 'את/ה') : a.email === main ? '' : postForm(req, `/master/admins/${a.id}/remove`,
-    html`<button class="btn btn-light btn-sm" data-confirm="להסיר את ${a.email} ממנהלי המרכז?">הסרה</button>`, 'class="inline"')}</li>`)}</ul>
+      ${a.id === req.user.id ? badge('active', 'את/ה') : ''}
+      <div class="kv-inline">
+        ${isMainAdmin(req.user) ? html`<a class="btn btn-light btn-sm" href="/master/admins/${a.id}/password">${icon('lock', 16)} סיסמה חדשה</a>` : ''}
+        ${a.id === req.user.id || a.email === main ? '' : postForm(req, `/master/admins/${a.id}/remove`,
+    html`<button class="btn btn-light btn-sm" data-confirm="להסיר את ${a.email} ממנהלי המרכז?">הסרה</button>`, 'class="inline"')}
+      </div></li>`)}</ul>
     ${main ? html`<p class="muted small">המנהל/ת הראשי/ת נקבע/ת במשתנה <code>ADMIN_EMAIL</code> של הפרויקט ב־Vercel, ותמיד נשאר/ת מנהל/ת.
       ${!config.smtp ? '' : 'בלי סיסמה אפשר להתחבר עם קוד חד־פעמי שנשלח למייל, או לבחור סיסמה ב"שכחתי סיסמה".'}</p>` : ''}
   </section>
@@ -607,10 +713,43 @@ ${d ? html`<section class="card" id="system">
     res.redirect(303, '/master/admins');
   });
 
+  // A console admin's password, set by the main admin (also their own, e.g. when they signed in with a code).
+  const consoleAdmin = (id) => {
+    const a = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'admin'").get(Number(id));
+    return a && { id: a.id, firstName: a.first_name, lastName: a.last_name, email: a.email, raw: a };
+  };
+  const consolePasswordPage = (req, res, a, error) => res.status(error ? 400 : 200).page('סיסמה חדשה', passwordPage(req, {
+    action: `/master/admins/${a.id}/password`, user: a, where: 'במרכז הניהול', back: '/master/admins', mailOn: Boolean(config.smtp), error,
+  }));
+
+  app.get('/master/admins/:id/password', requireAdmin, requireMain, (req, res) => {
+    const a = consoleAdmin(req.params.id);
+    if (!a) return res.redirect('/master/admins');
+    consolePasswordPage(req, res, a);
+  });
+
+  app.post('/master/admins/:id/password', requireAdmin, requireMain, async (req, res) => {
+    const a = consoleAdmin(req.params.id);
+    if (!a) return res.redirect(303, '/master/admins');
+    const password = String(req.body.password || '');
+    if (password.length < 8 || password.length > 200) return consolePasswordPage(req, res, a, 'הסיסמה צריכה להכיל לפחות 8 תווים');
+    db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(auth.hashPassword(password), time.stamp(), a.id);
+    db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(a.id);
+    // Everyone signed in with this account is signed out, except the person doing it on their own account.
+    if (a.id === req.user.id) db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(a.id, req.session.token_hash);
+    else auth.destroyAllSessions(a.id);
+    audit(req.user.id, 'master.admin_password', 'user', a.id, a.email);
+    const emailed = req.body.notify === '1' && a.id !== req.user.id ? Boolean(await mail.passwordSetByAdmin(a.raw)) && Boolean(config.smtp) : false;
+    res.flash('success', a.id === req.user.id ? 'הסיסמה שלך עודכנה.'
+      : `נקבעה סיסמה חדשה ל־${a.email}${emailed ? ', ונשלח מייל שהסיסמה הוחלפה' : ''}. העבירו לו/ה את הסיסמה החדשה.`);
+    res.redirect(303, '/master/admins');
+  });
+
   // ---------- Settings: connections to the hosting services, e-mail, signing in ----------
   const SETTINGS_TABS = [['connections', 'חיבורים', 'wrench'], ['mail', 'מיילים', 'file'], ['signin', 'התחברות ומנהל ראשי', 'shield']];
 
   function settingsPage(req, checks) {
+    const tab = checks ? 'connections' : activeTab(req, SETTINGS_TABS);
     const p = master.providers();
     const e = process.env;
     const main = mainAdminEmail();
@@ -620,9 +759,9 @@ ${d ? html`<section class="card" id="system">
     const smtp = master.sharedMailVars();
     return html`
 ${pageHead('הגדרות', { iconName: 'settings', sub: 'החיבורים שבהם נוצרים אתרי הלקוחות, המיילים של מרכז הניהול וההתחברות אליו.' })}
-${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
+${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
 <div class="tab-panels">
-<div class="tab-panel" id="connections" role="tabpanel">
+<div class="tab-panel" id="connections" role="tabpanel" ${tab === 'connections' ? '' : raw('hidden')}>
   <section class="card" id="services">
     <h2 class="section-title">${icon('wrench')} השירותים שבהם נוצרים האתרים</h2>
     <dl class="dl">
@@ -645,7 +784,7 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
     <p class="muted small">מפתח הניהול של כל לקוח נגזר מהסוד של מרכז הניהול (${provision.clean(e.MASTER_SECRET) ? 'MASTER_SECRET' : 'נוצר ונשמר במסד הנתונים של המרכז'}). אין לשנות אותו, אחרת המרכז יאבד את הגישה לאתרים.</p>
   </section>
 </div>
-<div class="tab-panel" id="mail" role="tabpanel">
+<div class="tab-panel" id="mail" role="tabpanel" ${tab === 'mail' ? '' : raw('hidden')}>
   ${emailStatusCard(req, { action: '/master/settings/test-email', recipients: false })}
   <section class="card prose" id="mail-setup">
     <h2>מאיפה מגיעות הגדרות המייל</h2>
@@ -656,7 +795,7 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
       והמיילים יישלחו מ־<span dir="ltr">${smtp.MAIL_FROM}</span> בשם הלקוח.` : 'כשהמיילים יוגדרו כאן, אפשר יהיה לתת אותם גם ללקוחות חדשים.'}</p>
   </section>
 </div>
-<div class="tab-panel" id="signin" role="tabpanel">
+<div class="tab-panel" id="signin" role="tabpanel" ${tab === 'signin' ? '' : raw('hidden')}>
   <section class="card" id="main-admin">
     <h2 class="section-title">${icon('shield')} המנהל/ת הראשי/ת</h2>
     ${main ? html`<dl class="dl">
@@ -680,6 +819,6 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות')}
     if (!ok) res.flash('error', 'שליחת מייל הבדיקה נכשלה. פרטי השגיאה מופיעים למטה.');
     else if (config.smtp) res.flash('success', `מייל בדיקה נשלח אל ${req.user.email}. אם לא הגיע תוך דקה, בדקו בספאם.`);
     else res.flash('warning', 'המייל לא נשלח: למרכז הניהול לא הוגדר שרת דואר (SMTP_HOST וכו׳). ההוראות מופיעות למטה.');
-    res.redirect(303, '/master/settings#mail');
+    res.redirect(303, '/master/settings?tab=mail');
   });
 };

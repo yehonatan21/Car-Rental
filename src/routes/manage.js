@@ -11,6 +11,8 @@
 //   POST /api/manage/admins/:id/remove
 //   POST /api/manage/login-link      a one-time sign-in link for the console's admin (GET /manage/sso)
 //   POST /api/manage/suspend         suspends or resumes the whole site
+//   GET  /api/manage/users[?q=]      finds users; GET /api/manage/users/:id
+//   POST /api/manage/users/:id/password   a new password, set by the console's main admin
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -120,6 +122,12 @@ const adminRow = (u) => ({
   id: u.id, firstName: u.first_name, lastName: u.last_name, email: u.email, status: u.status, createdAt: u.created_at,
   // Has not chosen a password yet (and does not sign in with Google): the invitation was not used.
   invitePending: !u.password_hash && !u.google_sub,
+});
+
+/** A user as the console sees it (no ID number, no license). */
+const userRow = (u) => ({
+  id: u.id, firstName: u.first_name, lastName: u.last_name, email: u.email, phone: u.phone, role: u.role, status: u.status,
+  hasPassword: Boolean(u.password_hash), google: Boolean(u.google_sub), createdAt: u.created_at,
 });
 
 function admins() {
@@ -259,6 +267,38 @@ module.exports = ({ app }) => {
     auth.createSession(res, row.user_id);
     audit(row.user_id, 'manage.sso', 'user', row.user_id, 'כניסה ממרכז הניהול');
     res.set('Cache-Control', 'no-store').redirect(303, '/admin');
+  });
+
+  // Users, for the console's main admin: find someone and set them a new password.
+  app.get('/api/manage/users', requireToken, (req, res) => {
+    const q = String(req.query.q || '').trim().slice(0, 100);
+    const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const rows = q
+      ? db.prepare(`SELECT * FROM users WHERE first_name || ' ' || last_name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\'
+          OR phone LIKE ? ESCAPE '\\' OR id_number LIKE ? ESCAPE '\\' ORDER BY role = 'admin' DESC, first_name, last_name LIMIT 50`).all(like, like, like, like)
+      : db.prepare("SELECT * FROM users ORDER BY role = 'admin' DESC, id DESC LIMIT 50").all();
+    res.json({ users: rows.map(userRow), total: db.prepare('SELECT COUNT(*) AS n FROM users').get().n });
+  });
+
+  app.get('/api/manage/users/:id', requireToken, (req, res) => {
+    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
+    if (!u) return res.status(404).json({ error: 'not_found', message: 'המשתמש/ת לא נמצא/ה' });
+    res.json({ user: userRow(u) });
+  });
+
+  // A new password set by the console's main admin: every session of the user ends; optionally they are told by e-mail
+  // (the password itself is never sent).
+  app.post('/api/manage/users/:id/password', requireToken, json, async (req, res) => {
+    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
+    if (!u) return res.status(404).json({ error: 'not_found', message: 'המשתמש/ת לא נמצא/ה' });
+    const password = String(req.body?.password || '');
+    if (password.length < 8 || password.length > 200) return bad(res, 'הסיסמה צריכה להכיל לפחות 8 תווים');
+    db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(auth.hashPassword(password), time.stamp(), u.id);
+    db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(u.id);
+    auth.destroyAllSessions(u.id);
+    audit(null, 'manage.password_set', 'user', u.id, `${by(req)}: ${u.email}`);
+    const emailed = req.body?.notify ? Boolean(await mail.passwordSetByAdmin(u)) && Boolean(config.smtp) : false;
+    res.json({ user: userRow(db.prepare('SELECT * FROM users WHERE id = ?').get(u.id)), emailed, mailConfigured: Boolean(config.smtp) });
   });
 
   app.post('/api/manage/suspend', requireToken, json, (req, res) => {

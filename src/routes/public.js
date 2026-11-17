@@ -309,7 +309,7 @@ module.exports = ({ app, licenseUpload }) => {
   app.get('/auth/google', (req, res) => {
     if (!google.enabled()) {
       return res.status(404).page('לא נמצא', html`<h1>התחברות עם Google אינה מוגדרת</h1>
-        <p>מנהל המערכת יכול להפעיל אותה ב<a href="/admin/settings#google">הגדרות</a>.</p>`);
+        <p>מנהל המערכת יכול להפעיל אותה ב<a href="/admin/settings?tab=integrations">הגדרות</a>.</p>`);
     }
     // The state cookie must live on the address Google sends the user back to (redirect there once).
     if (!google.onPublicHost(req) && !req.query.moved) {

@@ -392,6 +392,7 @@ ${st.online && isMainAdmin(req.user) ? html`<section class="card" id="users">
     <button class="btn btn-primary">שמירה</button>`)}
   <div class="kv-inline">
     ${project && p.vercel ? postForm(req, backTo(c, '/redeploy'), html`<button class="btn btn-light btn-sm" data-confirm="לבנות מחדש את האתר של ${c.name} מהגרסה האחרונה?">${icon('wrench', 16)} בנייה מחדש (גרסה אחרונה)</button>`, 'class="inline"') : ''}
+    ${project && p.vercel && config.smtp ? postForm(req, backTo(c, '/share-mail'), html`<button class="btn btn-light btn-sm" data-confirm="להעתיק לאתר של ${c.name} את הגדרות הדואר של מרכז הניהול (SMTP), ולבנות אותו מחדש?">${icon('mail', 16)} העתקת הגדרות הדואר</button>`, 'class="inline"') : ''}
     <a class="btn btn-light btn-sm btn-danger-text" href="${backTo(c, '/delete')}">מחיקת הלקוח…</a>
   </div>
 </section>`);
@@ -564,6 +565,39 @@ ${r.users.map((u) => html`<tr>
     audit(req.user.id, 'master.client_token', null, null, c.slug);
     res.flash('success', 'מפתח הניהול הוגדר באתר, והוא נבנה מחדש. רעננו את הדף בעוד כ־1–2 דקות.');
     res.redirect(303, backTo(c));
+  });
+
+  clientAction('share-mail', async (req, res, c) => {
+    if (!(await master.shareMail(c))) {
+      res.flash('warning', 'למרכז הניהול לא הוגדר שרת דואר (SMTP_HOST וכו׳), ולכן אין הגדרות להעתיק.');
+      return res.redirect(303, backTo(c));
+    }
+    audit(req.user.id, 'master.client_share_mail', null, null, c.slug);
+    res.flash('success', `הגדרות הדואר של מרכז הניהול הועתקו לאתר של ${c.name}, והוא נבנה מחדש. המיילים יישלחו בעוד כ־1–2 דקות.`);
+    res.redirect(303, backTo(c));
+  });
+
+  // The console's mail settings to every client with a Vercel project (each is redeployed).
+  app.post('/master/share-mail', requireAdmin, async (req, res) => {
+    if (!config.smtp) {
+      res.flash('warning', 'למרכז הניהול לא הוגדר שרת דואר (SMTP_HOST וכו׳), ולכן אין הגדרות להעתיק.');
+      return res.redirect(303, '/master/settings?tab=mail');
+    }
+    const done = [];
+    const failed = [];
+    for (const c of master.list().filter((x) => x.vercel_project || x.vercel_project_id)) {
+      try {
+        await master.shareMail(c);
+        done.push(c.name);
+      } catch (err) {
+        console.warn(`[master] share-mail for ${c.slug} failed:`, err.message);
+        failed.push(`${c.name} (${err.message})`);
+      }
+    }
+    audit(req.user.id, 'master.share_mail_all', null, null, done.join(', '));
+    if (failed.length) res.flash('error', `ההעתקה נכשלה עבור: ${failed.join('; ')}${done.length ? `. הצליחה עבור: ${done.join(', ')}` : ''}`);
+    else res.flash('success', done.length ? `הגדרות הדואר הועתקו ל־${done.length} אתרים (${done.join(', ')}), והם נבנים מחדש.` : 'אין אתרים עם פרויקט ב־Vercel.');
+    res.redirect(303, '/master/settings?tab=mail');
   });
 
   clientAction('find-url', async (req, res, c) => {
@@ -793,6 +827,9 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
       אפשר להעתיק אותם כמו שהם מהפרויקט של האתר הקיים. אחרי שינוי: Redeploy.</p>
     <p>${smtp ? html`${badge('active', 'משותף')} בלקוח חדש אפשר לסמן "שליחת המיילים מתיבת הדואר של מרכז הניהול": האתר שלו יקבל את אותם משתנים,
       והמיילים יישלחו מ־<span dir="ltr">${smtp.MAIL_FROM}</span> בשם הלקוח.` : 'כשהמיילים יוגדרו כאן, אפשר יהיה לתת אותם גם ללקוחות חדשים.'}</p>
+    ${smtp && p.vercel ? html`<p>לאתרים שכבר קיימים: הכפתור מעתיק את אותם משתנים (<code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code>)
+      לכל פרויקט לקוח ב־Vercel ובונה אותו מחדש. שם השולח של כל לקוח נשאר שלו.</p>
+    ${postForm(req, '/master/share-mail', html`<button class="btn btn-primary" data-confirm="להעתיק את הגדרות הדואר של מרכז הניהול לכל אתרי הלקוחות ולבנות אותם מחדש?">${icon('mail')} העתקה לכל האתרים</button>`)}` : ''}
   </section>
 </div>
 <div class="tab-panel" id="signin" role="tabpanel" ${tab === 'signin' ? '' : raw('hidden')}>

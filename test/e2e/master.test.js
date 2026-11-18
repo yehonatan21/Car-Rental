@@ -252,6 +252,32 @@ test('a site that already exists: added to the list, given its management key th
   assert.deepEqual(envCall.body.map((e) => [e.key, e.value, e.type]), [['MANAGE_TOKEN', master.manageToken('first'), 'sensitive']]);
   assert.equal(calls.slice(before).filter((x) => x.path === '/vercel/v13/deployments').length, 1, 'rebuilt so the key takes effect');
 
+  // The console's mail settings, copied to the site (the password stays a sensitive variable) and rebuilt.
+  const cfg = require('../../src/config');
+  const saved = { smtp: cfg.smtp, env: { ...process.env } };
+  try {
+    cfg.smtp = { host: 'smtp.example.org', port: 465 };
+    Object.assign(process.env, { SMTP_HOST: 'smtp.example.org', SMTP_PORT: '465', SMTP_USER: 'console@example.org', SMTP_PASS: 'app-pass-123' });
+    const mark = calls.length;
+    await boss.post('/master/clients/first/share-mail', {}, '/master/clients/first');
+    assert.match(boss.flash().text, /הגדרות הדואר של מרכז הניהול הועתקו/);
+    const mailEnv = calls.slice(mark).find((x) => x.method === 'POST' && /\/projects\/prj_first\/env$/.test(x.path));
+    const byKey = Object.fromEntries(mailEnv.body.map((e) => [e.key, e]));
+    assert.equal(byKey.SMTP_HOST.value, 'smtp.example.org');
+    assert.equal(byKey.SMTP_USER.value, 'console@example.org');
+    assert.equal(byKey.SMTP_PASS.value, 'app-pass-123');
+    assert.equal(byKey.SMTP_PASS.type, 'sensitive');
+    assert.equal(calls.slice(mark).filter((x) => x.path === '/vercel/v13/deployments').length, 1, 'rebuilt so it takes effect');
+    // The same for every site at once.
+    await boss.post('/master/share-mail', {}, '/master/settings?tab=mail');
+    assert.match(boss.flash().text, /הגדרות הדואר הועתקו ל־\d+ אתרים/);
+  } finally {
+    cfg.smtp = saved.smtp;
+    for (const k of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS']) if (k in saved.env) process.env[k] = saved.env[k]; else delete process.env[k];
+  }
+  await boss.post('/master/clients/first/share-mail', {}, '/master/clients/first');
+  assert.match(boss.flash().text, /לא הוגדר שרת דואר/, 'nothing to copy without SMTP here');
+
   // A site with a different key is refused, and says so.
   const other = await launch({ MANAGE_TOKEN: 'x'.repeat(40) });
   master.update('first', { url: other.base });

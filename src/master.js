@@ -255,6 +255,19 @@ async function installToken(client) {
 }
 
 /**
+ * Gives an existing client the console's mail settings (the same sending mailbox, see sharedMailVars) and redeploys,
+ * so its e-mails go out. The client keeps its own sender name (MAIL_FROM_NAME). Returns false without SMTP here.
+ */
+async function shareMail(client) {
+  const vars = sharedMailVars();
+  if (!vars) return false;
+  const project = await projectOf(client);
+  await provision.setEnv(project.id, vars, env(), fetchImpl);
+  await provision.deploy(project, { repo: clientRepo(), branch: clientBranch() }, env(), fetchImpl);
+  return true;
+}
+
+/**
  * Removes a client from the list; with `resources`, also deletes its Vercel project and its Turso database (all its
  * data). What was deleted is forgotten at once, so a failure halfway can simply be retried.
  */
@@ -289,6 +302,6 @@ async function checkConnections() {
 
 module.exports = {
   manageToken, masterSecret, providers, clientRepo, clientBranch, list, get, add, update, remove, normalizeUrl,
-  call, statusOf, statusAll, discoverUrl, createClient, redeploy, installToken, deleteClient, checkConnections,
+  call, statusOf, statusAll, discoverUrl, createClient, redeploy, installToken, shareMail, deleteClient, checkConnections,
   sharedMailVars, sharedGoogleVars, InstanceError, INSTANCE_ERRORS,
 };

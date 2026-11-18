@@ -434,8 +434,12 @@ ${users.length ? '' : html`<p class="empty">${icon('users', 28)}<span>לא נמ�
     if (req.file && !v.license_expiry) errors.push('עם צילום רישיון יש למלא גם את תאריך התוקף שלו');
     // Two separate messages: "this e-mail already has an account" (sign in instead) is a different problem from
     // "this ID number belongs to another account".
-    if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(v.email)) errors.push('כבר קיים חשבון עם כתובת הדואר האלקטרוני הזו');
-    else if (db.prepare('SELECT 1 FROM users WHERE id_number = ?').get(v.id_number)) errors.push('מספר תעודת הזהות הזה כבר רשום בחשבון אחר. בדקו את המספר, או פנו למנהל האתר.');
+    // The admin may see that account: link to it (users of this site only; every site has its own database).
+    const existing = (u, what) => html`${what} כבר שייך/ת למשתמש/ת באתר הזה: <a href="/admin/users/${u.id}">${fullName(u)}</a> (${USER_STATUS[u.status] || u.status}). אפשר לפתוח ולעדכן את החשבון הקיים.`;
+    const byEmail = db.prepare('SELECT * FROM users WHERE email = ?').get(v.email);
+    const byId = !byEmail && validIsraeliId(v.id_number) && db.prepare('SELECT * FROM users WHERE id_number = ?').get(v.id_number);
+    if (byEmail) errors.push(existing(byEmail, 'כתובת הדואר האלקטרוני הזו'));
+    else if (byId) errors.push(existing(byId, 'מספר תעודת הזהות הזה'));
     if (errors.length) {
       storage.discard(req.file);
       return res.status(400).page('הוספת משתמש', newUserPage(req, { errors, v }));

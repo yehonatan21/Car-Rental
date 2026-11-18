@@ -532,3 +532,35 @@ test('a manager sets a new password for a user: signed out everywhere, signs in 
   assert.equal((await plain.req('POST', `/admin/users/${u.id}/password`, { password: 'Hacked-123' })).status, 303);
   await client().login('forgot@adm.test', 'Shira-New-77');
 });
+
+test('a request is approved or rejected right from the dashboard, the bookings list and the calendar', async () => {
+  const u = createUser({ email: 'quick@adm.test' });
+  const add = (day) => db.prepare("INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, status, purpose, kind) VALUES (1, ?, ?, ?, 'pending', 'בדיקה', 'booking')")
+    .run(u.id, inDays(day, '08:00'), inDays(day, '09:30')).lastInsertRowid;
+  const a = add(40);
+  const b = add(41);
+  const dash = (await admin.get('/admin')).text;
+  assert.match(dash, new RegExp(`action="/admin/bookings/${a}/approve"[\\s\\S]*?name="back" value="/admin"`), 'approve button on the dashboard');
+  assert.match((await admin.get('/admin/bookings?status=pending')).text, new RegExp(`action="/admin/bookings/${b}/reject"`), 'and in the list');
+
+  // Back where it was approved from.
+  let r = await admin.post(`/admin/bookings/${a}/approve`, { back: '/admin' }, '/admin');
+  assert.equal(r.status, 303);
+  assert.equal(r.location, '/admin');
+  assert.equal(getBooking(a).status, 'approved');
+
+  // The calendar: the request opens a window with its details and the buttons, which come back to the same view.
+  const day = time.addDays(time.today(), 41);
+  const back = `/calendar?view=day&date=${day}`;
+  const cal = (await admin.get(back)).text;
+  assert.match(cal, new RegExp(`data-dialog="bk-${b}"`));
+  assert.match(cal, new RegExp(`<dialog class="ev-dialog" id="bk-${b}"[\\s\\S]*?שעה ו־30 דקות[\\s\\S]*?action="/admin/bookings/${b}/reject"[\\s\\S]*?name="back" value="${back.replace('?', '\\?').replace('&', '&amp;')}"`));
+  r = await admin.post(`/admin/bookings/${b}/reject`, { back, note: 'תפוס' }, back);
+  assert.equal(r.location, back);
+  assert.equal(getBooking(b).status, 'rejected');
+
+  // Only this site's own pages: anything else goes to the usual page.
+  const c = add(42);
+  r = await admin.post(`/admin/bookings/${c}/approve`, { back: '//evil.example/x' }, '/admin');
+  assert.equal(r.location, `/admin/bookings/${c}`);
+});

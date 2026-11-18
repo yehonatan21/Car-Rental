@@ -6,7 +6,7 @@ const time = require('../time');
 const bookings = require('../bookings');
 const storage = require('../storage');
 const { renderCalendar, windowFor } = require('../views/calendar');
-const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
+const { html, markdown, postForm, actionButton, decisionButtons, field, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
 const { normalizePhone, validPhone, safeNext } = require('./public');
 
 const STATUS_HELP = {
@@ -200,7 +200,7 @@ ${pageHead('ההזמנות שלי', {
     const entries = items.map((b) => {
       if (b.kind === 'block') return { ...b, label: isAdmin ? '🔧 ' + b.block_reason : 'לא זמין', cls: 'block' };
       if (isAdmin) {
-        return { ...b, label: `${b.first_name} ${b.last_name}${b.status === 'pending' ? ' (ממתינה)' : ''}`, cls: b.status === 'pending' ? 'pending' : 'busy' };
+        return { ...b, label: `${b.first_name} ${b.last_name}${b.status === 'pending' ? ' (ממתינה)' : ''}`, cls: b.status === 'pending' ? 'pending' : 'busy', dialog: `bk-${b.id}` };
       }
       if (b.user_id === u.id) return { ...b, label: `שלי · ${bookings.STATUS_LABELS[b.status]}`, cls: b.status === 'pending' ? 'mine pending' : 'mine' };
       return { ...b, label: 'תפוס', cls: 'busy' };
@@ -222,8 +222,38 @@ ${renderCalendar(entries, {
   linkFor: (e) => (isAdmin ? `/admin/bookings/${e.id}` : e.user_id === u.id ? `/me/bookings#b-${e.id}` : null),
   slotLink: canBook ? (slot) => `${isAdmin ? '/admin/bookings/new' : '/bookings/new'}?start=${slot}` : null,
 })}
-${canBook ? html`<p class="muted small">לחיצה על משבצת פנויה ביומן פותחת בקשת הזמנה מאותה שעה.</p>` : ''}`);
+${canBook ? html`<p class="muted small">לחיצה על משבצת פנויה ביומן פותחת בקשת הזמנה מאותה שעה.${isAdmin ? ' לחיצה על הזמנה מציגה את פרטיה, ובקשה ממתינה אפשר לאשר או לדחות ישר מכאן.' : ''}</p>` : ''}
+${isAdmin ? entries.filter((e) => e.dialog).map((e) => bookingDialog(req, e, req.originalUrl)) : ''}`);
   });
+
+  /** "2 ימים ו־4 שעות", "3 שעות ו־30 דקות". */
+  function spanLabel(hours) {
+    const mins = Math.round(hours * 60);
+    const d = Math.floor(mins / 1440); const h = Math.floor((mins % 1440) / 60); const m = mins % 60;
+    return [d && (d === 1 ? 'יום' : `${d} ימים`), h && (h === 1 ? 'שעה' : `${h} שעות`), m && `${m} דקות`].filter(Boolean).join(' ו־') || '—';
+  }
+
+  /** The details of a booking in a window over the calendar (admins), with approve / reject for a pending request. */
+  function bookingDialog(req, b, back) {
+    const hours = time.hoursBetween(b.start_at, b.end_at);
+    return html`<dialog class="ev-dialog" id="${b.dialog}" aria-labelledby="${b.dialog}-t">
+  <div class="ev-dialog-head">
+    <div><h2 id="${b.dialog}-t">${b.first_name} ${b.last_name}</h2>${bookingBadge(b.status)}</div>
+    <form method="dialog"><button class="icon-btn" aria-label="סגירה">${icon('x')}</button></form>
+  </div>
+  <dl class="ev-times">
+    <div><dt>איסוף</dt><dd>${time.fmtLong(b.start_at)}</dd></div>
+    <div><dt>החזרה</dt><dd>${time.fmtLong(b.end_at)}</dd></div>
+    <div><dt>משך</dt><dd>${spanLabel(hours)}</dd></div>
+  </dl>
+  ${b.purpose ? html`<p><b>מטרה:</b> ${b.purpose}</p>` : ''}
+  ${b.notes ? html`<p><b>הערות:</b> ${b.notes}</p>` : ''}
+  <div class="ev-dialog-actions">
+    ${b.status === 'pending' ? decisionButtons(req, b, back, { note: true, size: '' }) : ''}
+    <a class="btn btn-light" href="/admin/bookings/${b.id}">פרטים מלאים</a>
+  </div>
+</dialog>`;
+  }
 
   function newBookingPage(req, { error, v = {} } = {}) {
     const s = getSettings();

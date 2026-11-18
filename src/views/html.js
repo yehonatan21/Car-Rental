@@ -232,6 +232,18 @@ const actionButton = (req, action, label, { cls = '', confirm, note } = {}) => p
   ${note ? html`<input name="note" placeholder="הערה (אופציונלי)" class="inline-note">` : ''}
   <button class="btn ${cls}" ${confirm ? html`data-confirm="${confirm}"` : ''}>${label}</button>`, 'class="inline"');
 
+/**
+ * Approve / reject buttons for a pending booking request, usable from any admin page (dashboard, lists, calendar):
+ * `back` is where to return afterwards (a local path). With `note`, the rejection can carry a reason.
+ */
+const decisionButtons = (req, b, back, { note = false, size = 'btn-sm' } = {}) => html`<div class="decision">
+  ${postForm(req, `/admin/bookings/${b.id}/approve`, html`<input type="hidden" name="back" value="${back}">
+    <button class="btn btn-primary ${size}">${icon('check', 16)} אישור</button>`, 'class="inline"')}
+  ${postForm(req, `/admin/bookings/${b.id}/reject`, html`<input type="hidden" name="back" value="${back}">
+    ${note ? html`<input name="note" placeholder="סיבת הדחייה (אופציונלי)" class="inline-note" maxlength="500">` : ''}
+    <button class="btn btn-light btn-danger-text ${size}" data-confirm="לדחות את הבקשה? המשתמש/ת יקבל/תקבל הודעה.">${icon('x', 16)} דחייה</button>`, 'class="inline"')}
+</div>`;
+
 function field(label, input, hint) {
   return html`<label class="field"><span>${label}</span>${input}${hint ? html`<small>${hint}</small>` : ''}</label>`;
 }
@@ -247,6 +259,6 @@ const fileInput = (name, { required = true } = {}) =>
 const licenseInput = (opts) => fileInput('license', opts);
 
 module.exports = {
-  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, asset, newPasswordPage, USER_STATUS, VEHICLE_STATUS,
+  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, decisionButtons, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, asset, newPasswordPage, USER_STATUS, VEHICLE_STATUS,
   licenseInput, fileInput, uploadLimitLabel,
 };

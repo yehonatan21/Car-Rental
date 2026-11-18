@@ -23,6 +23,186 @@ document.addEventListener('click', (e) => {
   if (menu && menu.open && !menu.contains(e.target)) menu.open = false;
 });
 
+// ---------- Date & time fields: DD/MM/YYYY and 24-hour time, whatever language the browser is set to ----------
+// The browser's own date fields follow its language (an English Chrome shows mm/dd/yyyy and AM/PM). Each
+// <input type=date|datetime-local> becomes a hidden field with the same name and value (what the server reads: still
+// YYYY-MM-DD / YYYY-MM-DDTHH:MM), a text field for the date with a month picker, and hour / minute lists (00-23).
+// Code that sets such a field's value from outside dispatches "dp-sync" on it to update what is shown.
+const HE_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+const HE_DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+const p2 = (n) => String(n).padStart(2, '0');
+const isoDate = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+const svg = (path, size = 18) => `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+const CAL_ICON = '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>';
+const CLOCK_ICON = '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>';
+const ARROW_ICON = '<path d="M15 6l-6 6 6 6"/>';
+let openPicker = null;
+
+/** "31/12/2026" (also 31.12.26, 31-12-2026, 3112 2026…) → "2026-12-31", or "" when it is not a real date. */
+function parseDmy(text) {
+  const m = /^\s*(\d{1,2})\D+(\d{1,2})\D+(\d{2}|\d{4})\s*$/.exec(text) || /^\s*(\d{2})(\d{2})(\d{4}|\d{2})\s*$/.exec(text);
+  if (!m) return '';
+  let y = Number(m[3]);
+  if (y < 100) y += 2000;
+  const d = new Date(y, Number(m[2]) - 1, Number(m[1]));
+  return d.getDate() === Number(m[1]) && d.getMonth() === Number(m[2]) - 1 ? isoDate(d) : '';
+}
+const showDmy = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '');
+
+function enhanceDateInput(input) {
+  const withTime = input.type === 'datetime-local';
+  const label = input.closest('label');
+  const required = input.required;
+  const wrap = document.createElement('div');
+  wrap.className = 'dp';
+  wrap.innerHTML = `<div class="dp-field"><input type="text" inputmode="numeric" autocomplete="off" placeholder="DD/MM/YYYY" maxlength="10" aria-label="${(label?.querySelector('span')?.textContent || 'תאריך').trim()} (יום/חודש/שנה)">`
+    + `<button type="button" class="dp-toggle" aria-label="בחירה מלוח שנה" aria-haspopup="dialog" aria-expanded="false">${svg(CAL_ICON)}</button></div>`
+    + (withTime ? `<div class="dp-time" title="שעה (24 שעות)">${svg(CLOCK_ICON, 16)}<select aria-label="שעה"></select><b>:</b><select aria-label="דקות"></select></div>` : '')
+    + '<div class="dp-pop" role="dialog" aria-label="בחירת תאריך" hidden></div>';
+  input.after(wrap);
+  input.type = 'hidden';
+  // A <label> around the field would send every click inside the picker to the date text field: keep it, but stop that.
+  wrap.addEventListener('click', (e) => { if (e.target.closest('button, select')) e.preventDefault(); });
+  const text = wrap.querySelector('.dp-field input');
+  const toggle = wrap.querySelector('.dp-toggle');
+  const pop = wrap.querySelector('.dp-pop');
+  const [hourSel, minSel] = wrap.querySelectorAll('select');
+  text.required = required;
+  if (input.id) { text.id = input.id; input.removeAttribute('id'); }
+  if (input.autofocus) text.autofocus = true;
+
+  const datePart = () => input.value.slice(0, 10);
+  const timePart = () => (withTime ? input.value.slice(11, 16) : '');
+  const minIso = () => (input.getAttribute('min') || '').slice(0, 10);
+  const fillTime = () => {
+    if (!withTime) return;
+    const [h, m] = (timePart() || '09:00').split(':').map(Number);
+    hourSel.innerHTML = Array.from({ length: 24 }, (_, i) => `<option value="${p2(i)}"${i === h ? ' selected' : ''}>${p2(i)}</option>`).join('');
+    const mins = new Set([0, 15, 30, 45, m]);
+    minSel.innerHTML = [...mins].sort((a, b) => a - b).map((i) => `<option value="${p2(i)}"${i === m ? ' selected' : ''}>${p2(i)}</option>`).join('');
+  };
+  const sync = () => { text.value = showDmy(datePart()); fillTime(); validate(); };
+  const validate = () => {
+    let msg = '';
+    if (text.value && !parseDmy(text.value)) msg = 'יש להזין תאריך בפורמט יום/חודש/שנה, למשל 31/12/2026';
+    else if (datePart() && minIso() && datePart() < minIso()) msg = `התאריך המוקדם ביותר הוא ${showDmy(minIso())}`;
+    text.setCustomValidity(msg);
+  };
+  const commit = (iso) => {
+    const before = input.value;
+    input.value = iso ? (withTime ? `${iso}T${hourSel.value}:${minSel.value}` : iso) : '';
+    text.value = showDmy(iso);
+    validate();
+    if (input.value !== before) input.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  let month; // first day of the month on show
+  const render = () => {
+    const sel = datePart();
+    const today = isoDate(new Date());
+    const min = minIso();
+    const start = new Date(month.getFullYear(), month.getMonth(), 1 - month.getDay());
+    let cells = HE_DOW.map((d) => `<span class="dow">${d}</span>`).join('');
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      const iso = isoDate(d);
+      const cls = [d.getMonth() !== month.getMonth() && 'other', iso === today && 'today', iso === sel && 'sel'].filter(Boolean).join(' ');
+      cells += `<button type="button" data-d="${iso}" class="${cls}" ${min && iso < min ? 'disabled' : ''} aria-label="${showDmy(iso)}"${iso === sel ? ' aria-pressed="true"' : ''}>${d.getDate()}</button>`;
+    }
+    pop.innerHTML = `<div class="dp-head"><button type="button" class="dp-prev" aria-label="החודש הקודם">${svg(ARROW_ICON)}</button>`
+      + `<b>${HE_MONTHS[month.getMonth()]} ${month.getFullYear()}</b><button type="button" class="dp-next" aria-label="החודש הבא">${svg(ARROW_ICON)}</button></div>`
+      + `<div class="dp-grid">${cells}</div><div class="dp-foot"><button type="button" data-d="${today}" ${min && today < min ? 'disabled' : ''}>היום</button>`
+      + `${required ? '' : '<button type="button" data-clear>ניקוי</button>'}</div>`;
+  };
+  const open = () => {
+    if (openPicker && openPicker !== close) openPicker();
+    const base = datePart() || (minIso() > isoDate(new Date()) ? minIso() : isoDate(new Date()));
+    month = new Date(Number(base.slice(0, 4)), Number(base.slice(5, 7)) - 1, 1);
+    render();
+    pop.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+    openPicker = close;
+    (pop.querySelector('.sel') || pop.querySelector('.today:not(:disabled)') || pop.querySelector('.dp-grid button:not(:disabled)'))?.focus();
+  };
+  function close(focus) {
+    pop.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    if (openPicker === close) openPicker = null;
+    if (focus) text.focus();
+  }
+  toggle.addEventListener('click', () => (pop.hidden ? open() : close()));
+  pop.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.classList.contains('dp-prev') || b.classList.contains('dp-next')) {
+      month = new Date(month.getFullYear(), month.getMonth() + (b.classList.contains('dp-next') ? 1 : -1), 1);
+      render();
+      return;
+    }
+    if (b.hasAttribute('data-clear')) { commit(''); close(true); return; }
+    if (b.dataset.d) { commit(b.dataset.d); close(true); }
+  });
+  pop.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); close(true); return; }
+    const cur = e.target.closest('.dp-grid button');
+    const step = { ArrowLeft: 1, ArrowRight: -1, ArrowDown: 7, ArrowUp: -7 }[e.key]; // right-to-left
+    if (!cur || !step) return;
+    e.preventDefault();
+    const [y, m, day] = cur.dataset.d.split('-').map(Number);
+    const d = new Date(y, m - 1, day + step);
+    const iso = isoDate(d);
+    if (d.getMonth() !== month.getMonth()) { month = new Date(d.getFullYear(), d.getMonth(), 1); render(); }
+    pop.querySelector(`[data-d="${iso}"]`)?.focus();
+  });
+  // Typing: "3112" → "31/12/", digits only, slashes added as you go.
+  text.addEventListener('input', (e) => {
+    if (e.inputType && e.inputType.startsWith('delete')) return;
+    const digits = text.value.replace(/\D/g, '').slice(0, 8);
+    if (/^\d+$/.test(text.value.replace(/\//g, ''))) {
+      text.value = digits.length > 4 ? `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}` : digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
+    }
+    const iso = parseDmy(text.value);
+    if (iso && text.value.length >= 8) commit(iso); else text.setCustomValidity('');
+  });
+  text.addEventListener('change', () => {
+    const iso = parseDmy(text.value);
+    if (iso) commit(iso); else if (!text.value) commit(''); else validate();
+  });
+  text.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' && e.altKey) { e.preventDefault(); open(); } });
+  if (withTime) {
+    const onTime = () => {
+      const iso = datePart() || parseDmy(text.value);
+      if (iso) commit(iso);
+    };
+    hourSel.addEventListener('change', onTime);
+    minSel.addEventListener('change', onTime);
+  }
+  input.addEventListener('dp-sync', sync);
+  sync();
+}
+
+for (const input of document.querySelectorAll('input[type=date]:not([data-native]), input[type=datetime-local]:not([data-native])')) enhanceDateInput(input);
+document.addEventListener('click', (e) => { if (openPicker && !e.target.closest('.dp')) openPicker(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openPicker) openPicker(true); });
+
+// ---------- Calendar ----------
+// Day / week: open the 24-hour grid at the morning (or the first booking of the shown days), not at midnight.
+for (const box of document.querySelectorAll('.cal-scroll[data-scroll-hour]')) {
+  const slot = box.querySelector('.tg-slot');
+  if (slot) box.scrollTop = Number(box.dataset.scrollHour) * slot.offsetHeight;
+}
+// Admins: a booking opens a window with its details (and approve / reject for a request) instead of a new page.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[data-dialog]');
+  const dlg = a && document.getElementById(a.dataset.dialog);
+  if (!dlg || typeof dlg.showModal !== 'function' || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  e.preventDefault();
+  dlg.showModal();
+});
+for (const dlg of document.querySelectorAll('dialog.ev-dialog')) {
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); }); // a click on the backdrop
+}
+
 // Booking form: keep the return time after pickup and show live availability.
 const form = document.querySelector('form[data-availability]');
 if (form) {
@@ -62,6 +242,7 @@ if (form) {
     if (start.value && (!end.value || end.value <= start.value)) {
       end.value = local(new Date(new Date(start.value).getTime() + 2 * 3600000));
     }
+    end.dispatchEvent(new Event('dp-sync')); // the date picker shows the new return time (and the new earliest date)
     check();
   });
   end.addEventListener('change', check);

@@ -8,7 +8,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
 const storage = require('../storage');
-const { html, markdown, postForm, actionButton, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { html, markdown, postForm, actionButton, decisionButtons, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 const documents = require('./documents');
 const { brand, saveBrand, validColor, DEFAULT_COLOR } = require('../brand');
@@ -52,7 +52,11 @@ const guarded = (fallback, fn) => async (req, res) => {
   }
 };
 
-function bookingsTable(list, { showUser = true } = {}) {
+/** A local path to return to after an action (only this site's own pages). */
+const safeBack = (v) => (typeof v === 'string' && /^\/(?![/\\])/.test(v) && !/[\r\n]/.test(v) ? v : null);
+
+/** With `req`, pending requests get approve / reject buttons right in the row (returning to this page). */
+function bookingsTable(list, { showUser = true, req } = {}) {
   if (!list.length) return html`<p class="empty">${icon('calendar', 28)}<span>אין רשומות.</span></p>`;
   return html`<table class="table">
 <thead><tr>${showUser ? html`<th>משתמש</th>` : ''}<th>איסוף</th><th>החזרה</th><th>מטרה</th><th>סטטוס</th><th></th></tr></thead>
@@ -62,7 +66,7 @@ function bookingsTable(list, { showUser = true } = {}) {
   <td data-label="החזרה">${time.fmt(b.end_at)}</td>
   <td data-label="מטרה">${b.purpose || '—'}</td>
   <td data-label="סטטוס">${b.kind === 'block' ? badge('block', 'חסימה') : ''} ${bookingBadge(b.status)}</td>
-  <td><a class="btn btn-light btn-sm" href="/admin/bookings/${b.id}">פרטים</a></td>
+  <td class="row-actions">${req && b.status === 'pending' && b.kind !== 'block' ? decisionButtons(req, b, req.originalUrl) : ''}<a class="btn btn-light btn-sm" href="/admin/bookings/${b.id}">פרטים</a></td>
 </tr>`)}</tbody></table>`;
 }
 
@@ -349,7 +353,7 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2 class="section-title">
 <div class="grid2">
   <section class="card">
     <h2 class="section-title">${icon('clock')} בקשות הזמנה ממתינות</h2>
-    ${bookingsTable(pendingBookings)}
+    ${bookingsTable(pendingBookings, { req })}
   </section>
   <section class="card">
     <h2 class="section-title">${icon('users')} משתמשים ורישיונות לבדיקה</h2>
@@ -535,7 +539,7 @@ ${permissionsCard(req, u, isSelf)}
 
 <section class="card">
   <h2 class="section-title">${icon('list')} היסטוריית הזמנות</h2>
-  ${bookingsTable(list, { showUser: false })}
+  ${bookingsTable(list, { showUser: false, req })}
 </section>
 <section class="card">
   <h2 class="section-title">${icon('clock')} יומן פעולות</h2>
@@ -734,7 +738,7 @@ ${pageHead('הזמנות', {
   <label class="inline-label">עד<input type="date" name="to" value="${to}"></label>
   <button class="btn btn-light">סינון</button>
 </form>
-<section class="card">${bookingsTable(list)}</section>`);
+<section class="card">${bookingsTable(list, { req })}</section>`);
   });
 
   app.get('/admin/bookings/new', requireAdmin, (req, res) => {
@@ -848,22 +852,22 @@ ${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id
 </section>`);
   });
 
-  app.post('/admin/bookings/:id/approve', requireAdmin, guarded((req) => `/admin/bookings/${req.params.id}`, async (req, res) => {
+  app.post('/admin/bookings/:id/approve', requireAdmin, guarded((req) => safeBack(req.body.back) || `/admin/bookings/${req.params.id}`, async (req, res) => {
     const b = bookings.approve(Number(req.params.id), req.user.id);
     const [type, text] = approvalNotice(b, await mail.bookingApproved(b, { approvedBy: fullName(req.user) }));
     const competing = bookings.findPendingOverlaps(b.vehicle_id, b.start_at, b.end_at, b.id);
     res.flash(competing.length ? 'warning' : type, competing.length
       ? `${text} יש ${competing.length} בקשות ממתינות נוספות לאותו מועד שכבר לא ניתן לאשר – מומלץ לדחות אותן.`
       : text);
-    res.redirect(`/admin/bookings/${b.id}`);
+    res.redirect(303, safeBack(req.body.back) || `/admin/bookings/${b.id}`);
   }));
 
-  app.post('/admin/bookings/:id/reject', requireAdmin, guarded((req) => `/admin/bookings/${req.params.id}`, async (req, res) => {
+  app.post('/admin/bookings/:id/reject', requireAdmin, guarded((req) => safeBack(req.body.back) || `/admin/bookings/${req.params.id}`, async (req, res) => {
     const note = String(req.body.note || '').trim().slice(0, 500);
     const b = bookings.reject(Number(req.params.id), req.user.id, note);
     await mail.bookingRejected(b, note);
     res.flash('success', 'הבקשה נדחתה והמשתמש עודכן');
-    res.redirect('/admin/bookings?status=pending');
+    res.redirect(303, safeBack(req.body.back) || '/admin/bookings?status=pending');
   }));
 
   app.post('/admin/bookings/:id/cancel', requireAdmin, guarded((req) => `/admin/bookings/${req.params.id}`, async (req, res) => {

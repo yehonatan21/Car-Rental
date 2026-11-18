@@ -1,9 +1,9 @@
 # Security remediation for Car-Rental (analysis/car-rental/SECURITY_FINDINGS.md).
 # Apply from the repository root: git apply analysis/car-rental/security_remediation.patch
 
-# SEC-002: attempt counters in the database (shared by all instances), failures-only checks; SEC-003: e-mail proof (codes/reset links) and distrustUnverified()
+# SEC-002: attempt counters in the database, counted before checking (race-free), successes give their count back; SEC-003: e-mail proof only from e-mailed codes/links, distrustUnverified()
 diff --git a/src/auth.js b/src/auth.js
-index 69d165c..526b7d1 100644
+index 69d165c..d198296 100644
 --- a/src/auth.js
 +++ b/src/auth.js
 @@ -89,6 +89,7 @@ function consumeLoginCode(userId, code) {
@@ -14,17 +14,26 @@ index 69d165c..526b7d1 100644
    return true;
  }
  
-@@ -123,22 +124,54 @@ function resetPassword(token, password) {
+@@ -120,25 +121,59 @@ function checkPasswordReset(token) {
+ function resetPassword(token, password) {
+   const userId = checkPasswordReset(token);
+   if (!userId) return null;
++  const delivered = db.prepare('SELECT delivered FROM password_resets WHERE token_hash = ?').get(sha256(token))?.delivered;
    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId);
    db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(userId);
    destroyAllSessions(userId);
-+  markEmailVerified(userId); // the link arrived at this address
++  if (delivered) markEmailVerified(userId); // the link was e-mailed to this address (not shown to an admin)
    return userId;
  }
  
 -// --- Simple in-memory throttling for login endpoints ---
 -const attempts = new Map();
 -function throttled(key, max = 10, windowMs = 15 * 60000) {
++/** The link of `token` was really sent by e-mail: using it proves the address (SEC-003). */
++function markResetDelivered(token) {
++  db.prepare('UPDATE password_resets SET delivered = 1 WHERE token_hash = ?').run(sha256(token));
++}
++
 +// --- Proof that the account's owner receives mail at its address (SEC-003) ---
 +function markEmailVerified(userId) {
 +  db.prepare('UPDATE users SET email_verified_at = ? WHERE id = ? AND email_verified_at IS NULL').run(new Date().toISOString(), userId);
@@ -59,16 +68,12 @@ index 69d165c..526b7d1 100644
 +      window_start = CASE WHEN throttle.window_start < ? THEN ? ELSE throttle.window_start END`)
 +    .run(key, now, now - windowMs, now - windowMs, now);
 +  return db.prepare('SELECT count FROM throttle WHERE key = ?').get(key).count;
-+}
-+/** Counts this attempt; true when there were more than `max` in the window (for sending codes, reset links…). */
-+const throttled = (key, max = 10, windowMs = 15 * 60000) => bump(key, windowMs) > max;
-+/** Failures only (sign-in): is `key` over `max` failures in the window? Does not count this attempt. */
-+function isBlocked(key, max = 10, windowMs = 15 * 60000) {
-+  const row = db.prepare('SELECT count, window_start FROM throttle WHERE key = ?').get(key);
-+  return Boolean(row && row.window_start >= Date.now() - windowMs && row.count >= max);
  }
 -const resetThrottle = (key) => attempts.delete(key);
-+const recordFailure = (key, windowMs = 15 * 60000) => { bump(key, windowMs); };
++/** Counts this attempt first (so parallel requests cannot all slip under the limit); true when over `max`. */
++const throttled = (key, max = 10, windowMs = 15 * 60000) => bump(key, windowMs) > max;
++/** A successful attempt gives its count back, so only failures accumulate (sign-in). */
++const release = (key) => db.prepare('UPDATE throttle SET count = count - 1 WHERE key = ? AND count > 0').run(key);
 +const resetThrottle = (key) => db.prepare('DELETE FROM throttle WHERE key = ?').run(key);
 +/** Removes counters whose window ended long ago (jobs). */
 +const purgeThrottle = () => db.prepare('DELETE FROM throttle WHERE window_start < ?').run(Date.now() - 86400000);
@@ -76,13 +81,13 @@ index 69d165c..526b7d1 100644
  module.exports = {
    hashPassword, verifyPassword, createSession, destroySession, destroyAllSessions, loadSession,
 -  parseCookies, createLoginCode, consumeLoginCode, throttled, resetThrottle, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
-+  parseCookies, createLoginCode, consumeLoginCode, throttled, isBlocked, recordFailure, resetThrottle, purgeThrottle,
-+  markEmailVerified, distrustUnverified, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
++  parseCookies, createLoginCode, consumeLoginCode, throttled, release, resetThrottle, purgeThrottle,
++  markEmailVerified, markResetDelivered, distrustUnverified, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
  };
 
-# SEC-003: re-promoting ADMIN_EMAIL removes an unproven password first
+# SEC-003: ADMIN_EMAIL account proven at creation; re-promotion removes an unproven password first
 diff --git a/src/bootstrap.js b/src/bootstrap.js
-index b1b14fb..63a3037 100644
+index b1b14fb..65747f1 100644
 --- a/src/bootstrap.js
 +++ b/src/bootstrap.js
 @@ -30,6 +30,8 @@ function ensureAdminFromEnv(env = process.env, { keepAdmin = config.master || co
@@ -94,10 +99,18 @@ index b1b14fb..63a3037 100644
        db.prepare("UPDATE users SET role = 'admin', status = 'active', updated_at = ? WHERE id = ?").run(time.stamp(), existing.id);
        audit(null, 'admin.bootstrap_env', 'user', existing.id, `${email}: admin again (ADMIN_EMAIL)`);
        return db.prepare('SELECT * FROM users WHERE id = ?').get(existing.id);
+@@ -44,6 +46,7 @@ function ensureAdminFromEnv(env = process.env, { keepAdmin = config.master || co
+       password ? auth.hashPassword(password) : null, now, now, now);
+   if (r.changes !== 1) return db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+   const id = r.lastInsertRowid;
++  auth.markEmailVerified(id); // the operator chose this address in the deployment's settings
+   db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, accepted_at) VALUES (?, ?, ?)').run(id, currentPolicy().version, now);
+   audit(null, 'admin.bootstrap_env', 'user', id, email);
+   console.log(`[bootstrap] Created admin ${email} from ADMIN_EMAIL${password ? '/ADMIN_PASSWORD' : ' (no password: sign in with an e-mailed code, Google, or "forgot password")'}`);
 
-# SEC-002: throttle table; SEC-003: users.email_verified_at
+# SEC-002: throttle table; SEC-003: users.email_verified_at, password_resets.delivered, Google-linked accounts count as proven
 diff --git a/src/db.js b/src/db.js
-index ab48deb..edcc153 100644
+index ab48deb..643e0d2 100644
 --- a/src/db.js
 +++ b/src/db.js
 @@ -198,6 +198,13 @@ CREATE TABLE IF NOT EXISTS branding (
@@ -114,34 +127,38 @@ index ab48deb..edcc153 100644
  -- One-time sign-in links from the master console (routes/manage.js): only a hash of the token; 2 minutes, single use.
  CREATE TABLE IF NOT EXISTS sso_tokens (
    token_hash TEXT PRIMARY KEY,
-@@ -224,6 +231,9 @@ function addColumn(table, column, type) {
+@@ -224,6 +231,13 @@ function addColumn(table, column, type) {
    }
  }
  addColumn('users', 'google_sub', 'TEXT');
 +// When the owner proved they receive mail at this address (used an e-mailed link or code, or Google). An account
 +// without it may have been registered by someone else with that address (SEC-003).
 +addColumn('users', 'email_verified_at', 'TEXT');
++// A link counts as proof of the address only when it was really e-mailed, not shown on screen to an admin (SEC-003).
++addColumn('password_resets', 'delivered', 'INTEGER NOT NULL DEFAULT 0');
++// Accounts already linked to Google had their address proven by Google.
++db.prepare('UPDATE users SET email_verified_at = ? WHERE email_verified_at IS NULL AND google_sub IS NOT NULL').run(new Date().toISOString());
  // Two-step verification was removed: forget stored authenticator secrets and sessions that were waiting for a code.
  // (The columns stay, so older databases keep working.)
  db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE totp_enabled != 0 OR totp_secret IS NOT NULL').run();
 
-# SEC-002: purge old throttle counters
+# SEC-002: purge old throttle counters (errors do not stop the jobs)
 diff --git a/src/jobs.js b/src/jobs.js
-index f75a81f..b262a5d 100644
+index f75a81f..de21c04 100644
 --- a/src/jobs.js
 +++ b/src/jobs.js
 @@ -19,6 +19,7 @@ async function runJobs() {
    const s = getSettings();
    const now = time.now();
    bookings.completeFinished();
-+  require('./auth').purgeThrottle();
++  try { require('./auth').purgeThrottle(); } catch (err) { console.error('[jobs] purging old attempt counters failed:', err.message); }
  
    const pickups = db.prepare(`${withUser} WHERE b.status = 'approved' AND b.kind = 'booking' AND b.pickup_reminded = 0
      AND b.start_at > ? AND b.start_at <= ?`).all(now, time.addMinutes(now, s.pickup_reminder_hours * 60));
 
-# SEC-001: other managers of the site hosting the console cannot change the main admin's account
+# SEC-001: other managers of the site hosting the console cannot change the main admin's account (case-insensitive); SEC-003: e-mailed links prove the address
 diff --git a/src/routes/admin.js b/src/routes/admin.js
-index 44f7714..348077d 100644
+index 44f7714..b018d00 100644
 --- a/src/routes/admin.js
 +++ b/src/routes/admin.js
 @@ -29,6 +29,18 @@ const bookingBadge = (s) => badge(s, bookings.STATUS_LABELS[s]);
@@ -154,7 +171,7 @@ index 44f7714..348077d 100644
 + * over the console (SEC-001). Answers on its own when refused.
 + */
 +function protectsMainAdmin(req, res, u) {
-+  if (!config.masterConsole || u.id === req.user.id || u.email !== require('../bootstrap').mainAdminEmail()) return false;
++  if (!config.masterConsole || u.id === req.user.id || String(u.email).toLowerCase() !== require('../bootstrap').mainAdminEmail()) return false;
 +  res.flash('error', 'זה חשבון המנהל הראשי של מרכז הניהול, ורק הוא עצמו יכול לשנות אותו.');
 +  res.redirect(req.method === 'GET' ? 302 : 303, `/admin/users/${u.id}`);
 +  return true;
@@ -163,7 +180,15 @@ index 44f7714..348077d 100644
  /** Wraps a POST handler that may throw BookingError, flashing the message and redirecting back. */
  const guarded = (fallback, fn) => async (req, res) => {
    try {
-@@ -552,6 +564,7 @@ ${permissionsCard(req, u, isSelf)}
+@@ -440,6 +452,7 @@ ${users.length ? '' : html`<p class="empty">${icon('users', 28)}<span>לא נמ
+     if (v.send_invite) {
+       const token = auth.createPasswordReset(id, auth.INVITE_TTL_MS);
+       const sent = await mail.invitation(u, token, fullName(req.user)) && Boolean(config.smtp);
++      if (sent) auth.markResetDelivered(token);
+       notice = sent
+         ? ['success', `המשתמש ${fullName(u)} נוצר, ונשלח אליו מייל לבחירת סיסמה.`]
+         : ['warning', `המשתמש ${fullName(u)} נוצר, אבל ${config.smtp ? 'שליחת המייל נכשלה' : 'לא הוגדר שרת דואר ולכן לא נשלח מייל'}. `
+@@ -552,6 +565,7 @@ ${permissionsCard(req, u, isSelf)}
        res.flash('error', 'לא ניתן לבצע פעולה זו על החשבון שלך');
        return res.redirect(`/admin/users/${u.id}`);
      }
@@ -171,7 +196,15 @@ index 44f7714..348077d 100644
      const note = String(req.body.note || '').trim().slice(0, 500);
      const msg = await handler(u, req, note);
      if (msg) res.flash(msg.type || 'success', msg.text || msg);
-@@ -655,12 +668,14 @@ ${permissionsCard(req, u, isSelf)}
+@@ -631,6 +645,7 @@ ${permissionsCard(req, u, isSelf)}
+   userAction('send-reset', async (u, req) => {
+     const token = auth.createPasswordReset(u.id);
+     const sent = await mail.passwordReset(u, token) && Boolean(config.smtp); // without SMTP it only reaches data/outbox
++    if (sent) auth.markResetDelivered(token);
+     audit(req.user.id, 'user.password_reset_sent', 'user', u.id, sent ? 'email' : 'shown to admin');
+     if (sent) return `נשלח אל ${u.email} קישור לאיפוס סיסמה (תקף לשעה)`;
+     // No e-mail reached the user: give the admin the link to pass on (WhatsApp, SMS…). Single use, valid one hour.
+@@ -655,12 +670,14 @@ ${permissionsCard(req, u, isSelf)}
    app.get('/admin/users/:id/password', requireAdmin, (req, res) => {
      const u = getUser(req.params.id);
      if (!u) return res.redirect('/admin/users');
@@ -187,9 +220,9 @@ index 44f7714..348077d 100644
      const password = String(req.body.password || '');
      if (password.length < 8 || password.length > 200) return passwordFor(req, res, u, 'הסיסמה צריכה להכיל לפחות 8 תווים');
 
-# SEC-003: promoting an unproven account to manager removes its password and sessions (invitation sets a new one)
+# SEC-003: promoting an unproven account to manager removes its password and sessions; an e-mailed invitation proves the address
 diff --git a/src/routes/manage.js b/src/routes/manage.js
-index 527511f..66dbdeb 100644
+index 527511f..8e10cbd 100644
 --- a/src/routes/manage.js
 +++ b/src/routes/manage.js
 @@ -146,6 +146,9 @@ function ensureAdmin({ email, firstName, lastName, note }) {
@@ -202,10 +235,43 @@ index 527511f..66dbdeb 100644
      db.prepare("UPDATE users SET role = 'admin', status = 'active', updated_at = ? WHERE id = ?").run(now, u.id);
      u = db.prepare('SELECT * FROM users WHERE id = ?').get(u.id);
      return { user: u, created: false, promoted: true };
+@@ -222,6 +225,7 @@ module.exports = ({ app }) => {
+     let emailed = false;
+     if (b.send_email !== false && (token || promoted)) {
+       emailed = Boolean(await mail.managerInvitation(user, token, String(b.invited_by || 'מנהל השירות').slice(0, 80))) && Boolean(config.smtp);
++      if (emailed && token) auth.markResetDelivered(token);
+     }
+     audit(null, created ? 'manage.admin_create' : promoted ? 'manage.admin_promote' : 'manage.admin_invite', 'user', user.id, `${by(req)}: ${email}`);
+     res.json({ admin: adminRow(user), created, promoted, link, emailed, mailConfigured: Boolean(config.smtp) });
 
-# SEC-002: per-address + per-account failure counters, success resets only that account; SEC-003: Google linking removes an unproven password and marks the address proven
+# SEC-003: adding an existing account as console admin removes an unproven password first; an e-mailed invitation proves the address
+diff --git a/src/routes/master.js b/src/routes/master.js
+index fd57dd4..9cd38ea 100644
+--- a/src/routes/master.js
++++ b/src/routes/master.js
+@@ -670,7 +670,10 @@ ${r.users.map((u) => html`<tr>
+     let u = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+     const now = time.stamp();
+     if (u) {
++      // An unproven password on this address may not be the owner's: it goes before the account gets console rights.
++      if (u.role !== 'admin' || u.status !== 'active') auth.distrustUnverified(u);
+       db.prepare("UPDATE users SET role = 'admin', status = 'active', updated_at = ? WHERE id = ?").run(now, u.id);
++      u = db.prepare('SELECT * FROM users WHERE id = ?').get(u.id);
+     } else {
+       const id = db.prepare(`INSERT INTO users (first_name, last_name, id_number, phone, email, role, status, created_at, updated_at)
+         VALUES (?, ?, ?, '', ?, 'admin', 'active', ?, ?)`).run(first, last, `master-${require('node:crypto').randomUUID()}`, email, now, now).lastInsertRowid;
+@@ -683,6 +686,7 @@ ${r.users.map((u) => html`<tr>
+     }
+     const token = auth.createPasswordReset(u.id, auth.INVITE_TTL_MS);
+     const sent = await mail.invitation(u, token, fullName(req.user)) && Boolean(config.smtp);
++    if (sent) auth.markResetDelivered(token);
+     res.flash(sent ? 'success' : 'warning', sent ? `נשלח אל ${email} מייל עם קישור לבחירת סיסמה.`
+       : `${email} נוסף/ה, אבל ${config.smtp ? 'שליחת המייל נכשלה' : 'לא הוגדר שרת דואר'}. העבירו את הקישור לבחירת סיסמה (תקף ל־7 ימים): `
+         + `${config.baseUrl}/password/reset?token=${encodeURIComponent(token)}`);
+
+# SEC-002: per-network (30) + per-account (10, by id) limits, code sign-in not locked by the password lock; SEC-003: Google linking removes an unproven password; reset links prove the address only when e-mailed
 diff --git a/src/routes/public.js b/src/routes/public.js
-index 48c533a..6d37191 100644
+index 48c533a..0b547cf 100644
 --- a/src/routes/public.js
 +++ b/src/routes/public.js
 @@ -78,7 +78,9 @@ function loginPage(req, { error, email = '', next = req.query.next || req.body?.
@@ -215,41 +281,55 @@ index 48c533a..6d37191 100644
 -  auth.resetThrottle('login:' + req.ip);
 +  // Only this account's failures are cleared: signing in to some other account must not reset the counter of the one
 +  // being guessed (SEC-002). The per-address counter runs out on its own.
-+  auth.resetThrottle(`login:acct:${String(user.email).toLowerCase()}`);
++  auth.resetThrottle(`login:acct:${user.id}`);
    auth.createSession(res, user.id);
    res.redirect(safeNext(next) || homeFor(user));
  }
-@@ -245,11 +247,14 @@ module.exports = ({ app, licenseUpload }) => {
+@@ -244,14 +246,21 @@ module.exports = ({ app, licenseUpload }) => {
+   });
  
    app.post('/login', (req, res) => {
-     const email = String(req.body.email || '').trim();
+-    const email = String(req.body.email || '').trim();
 -    if (auth.throttled('login:' + req.ip)) {
-+    // Failed attempts are counted per address and per account, in the database (SEC-002).
-+    const keys = [`login:${req.ip}`, `login:acct:${email.toLowerCase()}`];
-+    if (keys.some((k) => auth.isBlocked(k))) {
-       return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי ניסיונות. נסו שוב בעוד מספר דקות.', email }));
-     }
+-      return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי ניסיונות. נסו שוב בעוד מספר דקות.', email }));
+-    }
++    const email = String(req.body.email || '').trim().slice(0, 254);
      const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
++    // Every attempt is counted first, in the database, per network address and per account; a success gives its count
++    // back, so only failures add up and a sign-in to another account resets nothing (SEC-002). A locked password does
++    // not lock the e-mailed code, "forgot password" or Google.
++    const ipKey = `login:${req.ip}`;
++    const overIp = auth.throttled(ipKey, 30);
++    const overAccount = user ? auth.throttled(`login:acct:${user.id}`, 10) : false;
++    if (overIp || overAccount) {
++      return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי ניסיונות. נסו שוב בעוד מספר דקות, או התחברו עם קוד במייל.', email }));
++    }
      if (!user || !auth.verifyPassword(String(req.body.password || ''), user.password_hash)) {
-+      keys.forEach((k) => auth.recordFailure(k));
        return res.status(401).page('התחברות', loginPage(req, { error: 'דואר אלקטרוני או סיסמה שגויים', email }));
      }
++    auth.release(ipKey);
      finishLogin(req, res, user);
-@@ -288,8 +293,11 @@ module.exports = ({ app, licenseUpload }) => {
+   });
+ 
+@@ -288,10 +297,15 @@ module.exports = ({ app, licenseUpload }) => {
    });
  
    app.post('/login/code/verify', (req, res) => {
 -    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(String(req.body.email || '').trim());
 -    if (auth.throttled('login:' + req.ip) || !user || !auth.consumeLoginCode(user.id, req.body.code)) {
-+    const email = String(req.body.email || '').trim();
++    const email = String(req.body.email || '').trim().slice(0, 254);
 +    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-+    const keys = [`login:${req.ip}`, `login:acct:${email.toLowerCase()}`];
-+    if (keys.some((k) => auth.isBlocked(k)) || !user || !auth.consumeLoginCode(user.id, req.body.code)) {
-+      keys.forEach((k) => auth.recordFailure(k));
++    // Per network address only: codes already allow 5 wrong tries per account (consumeLoginCode), and this way a
++    // locked password never locks the code too.
++    const ipKey = `code-verify:${req.ip}`;
++    if (auth.throttled(ipKey, 30) || !user || !auth.consumeLoginCode(user.id, req.body.code)) {
        return res.status(401).page('התחברות', loginPage(req, { error: 'הקוד שגוי או שפג תוקפו', email: req.body.email }));
      }
++    auth.release(ipKey);
      finishLogin(req, res, user);
-@@ -365,10 +373,17 @@ module.exports = ({ app, licenseUpload }) => {
+   });
+ 
+@@ -365,10 +379,17 @@ module.exports = ({ app, licenseUpload }) => {
          return res.redirect('/login');
        }
        if (user) {
@@ -267,14 +347,33 @@ index 48c533a..6d37191 100644
      if (user) return finishLogin(req, res, user, profile.next);
  
      // New person: continue to the registration form with name and e-mail from Google.
+@@ -434,6 +455,7 @@ module.exports = ({ app, licenseUpload }) => {
+         license_file, license_expiry, google_sub, privacy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+       .run(v.first_name, v.last_name, v.id_number, v.phone, v.email, passwordHash,
+         licenseFile, v.license_expiry, gs ? gs.sub : null, now, now, now).lastInsertRowid);
++    if (gs) auth.markEmailVerified(id); // registered through Google: Google proved the address
+     if (draft) dropDraft(draft.token);
+     if (gs) {
+       google.clearSignup(req.cookies[GOOGLE_SIGNUP_COOKIE]);
+@@ -464,7 +486,9 @@ module.exports = ({ app, licenseUpload }) => {
+     if (!validEmail(email)) return res.status(400).page('שכחתי סיסמה', forgotPage(req, { email, error: 'כתובת הדואר האלקטרוני אינה תקינה' }));
+     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+     // Same answer whether or not the address is registered.
+-    const sent = user ? await mail.passwordReset(user, auth.createPasswordReset(user.id)) : true;
++    const resetToken = user && auth.createPasswordReset(user.id);
++    const sent = user ? await mail.passwordReset(user, resetToken) : true;
++    if (user && sent && config.smtp) auth.markResetDelivered(resetToken);
+     if (!sent) {
+       return res.status(503).page('שכחתי סיסמה', forgotPage(req, {
+         email, error: 'שליחת המייל נכשלה. נסו שוב בעוד כמה דקות, או פנו למנהל המערכת.',
 
 # SEC-001/002/003: attack-replay regression tests
 diff --git a/test/e2e/hardening.test.js b/test/e2e/hardening.test.js
 new file mode 100644
-index 0000000..25e8a43
+index 0000000..5fee39b
 --- /dev/null
 +++ b/test/e2e/hardening.test.js
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,102 @@
 +'use strict';
 +// Security hardening (analysis/car-rental/SECURITY_FINDINGS.md): each test replays the attack and shows it is blocked.
 +process.env.MASTER_CONSOLE = 'true';
@@ -309,7 +408,7 @@ index 0000000..25e8a43
 +});
 +
 +test('SEC-002: signing in to your own account does not reset the counter of the account being guessed', async () => {
-+  createUser({ email: 'victim@hard.test', password: 'VictimPass1' });
++  const victim = createUser({ email: 'victim@hard.test', password: 'VictimPass1' });
 +  createUser({ email: 'attacker@hard.test', password: 'Attacker1' });
 +  const c = client();
 +  for (let round = 0; round < 3; round++) {
@@ -319,10 +418,14 @@ index 0000000..25e8a43
 +  const r = await c.req('POST', '/login', { email: 'victim@hard.test', password: 'VictimPass1' });
 +  assert.equal(r.status, 429, 'blocked after 10 failures even with the right password');
 +  // Counters are in the database: every server instance sees the same ones.
-+  assert.ok(db.prepare("SELECT count FROM throttle WHERE key = 'login:acct:victim@hard.test'").get().count >= 10);
-+  // Other people are not affected, and the attacker's own sign-ins still work.
-+  db.prepare("DELETE FROM throttle WHERE key LIKE 'login:127%' OR key LIKE 'login:::%'").run();
++  assert.ok(db.prepare('SELECT count FROM throttle WHERE key = ?').get(`login:acct:${victim.id}`).count > 10);
++  // The attacker's own sign-ins still work (they gave their count back), and a locked password does not lock the
++  // e-mailed code: the real owner can still get in.
 +  await client().login('attacker@hard.test', 'Attacker1');
++  const owner = client();
++  const code = auth.createLoginCode(victim.id);
++  const r2 = await owner.req('POST', '/login/code/verify', { email: 'victim@hard.test', code });
++  assert.equal(r2.status, 303, 'signed in with the e-mailed code despite the locked password');
 +});
 +
 +test('SEC-003: an account registered with someone else\'s address loses its password before it becomes a manager', async () => {
@@ -341,9 +444,12 @@ index 0000000..25e8a43
 +  assert.deepEqual([now.role, now.password_hash], ['admin', null]);
 +  assert.equal((await attacker.get('/admin')).status, 401, 'the attacker\'s session ended');
 +  await assert.rejects(client().login('future-manager@hard.test', 'AttackerPw1'), /login failed/);
-+  // The owner uses the invitation: the address is now proven, and a later promotion keeps that password.
++  // The owner uses the invitation. It was shown to the console, not e-mailed, so it proves nothing yet; an e-mailed
++  // sign-in code does. After that a later promotion keeps the owner's password.
 +  const token = decodeURIComponent(r.link.split('token=')[1]);
 +  await client().post('/password/reset', { token, password: 'RealOwner1', confirm: 'RealOwner1' });
++  assert.equal(db.prepare('SELECT email_verified_at FROM users WHERE id = ?').get(pre.id).email_verified_at, null);
++  assert.equal((await client().req('POST', '/login/code/verify', { email: 'future-manager@hard.test', code: auth.createLoginCode(pre.id) })).status, 303);
 +  assert.ok(db.prepare('SELECT email_verified_at FROM users WHERE id = ?').get(pre.id).email_verified_at);
 +  db.prepare("UPDATE users SET role = 'user' WHERE id = ?").run(pre.id);
 +  await api('/api/manage/admins', { email: 'future-manager@hard.test' });
@@ -357,6 +463,18 @@ index 0000000..25e8a43
 +  const v = createUser({ email: 'coded@hard.test' });
 +  assert.equal(auth.consumeLoginCode(v.id, auth.createLoginCode(v.id)), true);
 +  assert.ok(db.prepare('SELECT email_verified_at FROM users WHERE id = ?').get(v.id).email_verified_at);
++});
++
++test('SEC-003: only a link that was really e-mailed proves the address; the ADMIN_EMAIL account is proven from the start', () => {
++  const shown = createUser({ email: 'shown@hard.test' });
++  auth.resetPassword(auth.createPasswordReset(shown.id), 'Shown-Pass1');
++  assert.equal(db.prepare('SELECT email_verified_at FROM users WHERE id = ?').get(shown.id).email_verified_at, null, 'a link shown to an admin');
++  const mailed = createUser({ email: 'mailed@hard.test' });
++  const t = auth.createPasswordReset(mailed.id);
++  auth.markResetDelivered(t);
++  auth.resetPassword(t, 'Mailed-Pass1');
++  assert.ok(db.prepare('SELECT email_verified_at FROM users WHERE id = ?').get(mailed.id).email_verified_at, 'a link that was e-mailed');
++  assert.ok(db.prepare("SELECT email_verified_at FROM users WHERE email = 'owner@hard.test'").get().email_verified_at);
 +});
 
 # SEC-003: regression test updated: an unproven account gets an invitation when promoted

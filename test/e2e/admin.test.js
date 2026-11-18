@@ -564,3 +564,34 @@ test('a request is approved or rejected right from the dashboard, the bookings l
   r = await admin.post(`/admin/bookings/${c}/approve`, { back: '//evil.example/x' }, '/admin');
   assert.equal(r.location, `/admin/bookings/${c}`);
 });
+
+test('delete a user: account, bookings and license photos go; actions they did stay without a name', async () => {
+  putStoredFile('del-license.png', 'x');
+  const u = createUser({ email: 'gone@adm.test', license_file: 'del-license.png' });
+  const other = createUser({ email: 'stays@adm.test' });
+  const bk = db.prepare("INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, status, kind) VALUES (1, ?, ?, ?, 'approved', 'booking')")
+    .run(u.id, inDays(30, '08:00'), inDays(30, '10:00')).lastInsertRowid;
+  // Something this user did on another's booking (e.g. as a former admin) stays, without the name.
+  const theirs = db.prepare("INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, status, kind, created_by) VALUES (1, ?, ?, ?, 'approved', 'booking', ?)")
+    .run(other.id, inDays(31, '08:00'), inDays(31, '10:00'), u.id).lastInsertRowid;
+  const page = (await admin.get(`/admin/users/${u.id}`)).text;
+  assert.match(page, /id="delete"[\s\S]*יש לו\/ה 1 הזמנות עתידיות פתוחות/);
+
+  let r = await admin.post(`/admin/users/${u.id}/delete`, {}, `/admin/users/${u.id}`);
+  assert.match(admin.flash().text, /יש לסמן את תיבת האישור/);
+  assert.ok(getUser(u.id), 'not without the checkbox');
+
+  r = await admin.post(`/admin/users/${u.id}/delete`, { confirm: '1' }, `/admin/users/${u.id}`);
+  assert.equal(r.location, '/admin/users');
+  assert.match(admin.flash().text, /נמחק, יחד עם 1 הזמנות/);
+  assert.equal(getUser(u.id), undefined);
+  assert.equal(getBooking(bk), undefined, 'their bookings are gone');
+  assert.equal(getBooking(theirs).created_by, null, "another's booking stays");
+  assert.equal(storedFile('del-license.png'), null, 'license photo removed');
+
+  // Not your own account.
+  const me = db.prepare("SELECT id FROM users WHERE email = 'admin@adm.test'").get();
+  await admin.post(`/admin/users/${me.id}/delete`, { confirm: '1' }, `/admin/users/${me.id}`);
+  assert.match(admin.flash().text, /לא ניתן למחוק את החשבון שלך/);
+  assert.doesNotMatch((await admin.get(`/admin/users/${me.id}`)).text, /id="delete"/, 'no delete button on your own page');
+});

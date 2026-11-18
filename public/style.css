@@ -624,3 +624,8 @@ ul.docs .doc-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
 .field > .password-row { display: flex; gap: .5rem; align-items: center; font-weight: normal; margin: 0; }
 .password-row .btn { flex: none; }
 .password-row input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .03em; }
+
+/* Irreversible actions (delete a user) */
+.danger-zone { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+.danger-zone .section-title { color: var(--danger); }
+.danger-zone form { display: flex; flex-direction: column; gap: .8rem; align-items: flex-start; }

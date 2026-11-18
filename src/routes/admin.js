@@ -1,6 +1,6 @@
 'use strict';
 const path = require('node:path');
-const { db, audit, getSettings, setSetting, currentPolicy, defaultVehicle, storageInfo } = require('../db');
+const { db, transaction, audit, getSettings, setSetting, currentPolicy, defaultVehicle, storageInfo } = require('../db');
 const auth = require('../auth');
 const mail = require('../mail');
 const time = require('../time');
@@ -54,6 +54,20 @@ const guarded = (fallback, fn) => async (req, res) => {
 
 /** A local path to return to after an action (only this site's own pages). */
 const safeBack = (v) => (typeof v === 'string' && /^\/(?![/\\])/.test(v) && !/[\r\n]/.test(v) ? v : null);
+
+/** "Delete user" at the bottom of a user's page: says what goes with the account, and asks again before. */
+function deleteUserCard(req, u, list) {
+  const open = list.filter((b) => ['pending', 'approved'].includes(b.status) && b.end_at > time.now()).length;
+  return html`<section class="card danger-zone" id="delete">
+  <h2 class="section-title">${icon('alert')} מחיקת המשתמש</h2>
+  <p>החשבון של ${fullName(u)} יימחק לצמיתות, כולל ${list.length ? `${list.length} ההזמנות שלו/ה (גם ההיסטוריה)` : 'כל הנתונים שלו/ה'}, צילומי הרישיון ואישורי הנהלים.
+    ${open ? html`<b>יש לו/ה ${open} הזמנות עתידיות פתוחות, והן יימחקו בלי הודעה.</b>` : ''} אי אפשר לבטל את המחיקה.</p>
+  <p class="muted small">כדי רק למנוע כניסה ולשמור את ההיסטוריה, עדיף לחסום את המשתמש.</p>
+  ${postForm(req, `/admin/users/${u.id}/delete`, html`
+    <label class="check"><input type="checkbox" name="confirm" value="1" required> <span>כן, למחוק את ${fullName(u)} (<span dir="ltr">${u.email}</span>) לצמיתות</span></label>
+    <button class="btn btn-danger" data-confirm="למחוק את ${fullName(u)} לצמיתות? אי אפשר לבטל.">מחיקת המשתמש</button>`)}
+</section>`;
+}
 
 /** With `req`, pending requests get approve / reject buttons right in the row (returning to this page). */
 function bookingsTable(list, { showUser = true, req } = {}) {
@@ -540,6 +554,7 @@ ${pageHead(html`${fullName(u)} ${u.role === 'admin' ? badge('admin', 'מנהל')
 </section>
 
 ${permissionsCard(req, u, isSelf)}
+${isSelf ? '' : deleteUserCard(req, u, list)}
 
 <section class="card">
   <h2 class="section-title">${icon('list')} היסטוריית הזמנות</h2>
@@ -549,6 +564,33 @@ ${permissionsCard(req, u, isSelf)}
   <h2 class="section-title">${icon('clock')} יומן פעולות</h2>
   ${log.length ? html`<ul class="plain small">${log.map((a) => html`<li>${time.fmt(a.at)} – ${a.action} ${a.details ? '(' + a.details + ')' : ''} ${a.first_name ? '· ' + fullName(a) : ''}</li>`)}</ul>` : html`<p class="muted">אין פעולות.</p>`}
 </section>`);
+  });
+
+  // Deleting an account for good: its bookings (and their history) and license photos with it; where it appears as
+  // the one who did something (approved a booking, uploaded a document, the action log), that stays, without a name.
+  app.post('/admin/users/:id/delete', requireAdmin, (req, res) => {
+    const u = getUser(req.params.id);
+    if (!u) return res.redirect(303, '/admin/users');
+    const refuse = (text) => { res.flash('error', text); res.redirect(303, `/admin/users/${u.id}#delete`); };
+    if (u.id === req.user.id) return refuse('לא ניתן למחוק את החשבון שלך');
+    if (protectsMainAdmin(req, res, u)) return;
+    if (String(u.email).toLowerCase() === require('../bootstrap').mainAdminEmail()) {
+      return refuse('זה החשבון שמוגדר ב־ADMIN_EMAIL, והוא נוצר מחדש בכל הפעלה. כדי להסיר אותו, שנו קודם את ADMIN_EMAIL ב־Vercel.');
+    }
+    if (req.body.confirm !== '1') return refuse('יש לסמן את תיבת האישור כדי למחוק את המשתמש');
+    const files = [u.license_file, u.pending_license_file].filter(Boolean);
+    const bookingsCount = db.prepare('SELECT COUNT(*) AS n FROM bookings WHERE user_id = ?').get(u.id).n;
+    transaction(() => {
+      db.prepare('DELETE FROM bookings WHERE user_id = ?').run(u.id); // their history goes with them (ON DELETE CASCADE)
+      for (const [table, column] of [['bookings', 'created_by'], ['booking_history', 'actor_id'], ['audit_log', 'actor_id'], ['policies', 'created_by'], ['vehicle_documents', 'uploaded_by']]) {
+        db.prepare(`UPDATE ${table} SET ${column} = NULL WHERE ${column} = ?`).run(u.id);
+      }
+      db.prepare('DELETE FROM users WHERE id = ?').run(u.id); // sessions, codes, reset links, policy acceptances: cascade
+    });
+    for (const f of files) storage.remove(f);
+    audit(req.user.id, 'user.delete', 'user', u.id, `${fullName(u)} · ${u.email} · ${bookingsCount} הזמנות`);
+    res.flash('success', `המשתמש ${fullName(u)} נמחק${bookingsCount ? `, יחד עם ${bookingsCount} הזמנות` : ''}.`);
+    res.redirect(303, '/admin/users');
   });
 
   // License images are never public: served only here, to admins, with no caching.

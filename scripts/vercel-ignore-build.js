@@ -3,23 +3,19 @@
 // Only production is deployed on Vercel: every deployment Vercel keeps counts toward the plan's storage (Hobby: 10 GB),
 // and one push rebuilds every client's site. So:
 //   - only the main branch is built (production); dev, work and pull-request branches are not (vercel.json also turns
-//     off automatic deployments for the usual ones: git.deploymentEnabled);
-//   - a push that changes only documentation or tests is not built.
-// A redeploy (same commit, e.g. after changing a variable) and anything this script cannot tell are always built.
+//     off automatic deployments for the usual ones: git.deploymentEnabled).
+// Every deployment of main is built, docs-only ones too: a redeploy to apply new variables must never be skipped.
 const { execFileSync } = require('node:child_process');
 
-/** What the running app is made of; anything else (docs/, test/, README…) does not need a new deployment. */
-const APP_PATHS = ['src', 'public', 'api', 'package.json', 'package-lock.json', 'vercel.json'];
-const isAppFile = (f) => APP_PATHS.some((p) => f === p || f.startsWith(`${p}/`));
 
 /** changedFiles: the files changed since the branch's last deployment, or null when unknown. */
 function decide(env, changedFiles) {
   const branch = env.VERCEL_GIT_COMMIT_REF || '';
   if (!branch) return { build: true, reason: 'not a git push (deployed through the API or CLI)' };
   if (branch !== 'main') return { build: false, reason: `only main (production) is deployed, not ${branch}` };
-  if (changedFiles && changedFiles.length && !changedFiles.some(isAppFile)) {
-    return { build: false, reason: `only documentation or tests changed (${changedFiles.slice(0, 3).join(', ')}${changedFiles.length > 3 ? '…' : ''})` };
-  }
+  // Not skipped on main even when only docs changed: Vercel cannot tell this script whether a deployment is a push or
+  // a redeploy to apply changed variables (the console's "rebuild" and "set the key"), and a skipped redeploy silently
+  // leaves the old variables in place.
   return { build: true, reason: changedFiles?.length ? 'the app changed' : 'a new branch, a redeploy, or the changes are unknown' };
 }
 
@@ -35,7 +31,7 @@ function changedSinceLastDeployment(env) {
   }
 }
 
-module.exports = { decide, changedSinceLastDeployment, APP_PATHS };
+module.exports = { decide, changedSinceLastDeployment };
 
 if (require.main === module) {
   const d = decide(process.env, changedSinceLastDeployment(process.env));

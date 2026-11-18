@@ -278,6 +278,27 @@ test('a site that already exists: added to the list, given its management key th
   await boss.post('/master/clients/first/share-mail', {}, '/master/clients/first');
   assert.match(boss.flash().text, /לא הוגדר שרת דואר/, 'nothing to copy without SMTP here');
 
+  let keyed;
+  // A site that sends no mail gets the console's mailbox on its own when the console sees it, once an hour at most.
+  try {
+    cfg.smtp = { host: 'smtp.example.org', port: 465 };
+    Object.assign(process.env, { SMTP_HOST: 'smtp.example.org', SMTP_PORT: '465', SMTP_USER: 'console@example.org', SMTP_PASS: 'app-pass-123' });
+    keyed = await launch({ MANAGE_TOKEN: master.manageToken('first') }); // a site with the right key and no mail
+    master.update('first', { mail_shared_at: null, url: keyed.base });
+    const mark = calls.length;
+    const page = await boss.get('/master/clients/first');
+    assert.match(page.text, /הגדרות הדואר של מרכז הניהול נשלחו לאתר/);
+    const sent = calls.slice(mark).find((x) => x.method === 'POST' && /\/projects\/prj_first\/env$/.test(x.path));
+    assert.ok(sent && sent.body.some((e) => e.key === 'SMTP_PASS' && e.type === 'sensitive'), 'mail settings sent');
+    const again = calls.length;
+    await boss.get('/master/clients/first');
+    assert.equal(calls.slice(again).filter((x) => /\/env$/.test(x.path)).length, 0, 'not again on the next visit');
+  } finally {
+    await keyed?.stop();
+    cfg.smtp = saved.smtp;
+    for (const k of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS']) if (k in saved.env) process.env[k] = saved.env[k]; else delete process.env[k];
+  }
+
   // A site with a different key is refused, and says so.
   const other = await launch({ MANAGE_TOKEN: 'x'.repeat(40) });
   master.update('first', { url: other.base });

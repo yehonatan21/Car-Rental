@@ -351,7 +351,10 @@ ${d ? html`<section class="card" id="system">
   <dl class="dl">
     <dt>גרסה</dt><dd>${versionLabel(d) || '—'}</dd>
     <dt>מסד נתונים</dt><dd>${d.storage.kind === 'hosted' ? 'קבוע (Turso)' : d.storage.kind === 'temporary' ? html`<b>זמני – הנתונים נמחקים!</b>` : 'קובץ מקומי'} · מזהה <code>${d.storage.id}</code></dd>
-    <dt>מיילים</dt><dd>${d.mail.configured ? html`נשלחים מ־<span dir="ltr">${d.mail.from}</span>` : html`<b>לא מוגדרים</b> – מנהלים ומשתמשים לא מקבלים מיילים`}</dd>
+    <dt>מיילים</dt><dd>${d.mail.configured ? html`נשלחים מ־<span dir="ltr">${d.mail.from}</span>`
+    : st.mailShared ? html`${badge('pending', 'בהגדרה')} הגדרות הדואר של מרכז הניהול נשלחו לאתר, והוא נבנה מחדש. המיילים יישלחו בעוד כ־1–2 דקות.`
+      : c.mail_shared_at && config.smtp ? html`<b>עדיין לא מוגדרים</b> – הגדרות הדואר של מרכז הניהול נשלחו ב־${c.mail_shared_at.slice(11, 16)}. אם זה נמשך, לחצו "העתקת הגדרות הדואר" למטה.`
+        : html`<b>לא מוגדרים</b> – מנהלים ומשתמשים לא מקבלים מיילים${config.smtp ? '' : '. כשיוגדרו מיילים במרכז הניהול, האתרים יקבלו אותם אוטומטית.'}`}</dd>
     <dt>התחברות עם Google</dt><dd>${!d.google ? 'לא מוגדרת' : d.googleRelay ? html`פעילה, דרך כתובת החזרה של <span dir="ltr">${d.googleRelay}</span> (אין צורך לשנות דבר ב־Google Cloud)`
     : html`פעילה. ב־Google Cloud צריך להופיע ה־Redirect URI: <code dir="ltr">${c.url}/auth/google/callback</code>`}</dd>
     <dt>הזמנה אחרונה</dt><dd>${d.lastBookingAt ? time.fmt(d.lastBookingAt) : '—'}</dd>

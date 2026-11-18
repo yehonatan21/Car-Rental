@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS master_clients (
   manager_invited_at TEXT,
   provisioned INTEGER NOT NULL DEFAULT 0
 );`);
+  // When the console last gave this client its mail settings on its own (statusOf), so it does not retry every visit.
+  if (!db.prepare('PRAGMA table_info(master_clients)').all().some((c) => c.name === 'mail_shared_at')) {
+    try { db.exec('ALTER TABLE master_clients ADD COLUMN mail_shared_at TEXT'); } catch (err) { if (!/duplicate column/i.test(err.message)) throw err; }
+  }
 }
 
 const clean = provision.clean;
@@ -61,7 +65,7 @@ const clientBranch = () => clean(env().CLIENT_BRANCH) || 'main';
 
 // ---------- The list of clients ----------
 const COLUMNS = ['name', 'url', 'manager_email', 'vercel_project', 'vercel_project_id', 'turso_db', 'notes', 'last_status', 'last_seen_at',
-  'manager_invited_at'];
+  'manager_invited_at', 'mail_shared_at'];
 
 const list = () => db.prepare('SELECT * FROM master_clients ORDER BY name COLLATE NOCASE, slug').all();
 const get = (slug) => db.prepare('SELECT * FROM master_clients WHERE slug = ?').get(String(slug || ''));
@@ -149,12 +153,30 @@ async function statusOf(client, opts) {
     const data = await call(client, 'GET', '/api/manage/status', null, opts);
     if (data.app !== 'car-rental') throw new InstanceError('not_app', INSTANCE_ERRORS.not_app);
     update(client.slug, { last_status: JSON.stringify(data), last_seen_at: time.stamp() });
-    return { online: true, data };
+    const mailShared = data.mail && !data.mail.configured ? await autoShareMail(client) : false;
+    return { online: true, data, mailShared };
   } catch (err) {
     if (!(err instanceof InstanceError)) throw err;
     let last = null;
     try { last = client.last_status ? JSON.parse(client.last_status) : null; } catch { /* ignore */ }
     return { online: false, kind: err.kind, error: err.message, last };
+  }
+}
+
+/**
+ * A client site that sends no e-mail gets the console's mailbox on its own: every client sends from it unless it has
+ * mail settings of its own (a site that has them reports mail as configured and is never touched). Tried again only
+ * after an hour, since the site is rebuilt meanwhile. Returns true when the settings were sent.
+ */
+async function autoShareMail(client) {
+  const last = client.mail_shared_at ? Date.parse(client.mail_shared_at.replace(' ', 'T')) : 0;
+  if (!config.smtp || !providers().vercel || !(client.vercel_project || client.vercel_project_id) || Date.now() - last < 3600000) return false;
+  update(client.slug, { mail_shared_at: time.stamp() });
+  try {
+    return await shareMail(client);
+  } catch (err) {
+    console.warn(`[master] mail settings for ${client.slug} failed:`, err.message);
+    return false;
   }
 }
 

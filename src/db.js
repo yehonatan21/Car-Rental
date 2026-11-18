@@ -253,6 +253,7 @@ const DEFAULT_SETTINGS = {
   return_reminder_hours: '2',
   pending_alert_hours: '24',      // התראה על בקשה שממתינה זמן רב
   license_warn_days: '30',
+  auto_approve: '0',              // 1 = a request nothing stands in the way of is approved at once (no admin needed)
 };
 
 const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');

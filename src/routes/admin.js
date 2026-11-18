@@ -168,6 +168,10 @@ function bookingRulesCard(req) {
   return postForm(req, '/admin/settings', html`
     <h2 class="section-title">${icon('calendar')} כללי הזמנה</h2>
     <p class="muted small card-intro">כל בקשת הזמנה נבדקת מול הכללים האלה, גם כשמנהל יוצר אותה.</p>
+    <label class="check toggle-row"><input type="checkbox" name="auto_approve" value="1" ${s.auto_approve ? 'checked' : ''}>
+      <span><b>אישור אוטומטי של בקשות</b><br><small class="muted">בקשה שאין שום דבר שמונע אותה מאושרת מיד, בלי לחכות למנהל: המועד פנוי (כולל זמן ההתארגנות),
+        הרכב זמין, והמשתמש פעיל עם רישיון בתוקף. אם בקשה של מישהו אחר ממתינה לאותו זמן, הבקשה נשארת לאישור מנהל.
+        המשתמש והמנהלים מקבלים מייל אישור כרגיל.</small></span></label>
     <div class="grid2">${keys.slice(0, 4).map(input)}</div>
     <hr class="form-sep">
     <h3 class="sub-title">${icon('clock', 18)} תזכורות והתראות במייל</h3>
@@ -1064,7 +1068,9 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
       const n = Number(req.body[k]);
       if (Number.isInteger(n) && n >= 0) setSetting(k, n);
     }
-    audit(req.user.id, 'settings.update', null, null, JSON.stringify(req.body, Object.keys(SETTING_LABELS)));
+    // A checkbox: absent when unticked. Only this form posts the booking rules, so absent means off.
+    if (Object.keys(SETTING_LABELS).some((k) => k in req.body)) setSetting('auto_approve', req.body.auto_approve === '1' ? 1 : 0);
+    audit(req.user.id, 'settings.update', null, null, JSON.stringify(req.body, [...Object.keys(SETTING_LABELS), 'auto_approve']));
     res.flash('success', 'ההגדרות נשמרו');
     res.redirect('/admin/settings?tab=bookings');
   });

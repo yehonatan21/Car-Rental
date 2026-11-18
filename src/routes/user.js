@@ -306,13 +306,16 @@ ${isAdmin ? entries.filter((e) => e.dialog).map((e) => bookingDialog(req, e, req
     };
     if (req.body.accept_rules !== '1') return res.status(400).page('הזמנה חדשה', newBookingPage(req, { error: 'יש לאשר את נהלי השימוש', v }));
     try {
-      const b = bookings.createRequest(req.user, { vehicleId: defaultVehicle().id, ...v });
-      await mail.bookingRequested(b);
-      res.page('הבקשה נשלחה', html`
+      let b = bookings.createRequest(req.user, { vehicleId: defaultVehicle().id, ...v });
+      const approved = bookings.autoApprove(b);
+      if (approved) b = approved;
+      await (approved ? mail.bookingApproved(b, { approvedBy: 'המערכת (אישור אוטומטי)' }) : mail.bookingRequested(b));
+      res.page(approved ? 'ההזמנה אושרה' : 'הבקשה נשלחה', html`
 <div class="narrow card success-card">
   <span class="success-mark">${icon('check', 34)}</span>
-  <h1>הבקשה נשלחה</h1>
-  <p><b>בקשת ההזמנה התקבלה וממתינה לאישור המנהל. ההזמנה אינה סופית עד לקבלת אישור.</b></p>
+  <h1>${approved ? 'ההזמנה אושרה' : 'הבקשה נשלחה'}</h1>
+  <p><b>${approved ? 'המועד היה פנוי וההזמנה אושרה מיד. נשלח אליך מייל אישור עם זימון ליומן.'
+    : 'בקשת ההזמנה התקבלה וממתינה לאישור המנהל. ההזמנה אינה סופית עד לקבלת אישור.'}</b></p>
   <p>איסוף: ${time.fmtLong(b.start_at)}<br>החזרה: ${time.fmtLong(b.end_at)}</p>
   <p><a class="btn btn-primary" href="/me/bookings">להזמנות שלי</a> <a class="btn btn-light" href="/calendar">ליומן</a></p>
 </div>`);

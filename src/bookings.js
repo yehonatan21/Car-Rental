@@ -117,7 +117,7 @@ function createRequest(user, { vehicleId, start, end, purpose, notes }) {
 }
 
 /** Admin approval. Availability and eligibility are re-checked atomically at this moment. */
-function approve(bookingId, adminId) {
+function approve(bookingId, adminId, note) {
   return transaction(() => {
     const b = getBooking(bookingId);
     if (!b) throw new BookingError('ההזמנה לא נמצאה');
@@ -129,10 +129,27 @@ function approve(bookingId, adminId) {
     if (problems.length) throw new BookingError('לא ניתן לאשר: ' + problems.join('. '));
     const conflicts = findConflicts(b.vehicle_id, b.start_at, b.end_at, { excludeId: b.id });
     if (conflicts.length) throw new BookingError(conflictMessage(conflicts));
-    changeStatus(b, 'approved', adminId);
-    audit(adminId, 'booking.approve', 'booking', b.id);
+    changeStatus(b, 'approved', adminId, note);
+    audit(adminId, 'booking.approve', 'booking', b.id, note);
     return getBooking(b.id);
   });
+}
+
+/**
+ * Settings → auto_approve: a new request is approved at once, by the system, when nothing stands in the way: the same
+ * checks as an admin's approval (free slot with the buffer, vehicle available, the user's status and license) and no
+ * other person's request waiting for the same time, which only an admin may choose between. Returns the approved
+ * booking, or null when it stays pending for an admin.
+ */
+function autoApprove(b) {
+  if (!getSettings().auto_approve || b.status !== 'pending' || b.kind !== 'booking') return null;
+  if (findPendingOverlaps(b.vehicle_id, b.start_at, b.end_at, b.id).length) return null;
+  try {
+    return approve(b.id, null, 'אושרה אוטומטית');
+  } catch (err) {
+    if (err instanceof BookingError) return null;
+    throw err;
+  }
 }
 
 function reject(bookingId, adminId, note) {
@@ -213,6 +230,6 @@ function inRange(vehicleId, from, to, statuses = ['approved']) {
 
 module.exports = {
   BookingError, STATUS_LABELS, findConflicts, findPendingOverlaps, eligibilityProblems,
-  createRequest, validateRequestRange, durationLabel, approve, reject, cancel, createManual, createBlock, completeFinished,
+  createRequest, validateRequestRange, durationLabel, approve, autoApprove, reject, cancel, createManual, createBlock, completeFinished,
   getBooking, inRange, addHistory,
 };

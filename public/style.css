@@ -629,3 +629,5 @@ ul.docs .doc-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
 .danger-zone { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
 .danger-zone .section-title { color: var(--danger); }
 .danger-zone form { display: flex; flex-direction: column; gap: .8rem; align-items: flex-start; }
+.toggle-row { padding: .8rem 1rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); margin: 0 0 1rem; }
+.toggle-row input { margin-top: .25rem; }

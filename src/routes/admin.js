@@ -29,6 +29,18 @@ const bookingBadge = (s) => badge(s, bookings.STATUS_LABELS[s]);
 const userBadge = (s) => badge(s, USER_STATUS[s]);
 const getUser = (id) => db.prepare('SELECT * FROM users WHERE id = ?').get(Number(id));
 
+/**
+ * The console's main admin (ADMIN_EMAIL, when this site hosts the console: MASTER_CONSOLE) controls every client site.
+ * The site's other managers must not change that account (password, reset link, role, status), or they could take
+ * over the console (SEC-001). Answers on its own when refused.
+ */
+function protectsMainAdmin(req, res, u) {
+  if (!config.masterConsole || u.id === req.user.id || String(u.email).toLowerCase() !== require('../bootstrap').mainAdminEmail()) return false;
+  res.flash('error', 'זה חשבון המנהל הראשי של מרכז הניהול, ורק הוא עצמו יכול לשנות אותו.');
+  res.redirect(req.method === 'GET' ? 302 : 303, `/admin/users/${u.id}`);
+  return true;
+}
+
 /** Wraps a POST handler that may throw BookingError, flashing the message and redirecting back. */
 const guarded = (fallback, fn) => async (req, res) => {
   try {
@@ -440,6 +452,7 @@ ${users.length ? '' : html`<p class="empty">${icon('users', 28)}<span>לא נמ�
     if (v.send_invite) {
       const token = auth.createPasswordReset(id, auth.INVITE_TTL_MS);
       const sent = await mail.invitation(u, token, fullName(req.user)) && Boolean(config.smtp);
+      if (sent) auth.markResetDelivered(token);
       notice = sent
         ? ['success', `המשתמש ${fullName(u)} נוצר, ונשלח אליו מייל לבחירת סיסמה.`]
         : ['warning', `המשתמש ${fullName(u)} נוצר, אבל ${config.smtp ? 'שליחת המייל נכשלה' : 'לא הוגדר שרת דואר ולכן לא נשלח מייל'}. `
@@ -552,6 +565,7 @@ ${permissionsCard(req, u, isSelf)}
       res.flash('error', 'לא ניתן לבצע פעולה זו על החשבון שלך');
       return res.redirect(`/admin/users/${u.id}`);
     }
+    if (name !== 'note' && protectsMainAdmin(req, res, u)) return;
     const note = String(req.body.note || '').trim().slice(0, 500);
     const msg = await handler(u, req, note);
     if (msg) res.flash(msg.type || 'success', msg.text || msg);
@@ -631,6 +645,7 @@ ${permissionsCard(req, u, isSelf)}
   userAction('send-reset', async (u, req) => {
     const token = auth.createPasswordReset(u.id);
     const sent = await mail.passwordReset(u, token) && Boolean(config.smtp); // without SMTP it only reaches data/outbox
+    if (sent) auth.markResetDelivered(token);
     audit(req.user.id, 'user.password_reset_sent', 'user', u.id, sent ? 'email' : 'shown to admin');
     if (sent) return `נשלח אל ${u.email} קישור לאיפוס סיסמה (תקף לשעה)`;
     // No e-mail reached the user: give the admin the link to pass on (WhatsApp, SMS…). Single use, valid one hour.
@@ -655,12 +670,14 @@ ${permissionsCard(req, u, isSelf)}
   app.get('/admin/users/:id/password', requireAdmin, (req, res) => {
     const u = getUser(req.params.id);
     if (!u) return res.redirect('/admin/users');
+    if (protectsMainAdmin(req, res, u)) return;
     if (notSelf(req, res, u)) passwordFor(req, res, u);
   });
 
   app.post('/admin/users/:id/password', requireAdmin, async (req, res) => {
     const u = getUser(req.params.id);
     if (!u) return res.redirect(303, '/admin/users');
+    if (protectsMainAdmin(req, res, u)) return;
     if (!notSelf(req, res, u)) return;
     const password = String(req.body.password || '');
     if (password.length < 8 || password.length > 200) return passwordFor(req, res, u, 'הסיסמה צריכה להכיל לפחות 8 תווים');

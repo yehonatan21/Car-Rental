@@ -146,6 +146,9 @@ function ensureAdmin({ email, firstName, lastName, note }) {
     return { user: db.prepare('SELECT * FROM users WHERE id = ?').get(id), created: true, promoted: false };
   }
   if (u.role !== 'admin' || u.status !== 'active') {
+    // Becoming a manager: an account whose e-mail was never proved may have been registered by someone else with this
+    // address, with their own password. That password and its sessions go; the invitation sets a new one (SEC-003).
+    if (auth.distrustUnverified(u)) audit(null, 'manage.unverified_password_removed', 'user', u.id, email);
     db.prepare("UPDATE users SET role = 'admin', status = 'active', updated_at = ? WHERE id = ?").run(now, u.id);
     u = db.prepare('SELECT * FROM users WHERE id = ?').get(u.id);
     return { user: u, created: false, promoted: true };
@@ -222,6 +225,7 @@ module.exports = ({ app }) => {
     let emailed = false;
     if (b.send_email !== false && (token || promoted)) {
       emailed = Boolean(await mail.managerInvitation(user, token, String(b.invited_by || 'מנהל השירות').slice(0, 80))) && Boolean(config.smtp);
+      if (emailed && token) auth.markResetDelivered(token);
     }
     audit(null, created ? 'manage.admin_create' : promoted ? 'manage.admin_promote' : 'manage.admin_invite', 'user', user.id, `${by(req)}: ${email}`);
     res.json({ admin: adminRow(user), created, promoted, link, emailed, mailConfigured: Boolean(config.smtp) });

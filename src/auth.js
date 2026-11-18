@@ -89,6 +89,7 @@ function consumeLoginCode(userId, code) {
     return false;
   }
   db.prepare('DELETE FROM login_codes WHERE user_id = ?').run(userId);
+  markEmailVerified(userId); // the code arrived at this address
   return true;
 }
 
@@ -120,25 +121,59 @@ function checkPasswordReset(token) {
 function resetPassword(token, password) {
   const userId = checkPasswordReset(token);
   if (!userId) return null;
+  const delivered = db.prepare('SELECT delivered FROM password_resets WHERE token_hash = ?').get(sha256(token))?.delivered;
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId);
   db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(userId);
   destroyAllSessions(userId);
+  if (delivered) markEmailVerified(userId); // the link was e-mailed to this address (not shown to an admin)
   return userId;
 }
 
-// --- Simple in-memory throttling for login endpoints ---
-const attempts = new Map();
-function throttled(key, max = 10, windowMs = 15 * 60000) {
-  const now = Date.now();
-  const entry = attempts.get(key) || { count: 0, start: now };
-  if (now - entry.start > windowMs) { entry.count = 0; entry.start = now; }
-  entry.count++;
-  attempts.set(key, entry);
-  return entry.count > max;
+/** The link of `token` was really sent by e-mail: using it proves the address (SEC-003). */
+function markResetDelivered(token) {
+  db.prepare('UPDATE password_resets SET delivered = 1 WHERE token_hash = ?').run(sha256(token));
 }
-const resetThrottle = (key) => attempts.delete(key);
+
+// --- Proof that the account's owner receives mail at its address (SEC-003) ---
+function markEmailVerified(userId) {
+  db.prepare('UPDATE users SET email_verified_at = ? WHERE id = ? AND email_verified_at IS NULL').run(new Date().toISOString(), userId);
+}
+
+/**
+ * Before an account found only by its e-mail address is trusted with more (made an admin, linked to Google): if nobody
+ * ever proved they receive mail there, it may have been registered by someone else with that address. Its password
+ * and sessions are then removed; the real owner signs in with the invitation/Google and chooses a new password.
+ * Returns true when it did so.
+ */
+function distrustUnverified(user) {
+  if (!user || user.email_verified_at || !user.password_hash) return false;
+  db.prepare('UPDATE users SET password_hash = NULL WHERE id = ?').run(user.id);
+  db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(user.id);
+  destroyAllSessions(user.id);
+  return true;
+}
+
+// --- Throttling, kept in the database so every server instance shares it (SEC-002) ---
+/** Adds one to the counter of `key` in the current window (a new window starts after `windowMs`); returns the count. */
+function bump(key, windowMs) {
+  const now = Date.now();
+  db.prepare(`INSERT INTO throttle (key, count, window_start) VALUES (?, 1, ?)
+    ON CONFLICT(key) DO UPDATE SET
+      count = CASE WHEN throttle.window_start < ? THEN 1 ELSE throttle.count + 1 END,
+      window_start = CASE WHEN throttle.window_start < ? THEN ? ELSE throttle.window_start END`)
+    .run(key, now, now - windowMs, now - windowMs, now);
+  return db.prepare('SELECT count FROM throttle WHERE key = ?').get(key).count;
+}
+/** Counts this attempt first (so parallel requests cannot all slip under the limit); true when over `max`. */
+const throttled = (key, max = 10, windowMs = 15 * 60000) => bump(key, windowMs) > max;
+/** A successful attempt gives its count back, so only failures accumulate (sign-in). */
+const release = (key) => db.prepare('UPDATE throttle SET count = count - 1 WHERE key = ? AND count > 0').run(key);
+const resetThrottle = (key) => db.prepare('DELETE FROM throttle WHERE key = ?').run(key);
+/** Removes counters whose window ended long ago (jobs). */
+const purgeThrottle = () => db.prepare('DELETE FROM throttle WHERE window_start < ?').run(Date.now() - 86400000);
 
 module.exports = {
   hashPassword, verifyPassword, createSession, destroySession, destroyAllSessions, loadSession,
-  parseCookies, createLoginCode, consumeLoginCode, throttled, resetThrottle, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
+  parseCookies, createLoginCode, consumeLoginCode, throttled, release, resetThrottle, purgeThrottle,
+  markEmailVerified, markResetDelivered, distrustUnverified, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
 };

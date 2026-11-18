@@ -7,7 +7,7 @@
 - **Patch:** written and tested in a separate worktree. The full suite passes on the patched copy: 291 tests, local SQLite and hosted libSQL (sqld).
 - **Review:** an independent security auditor reviewed the patch in 2 rounds.
 
-The source tree is unchanged: the fixes are only in [`security_remediation.patch`](security_remediation.patch).
+**Applied** to the source on 2026-11-18 (from [`security_remediation.patch`](security_remediation.patch)).
 
 ## Scorecard
 

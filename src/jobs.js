@@ -19,6 +19,7 @@ async function runJobs() {
   const s = getSettings();
   const now = time.now();
   bookings.completeFinished();
+  try { require('./auth').purgeThrottle(); } catch (err) { console.error('[jobs] purging old attempt counters failed:', err.message); }
 
   const pickups = db.prepare(`${withUser} WHERE b.status = 'approved' AND b.kind = 'booking' AND b.pickup_reminded = 0
     AND b.start_at > ? AND b.start_at <= ?`).all(now, time.addMinutes(now, s.pickup_reminder_hours * 60));

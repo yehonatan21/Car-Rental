@@ -120,11 +120,17 @@ test('managers: a new one gets an invitation with a link to choose a password, a
   assert.equal((await browser.get('/admin')).status, 200);
   assert.equal((await api('GET', '/api/manage/admins')).data.admins.find((a) => a.id === added.id).invitePending, false);
 
-  // Someone already registered becomes a manager (no new password needed).
+  // Someone already registered, whose address is proven, becomes a manager and keeps their password.
   const member = createUser({ email: 'member@client.org' });
+  db.prepare("UPDATE users SET email_verified_at = '2026-01-01T00:00:00Z' WHERE id = ?").run(member.id);
   r = await api('POST', '/api/manage/admins', { email: 'member@client.org' });
   assert.deepEqual([r.data.created, r.data.promoted, r.data.link], [false, true, null]);
   assert.equal(db.prepare('SELECT role FROM users WHERE id = ?').get(member.id).role, 'admin');
+  // An account whose address was never proven gets an invitation instead: its password may not be the owner's (SEC-003).
+  const unproven = createUser({ email: 'unproven@client.org' });
+  r = await api('POST', '/api/manage/admins', { email: 'unproven@client.org' });
+  assert.match(r.data.link, /^\/password\/reset\?token=/);
+  assert.equal(db.prepare('SELECT password_hash FROM users WHERE id = ?').get(unproven.id).password_hash, null);
 
   r = await api('POST', `/api/manage/admins/${member.id}/remove`, {});
   assert.equal(r.status, 200);

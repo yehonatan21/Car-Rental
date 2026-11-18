@@ -78,7 +78,9 @@ function loginPage(req, { error, email = '', next = req.query.next || req.body?.
 
 /** Password, e-mail code or Google checked: start the session and go on. */
 function finishLogin(req, res, user, next = req.body?.next) {
-  auth.resetThrottle('login:' + req.ip);
+  // Only this account's failures are cleared: signing in to some other account must not reset the counter of the one
+  // being guessed (SEC-002). The per-address counter runs out on its own.
+  auth.resetThrottle(`login:acct:${user.id}`);
   auth.createSession(res, user.id);
   res.redirect(safeNext(next) || homeFor(user));
 }
@@ -244,14 +246,21 @@ module.exports = ({ app, licenseUpload }) => {
   });
 
   app.post('/login', (req, res) => {
-    const email = String(req.body.email || '').trim();
-    if (auth.throttled('login:' + req.ip)) {
-      return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי ניסיונות. נסו שוב בעוד מספר דקות.', email }));
-    }
+    const email = String(req.body.email || '').trim().slice(0, 254);
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    // Every attempt is counted first, in the database, per network address and per account; a success gives its count
+    // back, so only failures add up and a sign-in to another account resets nothing (SEC-002). A locked password does
+    // not lock the e-mailed code, "forgot password" or Google.
+    const ipKey = `login:${req.ip}`;
+    const overIp = auth.throttled(ipKey, 30);
+    const overAccount = user ? auth.throttled(`login:acct:${user.id}`, 10) : false;
+    if (overIp || overAccount) {
+      return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי ניסיונות. נסו שוב בעוד מספר דקות, או התחברו עם קוד במייל.', email }));
+    }
     if (!user || !auth.verifyPassword(String(req.body.password || ''), user.password_hash)) {
       return res.status(401).page('התחברות', loginPage(req, { error: 'דואר אלקטרוני או סיסמה שגויים', email }));
     }
+    auth.release(ipKey);
     finishLogin(req, res, user);
   });
 
@@ -288,10 +297,15 @@ module.exports = ({ app, licenseUpload }) => {
   });
 
   app.post('/login/code/verify', (req, res) => {
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(String(req.body.email || '').trim());
-    if (auth.throttled('login:' + req.ip) || !user || !auth.consumeLoginCode(user.id, req.body.code)) {
+    const email = String(req.body.email || '').trim().slice(0, 254);
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    // Per network address only: codes already allow 5 wrong tries per account (consumeLoginCode), and this way a
+    // locked password never locks the code too.
+    const ipKey = `code-verify:${req.ip}`;
+    if (auth.throttled(ipKey, 30) || !user || !auth.consumeLoginCode(user.id, req.body.code)) {
       return res.status(401).page('התחברות', loginPage(req, { error: 'הקוד שגוי או שפג תוקפו', email: req.body.email }));
     }
+    auth.release(ipKey);
     finishLogin(req, res, user);
   });
 
@@ -365,10 +379,17 @@ module.exports = ({ app, licenseUpload }) => {
         return res.redirect('/login');
       }
       if (user) {
+        // Google proved this address belongs to the person signing in. If nobody had proved it before, the account may
+        // have been registered by someone else with this address: its password and sessions go before linking (SEC-003).
+        if (auth.distrustUnverified(user)) {
+          audit(user.id, 'user.unverified_password_removed', 'user', user.id, 'Google sign-in');
+          res.flash('warning', 'לחשבון הייתה סיסמה שלא אומתה במייל, ולכן היא בוטלה. מעכשיו מתחברים עם Google, או בוחרים סיסמה חדשה ב"שכחתי סיסמה".');
+        }
         db.prepare('UPDATE users SET google_sub = ? WHERE id = ?').run(profile.sub, user.id);
         audit(user.id, 'user.google_link', 'user', user.id, profile.email);
       }
     }
+    if (user) auth.markEmailVerified(user.id);
     if (user) return finishLogin(req, res, user, profile.next);
 
     // New person: continue to the registration form with name and e-mail from Google.
@@ -434,6 +455,7 @@ module.exports = ({ app, licenseUpload }) => {
         license_file, license_expiry, google_sub, privacy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(v.first_name, v.last_name, v.id_number, v.phone, v.email, passwordHash,
         licenseFile, v.license_expiry, gs ? gs.sub : null, now, now, now).lastInsertRowid);
+    if (gs) auth.markEmailVerified(id); // registered through Google: Google proved the address
     if (draft) dropDraft(draft.token);
     if (gs) {
       google.clearSignup(req.cookies[GOOGLE_SIGNUP_COOKIE]);
@@ -464,7 +486,9 @@ module.exports = ({ app, licenseUpload }) => {
     if (!validEmail(email)) return res.status(400).page('שכחתי סיסמה', forgotPage(req, { email, error: 'כתובת הדואר האלקטרוני אינה תקינה' }));
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     // Same answer whether or not the address is registered.
-    const sent = user ? await mail.passwordReset(user, auth.createPasswordReset(user.id)) : true;
+    const resetToken = user && auth.createPasswordReset(user.id);
+    const sent = user ? await mail.passwordReset(user, resetToken) : true;
+    if (user && sent && config.smtp) auth.markResetDelivered(resetToken);
     if (!sent) {
       return res.status(503).page('שכחתי סיסמה', forgotPage(req, {
         email, error: 'שליחת המייל נכשלה. נסו שוב בעוד כמה דקות, או פנו למנהל המערכת.',

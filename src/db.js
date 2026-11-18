@@ -198,6 +198,13 @@ CREATE TABLE IF NOT EXISTS branding (
   value TEXT NOT NULL
 );
 
+-- Failed-attempt counters (sign-in, codes, resets…), shared by every server instance (SEC-002).
+CREATE TABLE IF NOT EXISTS throttle (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  window_start INTEGER NOT NULL
+);
+
 -- One-time sign-in links from the master console (routes/manage.js): only a hash of the token; 2 minutes, single use.
 CREATE TABLE IF NOT EXISTS sso_tokens (
   token_hash TEXT PRIMARY KEY,
@@ -224,6 +231,13 @@ function addColumn(table, column, type) {
   }
 }
 addColumn('users', 'google_sub', 'TEXT');
+// When the owner proved they receive mail at this address (used an e-mailed link or code, or Google). An account
+// without it may have been registered by someone else with that address (SEC-003).
+addColumn('users', 'email_verified_at', 'TEXT');
+// A link counts as proof of the address only when it was really e-mailed, not shown on screen to an admin (SEC-003).
+addColumn('password_resets', 'delivered', 'INTEGER NOT NULL DEFAULT 0');
+// Accounts already linked to Google had their address proven by Google.
+db.prepare('UPDATE users SET email_verified_at = ? WHERE email_verified_at IS NULL AND google_sub IS NOT NULL').run(new Date().toISOString());
 // Two-step verification was removed: forget stored authenticator secrets and sessions that were waiting for a code.
 // (The columns stay, so older databases keep working.)
 db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE totp_enabled != 0 OR totp_secret IS NOT NULL').run();

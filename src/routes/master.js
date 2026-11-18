@@ -670,7 +670,10 @@ ${r.users.map((u) => html`<tr>
     let u = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     const now = time.stamp();
     if (u) {
+      // An unproven password on this address may not be the owner's: it goes before the account gets console rights.
+      if (u.role !== 'admin' || u.status !== 'active') auth.distrustUnverified(u);
       db.prepare("UPDATE users SET role = 'admin', status = 'active', updated_at = ? WHERE id = ?").run(now, u.id);
+      u = db.prepare('SELECT * FROM users WHERE id = ?').get(u.id);
     } else {
       const id = db.prepare(`INSERT INTO users (first_name, last_name, id_number, phone, email, role, status, created_at, updated_at)
         VALUES (?, ?, ?, '', ?, 'admin', 'active', ?, ?)`).run(first, last, `master-${require('node:crypto').randomUUID()}`, email, now, now).lastInsertRowid;
@@ -683,6 +686,7 @@ ${r.users.map((u) => html`<tr>
     }
     const token = auth.createPasswordReset(u.id, auth.INVITE_TTL_MS);
     const sent = await mail.invitation(u, token, fullName(req.user)) && Boolean(config.smtp);
+    if (sent) auth.markResetDelivered(token);
     res.flash(sent ? 'success' : 'warning', sent ? `נשלח אל ${email} מייל עם קישור לבחירת סיסמה.`
       : `${email} נוסף/ה, אבל ${config.smtp ? 'שליחת המייל נכשלה' : 'לא הוגדר שרת דואר'}. העבירו את הקישור לבחירת סיסמה (תקף ל־7 ימים): `
         + `${config.baseUrl}/password/reset?token=${encodeURIComponent(token)}`);

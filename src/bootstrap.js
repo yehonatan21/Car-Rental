@@ -30,6 +30,8 @@ function ensureAdminFromEnv(env = process.env, { keepAdmin = config.master || co
   if (existing) {
     // Never overwrite a real account's password. The console's main admin is made an active admin again if needed.
     if (keepAdmin && (existing.role !== 'admin' || existing.status !== 'active')) {
+      // An unproven password on this address is not the owner's: it goes before the account gets admin rights (SEC-003).
+      if (auth.distrustUnverified(existing)) audit(null, 'admin.unverified_password_removed', 'user', existing.id, email);
       db.prepare("UPDATE users SET role = 'admin', status = 'active', updated_at = ? WHERE id = ?").run(time.stamp(), existing.id);
       audit(null, 'admin.bootstrap_env', 'user', existing.id, `${email}: admin again (ADMIN_EMAIL)`);
       return db.prepare('SELECT * FROM users WHERE id = ?').get(existing.id);
@@ -44,6 +46,7 @@ function ensureAdminFromEnv(env = process.env, { keepAdmin = config.master || co
       password ? auth.hashPassword(password) : null, now, now, now);
   if (r.changes !== 1) return db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   const id = r.lastInsertRowid;
+  auth.markEmailVerified(id); // the operator chose this address in the deployment's settings
   db.prepare('INSERT INTO policy_acceptances (user_id, policy_version, accepted_at) VALUES (?, ?, ?)').run(id, currentPolicy().version, now);
   audit(null, 'admin.bootstrap_env', 'user', id, email);
   console.log(`[bootstrap] Created admin ${email} from ADMIN_EMAIL${password ? '/ADMIN_PASSWORD' : ' (no password: sign in with an e-mailed code, Google, or "forgot password")'}`);

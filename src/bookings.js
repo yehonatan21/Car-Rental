@@ -72,10 +72,16 @@ function conflictMessage(conflicts) {
   return `הרכב תפוס במועד זה (${what} ${time.fmt(c.start_at)}–${time.fmt(c.end_at)})`;
 }
 
+/** The car's details were entered: a real plate. A new site starts without one, so nobody books a made-up car. */
+const vehicleReady = (v) => Boolean(v && String(v.plate || '').trim() && v.plate !== '00-000-00');
+
+/** New requests, approvals and manual bookings: only for a car that is set up and available (not in service). */
 function checkVehicle(vehicleId) {
   const v = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
   if (!v) throw new BookingError('הרכב לא נמצא');
+  if (!vehicleReady(v)) throw new BookingError('פרטי הרכב עדיין לא הוזנו, ולכן אי אפשר להזמין אותו. המנהל צריך להזין אותם ב"רכב".');
   if (v.status === 'disabled') throw new BookingError('הרכב מושבת כרגע ואינו זמין להזמנה');
+  if (v.status === 'service') throw new BookingError('הרכב בטיפול כרגע ולא ניתן להזמין אותו. אפשר להזמין שוב כשיחזור לשירות.');
   return v;
 }
 
@@ -231,5 +237,5 @@ function inRange(vehicleId, from, to, statuses = ['approved']) {
 module.exports = {
   BookingError, STATUS_LABELS, findConflicts, findPendingOverlaps, eligibilityProblems,
   createRequest, validateRequestRange, durationLabel, approve, autoApprove, reject, cancel, createManual, createBlock, completeFinished,
-  getBooking, inRange, addHistory,
+  getBooking, inRange, addHistory, vehicleReady,
 };

@@ -48,6 +48,11 @@ async function runJobs({ by = 'timer' } = {}) {
   const stale = db.prepare(`${withUser} WHERE b.status = 'pending' AND b.pending_alerted = 0 AND b.created_at <= ?`).all(staleBefore)
     .filter((b) => claim('UPDATE bookings SET pending_alerted = 1 WHERE id = ? AND pending_alerted = 0', b.id));
   if (stale.length) { await mail.pendingTooLong(stale); summary.alerts += 1; }
+  // Still waiting at twice that time: a second, firmer reminder to every manager (pending_alerted 1 → 2).
+  const staleTwice = time.addMinutes(now, -2 * s.pending_alert_hours * 60).replace('T', ' ');
+  const ignored = db.prepare(`${withUser} WHERE b.status = 'pending' AND b.pending_alerted = 1 AND b.created_at <= ?`).all(staleTwice)
+    .filter((b) => claim('UPDATE bookings SET pending_alerted = 2 WHERE id = ? AND pending_alerted = 1', b.id));
+  if (ignored.length) { await mail.pendingTooLong(ignored, { again: true }); summary.alerts += 1; }
 
   const today = time.today();
   const expired = db.prepare("SELECT * FROM users WHERE status = 'active' AND license_expiry < ?").all(today)

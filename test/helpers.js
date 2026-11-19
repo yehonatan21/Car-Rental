@@ -39,6 +39,9 @@ if (process.env.SQLD_BIN) {
 }
 
 const { db, currentPolicy } = require('../src/db');
+// A new site's car has no details until a manager enters them (booking is closed until then); tests book a real one.
+// test/e2e/vehicle.test.js covers the empty car.
+db.prepare("UPDATE vehicles SET plate = '12-345-67', make = 'טויוטה', model = 'קורולה' WHERE plate IN ('', '00-000-00')").run();
 const auth = require('../src/auth');
 const time = require('../src/time');
 

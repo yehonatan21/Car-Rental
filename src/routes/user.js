@@ -205,13 +205,15 @@ ${pageHead('ההזמנות שלי', {
       if (b.user_id === u.id) return { ...b, label: `שלי · ${bookings.STATUS_LABELS[b.status]}`, cls: b.status === 'pending' ? 'mine pending' : 'mine' };
       return { ...b, label: 'תפוס', cls: 'busy' };
     });
-    const canBook = u.status === 'active' && vehicle.status !== 'disabled';
+    const ready = bookings.vehicleReady(vehicle);
+    const canBook = u.status === 'active' && ready && vehicle.status === 'available';
     res.page('יומן הרכב', html`
 ${pageHead('יומן הרכב', {
-    iconName: 'calendar', sub: `${[vehicle.make, vehicle.model].filter(Boolean).join(' ')} · ${vehicle.plate}`,
+    iconName: 'calendar', sub: ready ? `${[vehicle.make, vehicle.model].filter(Boolean).join(' ')} · ${vehicle.plate}` : 'פרטי הרכב עדיין לא הוזנו',
     actions: canBook ? html`<a class="btn btn-primary" href="${isAdmin ? '/admin/bookings/new' : '/bookings/new'}">${icon('plus')} הזמנה חדשה</a>` : '',
   })}
-${vehicle.status !== 'available' ? html`<div class="flash flash-warning">הרכב כרגע ${vehicle.status === 'service' ? 'בטיפול' : 'מושבת'}.</div>` : ''}
+${!ready ? html`<div class="flash flash-warning">אי אפשר להזמין עדיין: פרטי הרכב לא הוזנו.${isAdmin ? html` <a href="/admin/vehicle">להזנת פרטי הרכב</a>` : ' המנהל יעדכן אותם בקרוב.'}</div>`
+  : vehicle.status !== 'available' ? html`<div class="flash flash-warning">הרכב כרגע ${vehicle.status === 'service' ? 'בטיפול' : 'מושבת'}, ולכן אי אפשר להזמין אותו עכשיו.</div>` : ''}
 ${!isAdmin && u.status !== 'active' ? html`<div class="flash flash-warning">${STATUS_HELP[u.status]}</div>` : ''}
 <div class="legend">
   <span><i class="sw free"></i>פנוי</span><span><i class="sw busy"></i>תפוס</span><span><i class="sw block"></i>לא זמין / תחזוקה</span>
@@ -284,6 +286,12 @@ ${isAdmin ? entries.filter((e) => e.dialog).map((e) => bookingDialog(req, e, req
   /** Middleware for the booking form: user must be active and have accepted the current policy. */
   function canRequest(req, res, next) {
     const u = req.user;
+    const v = defaultVehicle();
+    if (!bookings.vehicleReady(v) || v.status !== 'available') {
+      res.flash('warning', !bookings.vehicleReady(v) ? 'אי אפשר להזמין עדיין: פרטי הרכב לא הוזנו.'
+        : `הרכב כרגע ${v.status === 'service' ? 'בטיפול' : 'מושבת'}, ולכן אי אפשר להזמין אותו עכשיו.`);
+      return res.redirect('/calendar');
+    }
     if (u.status !== 'active') {
       res.flash('warning', STATUS_HELP[u.status]);
       return res.redirect('/me');

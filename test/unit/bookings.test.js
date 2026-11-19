@@ -118,12 +118,33 @@ test('max open bookings per user', () => {
   assert.ok(request(u, inDays(4), inDays(4, '11:00')));
 });
 
-test('vehicle status: disabled blocks requests, in-service does not', () => {
+test('vehicle status: in service and disabled both block new requests, approvals and manual bookings', () => {
   const u = createUser();
-  db.prepare("UPDATE vehicles SET status = 'service'").run();
-  assert.ok(request(u, inDays(2), inDays(2, '12:00')));
-  db.prepare("UPDATE vehicles SET status = 'disabled'").run();
-  rejects(() => request(u, inDays(3), inDays(3, '12:00')), /מושבת/);
+  const waiting = request(u, inDays(2), inDays(2, '12:00'));
+  try {
+    db.prepare("UPDATE vehicles SET status = 'service'").run();
+    rejects(() => request(u, inDays(3), inDays(3, '12:00')), /בטיפול/);
+    rejects(() => bookings.approve(waiting.id, admin.id), /בטיפול/);
+    rejects(() => bookings.createManual(admin.id, { vehicleId: 1, userId: u.id, start: inDays(4), end: inDays(4, '12:00') }), /בטיפול/);
+    assert.ok(bookings.createBlock(admin.id, { vehicleId: 1, start: inDays(5), end: inDays(5, '12:00'), reason: 'טיפול' }), 'maintenance blocks still work');
+    db.prepare("UPDATE vehicles SET status = 'disabled'").run();
+    rejects(() => request(u, inDays(3), inDays(3, '12:00')), /מושבת/);
+  } finally {
+    db.prepare("UPDATE vehicles SET status = 'available'").run();
+  }
+});
+
+test('a car without details (a new site) cannot be booked', () => {
+  const u = createUser();
+  const saved = db.prepare('SELECT plate FROM vehicles WHERE id = 1').get().plate;
+  try {
+    for (const plate of ['', '00-000-00']) {
+      db.prepare('UPDATE vehicles SET plate = ? WHERE id = 1').run(plate);
+      rejects(() => request(u, inDays(6), inDays(6, '12:00')), /פרטי הרכב עדיין לא הוזנו/);
+    }
+  } finally {
+    db.prepare('UPDATE vehicles SET plate = ? WHERE id = 1').run(saved);
+  }
 });
 
 // ---------- approve / reject ----------

@@ -53,6 +53,9 @@ jobs:
           --test-reporter=spec --test-reporter-destination=stdout
           --test-reporter=lcov --test-reporter-destination=lcov.info
           "test/**/*.test.js"
+      - name: Concurrency (two instances approving at the same moment)
+        if: matrix.node == 22
+        run: npm run test:race
       - name: Upload coverage report
         if: matrix.node == 22 && always()
         uses: actions/upload-artifact@v7
@@ -82,6 +85,10 @@ jobs:
           echo "SQLD_BIN=$RUNNER_TEMP/sqld/package/sqld" >> "$GITHUB_ENV"
       - name: All tests against a hosted-style database (each test file gets its own sqld)
         run: npm run test:libsql
+      # Two server processes on one database (two "instances"), run on their own: in parallel with the rest they
+      # starve the machine and make unrelated tests time out.
+      - name: Concurrency (two instances approving at the same moment)
+        run: npm run test:race
 
   docker:
     name: Docker images

@@ -48,6 +48,17 @@ test('admins are alerted about requests pending too long, once', async () => {
   assert.equal(getBooking(fresh).pending_alerted, 0);
 });
 
+test('a request still waiting at twice the time gets a second reminder to the managers, once', async () => {
+  const u = createUser();
+  const old = time.addMinutes(time.now(), -50 * 60).replace('T', ' ') + ':00'; // 50 h: past 2 × 24 h
+  const id = insertBooking(u.id, inDays(7), inDays(8), 'pending', old);
+  await runJobs(); // first reminder
+  await runJobs(); // second
+  await runJobs(); // nothing more
+  assert.equal(getBooking(id).pending_alerted, 2);
+  assert.equal(outbox().filter((m) => m.subject.includes('עדיין לא טופלו')).length, 1);
+});
+
 test('expired licenses move users to "license_update" and notify admins', async () => {
   const expired = createUser({ license_expiry: time.addDays(time.today(), -1) });
   const valid = createUser({ license_expiry: time.today() });

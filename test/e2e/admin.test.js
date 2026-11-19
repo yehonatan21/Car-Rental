@@ -225,9 +225,13 @@ test('vehicle details and disabled status', async () => {
   createUser({ email: 'veh@adm.test' });
   const c = client();
   await c.login('veh@adm.test');
-  const r = await c.post('/bookings/new', { start: inDays(50), end: inDays(50, '12:00'), accept_rules: '1' }, '/bookings/new');
-  assert.match(r.text, /מושבת/);
-  await admin.post('/admin/vehicle', { plate: '98-765-43', status: 'available' }, '/admin/vehicle');
+  try {
+    const r = await c.post('/bookings/new', { start: inDays(50), end: inDays(50, '12:00'), accept_rules: '1' }, '/calendar');
+    assert.equal(r.location, '/calendar', 'booking is closed while the car is disabled');
+    assert.match(c.flash().text, /מושבת/);
+  } finally {
+    await admin.post('/admin/vehicle', { plate: '98-765-43', status: 'available' }, '/admin/vehicle');
+  }
 });
 
 test('settings: valid numbers saved, invalid ignored', async () => {

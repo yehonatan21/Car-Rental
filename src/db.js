@@ -303,7 +303,8 @@ if (!schemaIsCurrent) {
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertSetting.run(k, v);
 
   // First start only. One statement each, so two instances starting together cannot both insert.
-  db.prepare("INSERT INTO vehicles (plate, make, model) SELECT '00-000-00', 'יצרן', 'דגם' WHERE NOT EXISTS (SELECT 1 FROM vehicles)").run();
+  // The car's row exists from the start, without details: booking stays closed until a manager enters them (R3).
+  db.prepare("INSERT INTO vehicles (plate, make, model) SELECT '', '', '' WHERE NOT EXISTS (SELECT 1 FROM vehicles)").run();
   db.prepare('INSERT OR IGNORE INTO policies (version, content, created_at) SELECT 1, ?, ? WHERE NOT EXISTS (SELECT 1 FROM policies)')
     .run(fs.readFileSync(path.join(__dirname, 'default-policy.md'), 'utf8'), time.stamp());
 }

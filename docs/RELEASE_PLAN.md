@@ -27,10 +27,12 @@ touches, what changes, and when it is done. An item is done only when its tests 
 
 The three critical and high findings (SEC-001 to SEC-003) were fixed on 18/11. The review agrees, and they stay closed.
 
-## Decisions needed before some releases
+## Decisions (answered 19/11/2026)
 
-| # | Decision | Needed for | Suggested answer |
-|---|---|---|---|
+D1 yes (GitHub schedule) · D2 "in service" blocks new requests, approvals and manual bookings · D3 photos of rejected
+registrations are deleted after 30 days · D4 Vercel only · D5 (pickup/return) to be decided after R3.
+
+---|---|---|---|
 | D1 | May a GitHub Actions scheduled workflow call the console every 10 minutes? Vercel's free plan allows only one cron run a day. | R1 | Yes. It's free, and the console then runs the jobs of every site |
 | D2 | Does "in service" (`service`) block new bookings, or only warn? | R3 | Block new requests; keep existing approved bookings and warn the manager about them |
 | D3 | How long are license photos kept after an account is rejected or deleted, or a license is replaced? | R2 | Replaced: deleted at once (already the case). Rejected registration: 30 days |
@@ -39,7 +41,7 @@ The three critical and high findings (SEC-001 to SEC-003) were fixed on 18/11. T
 
 ---
 
-## R1: v1.1 Reminders that always go out *(P0)*
+## R1: v1.1 Reminders that always go out *(P0)*: **done 19/11/2026** (`30b32b4`)
 
 **Goal:** reminders and alerts are sent on time without anyone visiting the site, and a failed email is retried, never lost.
 
@@ -59,7 +61,7 @@ The three critical and high findings (SEC-001 to SEC-003) were fixed on 18/11. T
 **Done when:** a reminder 2 hours ahead goes out within 10 minutes of its time on a site nobody visits; with SMTP down, it goes out once SMTP is back, and only once.
 **Tests:** SMTP failure, then retry; two job runs at the same time, one email; a duplicate key is ignored; the console fan-out with one site down.
 
-## R2: v1.2 Security hardening, round 2 *(P0/P1)*
+## R2: v1.2 Security hardening, round 2 *(P0/P1)*: **done 19/11/2026** (`5791204`)
 
 1. **SEC-004, CSRF on multipart forms** (`server.js`)
    - Check the Origin header on every POST, PUT, PATCH and DELETE, multipart included.
@@ -83,7 +85,7 @@ The three critical and high findings (SEC-001 to SEC-003) were fixed on 18/11. T
 
 **Done when:** every SEC item is marked fixed in `analysis/car-rental/SECURITY_FINDINGS.md` and has a test; `/modernize-harden` finds no Medium item open.
 
-## R3: v1.3 Booking rules that match reality *(P1)*
+## R3: v1.3 Booking rules that match reality *(P1)*: **done 19/11/2026**
 
 1. **D2, the car in service** (`bookings.js`):
    - `checkVehicle()` refuses new requests and approvals while `status = 'service'`.

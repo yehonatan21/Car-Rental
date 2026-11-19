@@ -380,6 +380,8 @@ ${pageHead('לוח בקרה', {
 ${storageInfo().perDeployment || storageInfo().kind === 'temporary' ? html`<div class="flash flash-error">
   <b>הנתונים לא נשמרים בין גרסאות:</b> הפריסה הזו משתמשת במסד נתונים ${storageInfo().kind === 'temporary' ? 'זמני' : 'שנוצר רק בשבילה'}.
   <a href="/admin/settings?tab=health">פרטים ותיקון</a></div>` : ''}
+${bookings.vehicleReady(v) ? '' : html`<div class="flash flash-warning"><b>עוד לא הוזנו פרטי הרכב</b>, ולכן אי אפשר להזמין אותו.
+  <a href="/admin/vehicle">להזנת פרטי הרכב</a></div>`}
 ${!config.smtp && (config.production || config.onVercel) ? html`<div class="flash flash-error">
   <b>מיילים לא נשלחים:</b> לא הוגדר שרת דואר (SMTP), ולכן מנהלים לא מקבלים הודעה על בקשות חדשות ומשתמשים לא מקבלים אישור הזמנה.
   <a href="/admin/settings?tab=integrations">להגדרה</a></div>` : ''}
@@ -955,15 +957,29 @@ ${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id
   // ---------- Vehicle ----------
   app.get('/admin/vehicle', requireAdmin, (req, res) => {
     const v = defaultVehicle();
+    const ready = bookings.vehicleReady(v);
+    const plate = ready ? v.plate : '';
+    // In service: the approved bookings from now on, whose people may need to hear about it.
+    const affected = v.status === 'service' ? db.prepare(`SELECT b.*, u.first_name, u.last_name, u.email FROM bookings b JOIN users u ON u.id = b.user_id
+      WHERE b.vehicle_id = ? AND b.kind = 'booking' AND b.status = 'approved' AND b.end_at > ? ORDER BY b.start_at`).all(v.id, time.now()) : [];
     res.page('ניהול הרכב', html`
 <div class="narrow">
-  ${pageHead('ניהול הרכב', { iconName: 'car', sub: html`${[v.make, v.model].filter(Boolean).join(' ')} · ${v.plate} · ${VEHICLE_STATUS[v.status]}` })}
+  ${pageHead('ניהול הרכב', { iconName: 'car', sub: ready ? html`${[v.make, v.model].filter(Boolean).join(' ')} · ${v.plate} · ${VEHICLE_STATUS[v.status]}` : 'פרטי הרכב עדיין לא הוזנו' })}
+  ${ready ? '' : html`<div class="flash flash-warning"><b>הזמנות סגורות עד שיוזנו פרטי הרכב.</b> מלאו לפחות את מספר הרישוי ושמרו.</div>`}
+  ${v.status === 'service' ? html`<section class="card alert" id="service">
+    <h2 class="section-title">${icon('wrench')} הרכב בטיפול</h2>
+    <p>כל עוד הרכב בטיפול, אי אפשר להגיש, לאשר או ליצור הזמנות חדשות. הזמנות שכבר אושרו נשארות, ולכן כדאי לעדכן את בעליהן.</p>
+    ${affected.length ? html`<ul class="plain">${affected.map((b) => html`<li><a href="/admin/bookings/${b.id}">${fullName(b)}</a> –
+      ${time.fmt(b.start_at)}–${time.fmt(b.end_at)} · <a href="mailto:${b.email}" dir="ltr">${b.email}</a></li>`)}</ul>`
+    : html`<p class="muted">אין הזמנות מאושרות קרובות.</p>`}
+    ${postForm(req, '/admin/vehicle/available', html`<button class="btn btn-primary">${icon('check', 16)} הרכב חזר לשירות</button>`)}
+  </section>` : ''}
   ${postForm(req, '/admin/vehicle', html`
     <h2 class="section-title">${icon('car')} פרטי הרכב ומועדים</h2>
     <div class="grid2">
-      ${field('מספר רישוי', html`<input name="plate" value="${v.plate}" required>`)}
+      ${field('מספר רישוי', html`<input name="plate" value="${plate}" required placeholder="12-345-67" dir="ltr">`)}
       ${field('סטטוס', html`<select name="status">${Object.entries(VEHICLE_STATUS).map(([k, l]) => html`<option value="${k}" ${k === v.status ? 'selected' : ''}>${l}</option>`)}</select>`,
-        '"מושבת" חוסם הגשה ואישור של הזמנות')}
+        '"בטיפול" ו"מושבת" חוסמים הגשה, אישור ויצירה של הזמנות חדשות')}
       ${field('יצרן', html`<input name="make" value="${v.make}">`)}
       ${field('דגם', html`<input name="model" value="${v.model}">`)}
       ${field('חידוש ביטוח', html`<input type="date" name="insurance_renewal" value="${v.insurance_renewal}">`)}
@@ -986,13 +1002,27 @@ ${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id
     const b = req.body;
     const date = (x) => (time.isValidDate(x) ? x : null);
     const status = VEHICLE_STATUS[b.status] ? b.status : v.status;
+    const plate = String(b.plate || '').trim();
+    if (!plate || plate === '00-000-00') {
+      res.flash('error', 'יש להזין את מספר הרישוי של הרכב');
+      return res.redirect(303, '/admin/vehicle');
+    }
     db.prepare(`UPDATE vehicles SET plate = ?, make = ?, model = ?, status = ?, insurance_renewal = ?, registration_renewal = ?,
-      next_service = ?, instructions = ?, notes = ? WHERE id = ?`).run(String(b.plate || v.plate).trim(), String(b.make || '').trim(),
+      next_service = ?, instructions = ?, notes = ? WHERE id = ?`).run(plate, String(b.make || '').trim(),
       String(b.model || '').trim(), status, date(b.insurance_renewal), date(b.registration_renewal), date(b.next_service),
       String(b.instructions || '').trim(), String(b.notes || '').trim(), v.id);
     audit(req.user.id, 'vehicle.update', 'vehicle', v.id, status);
-    res.flash('success', 'פרטי הרכב נשמרו');
+    res.flash('success', status === 'service' && v.status !== 'service'
+      ? 'פרטי הרכב נשמרו. הרכב בטיפול: הזמנות חדשות חסומות עד שיחזור לשירות.' : 'פרטי הרכב נשמרו');
     res.redirect('/admin/vehicle');
+  });
+
+  app.post('/admin/vehicle/available', requireAdmin, (req, res) => {
+    const v = defaultVehicle();
+    db.prepare("UPDATE vehicles SET status = 'available' WHERE id = ?").run(v.id);
+    audit(req.user.id, 'vehicle.update', 'vehicle', v.id, 'available');
+    res.flash('success', 'הרכב חזר לשירות ואפשר להזמין אותו שוב.');
+    res.redirect(303, '/admin/vehicle');
   });
 
   // ---------- Policies ----------

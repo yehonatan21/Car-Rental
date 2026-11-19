@@ -399,8 +399,8 @@ module.exports = {
   returnReminder: (b) => send(b.email, 'תזכורת: מועד החזרת הרכב מתקרב', [
     `שלום ${esc(b.first_name)},`, `יש להחזיר את הרכב עד <b>${esc(time.fmtLong(b.end_at))}</b>.`,
   ], null, { key: `return:${b.id}:${b.end_at}` }),
-  pendingTooLong: (list) => send(adminEmails(), 'בקשות הזמנה ממתינות זמן רב', [
-    'הבקשות הבאות ממתינות לאישור זמן רב:',
+  pendingTooLong: (list, { again = false } = {}) => send(adminEmails(), again ? 'תזכורת: בקשות הזמנה עדיין לא טופלו' : 'בקשות הזמנה ממתינות זמן רב', [
+    again ? 'הבקשות הבאות עדיין ממתינות, גם אחרי התזכורת הקודמת. המבקשים לא יודעים אם יקבלו את הרכב:' : 'הבקשות הבאות ממתינות לאישור זמן רב:',
     list.map((b) => `${esc(fullName(b))} – ${esc(time.fmt(b.start_at))}`).join('<br>'),
   ], { href: '/admin/bookings?status=pending', label: 'לבקשות הממתינות' }),
 };

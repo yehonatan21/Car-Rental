@@ -112,3 +112,16 @@ test('the database id stays the same in a new process (a new version) on the sam
   assert.equal(there.id, here.id);
   assert.equal(there.createdAt, here.createdAt);
 });
+
+test('the columns of the removed two-step verification are dropped from an existing database at the next start', () => {
+  const has = (table, column) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  if (!has('users', 'totp_secret')) db.exec('ALTER TABLE users ADD COLUMN totp_secret TEXT');
+  if (!has('users', 'totp_enabled')) db.exec('ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0');
+  if (!has('sessions', 'needs_2fa')) db.exec('ALTER TABLE sessions ADD COLUMN needs_2fa INTEGER NOT NULL DEFAULT 0');
+  db.prepare("DELETE FROM app_meta WHERE key = 'schema_version'").run(); // as after a new version of db.js
+  const out = JSON.parse(inNewProcess(`
+    const { db } = require('./src/db');
+    const has = (t, c) => db.prepare('PRAGMA table_info(' + t + ')').all().some((x) => x.name === c);
+    console.log(JSON.stringify([has('users', 'totp_secret'), has('users', 'totp_enabled'), has('sessions', 'needs_2fa')]));`));
+  assert.deepEqual(out, [false, false, false]);
+});

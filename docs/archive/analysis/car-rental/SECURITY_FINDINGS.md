@@ -7,7 +7,7 @@
 - **Patch:** written and tested in a separate worktree. The full suite passes on the patched copy: 291 tests, local SQLite and hosted libSQL (sqld).
 - **Review:** an independent security auditor reviewed the patch in 2 rounds.
 
-**Applied** to the source on 2026-11-18 (from [`security_remediation.patch`](security_remediation.patch)).
+**Applied** to the source on 2026-11-18 (the patch file was removed afterwards; the changes are in the history, commit `5791204` and earlier).
 
 ## Scorecard
 
@@ -55,7 +55,7 @@
 
 ## Remediation Log
 
-Every hunk is in `security_remediation.patch`. There is no `.local.patch`, because no credentials needed removing.
+Every hunk was in `security_remediation.patch` (since removed: applied on 18/11/2026). There is no `.local.patch`, because no credentials needed removing.
 
 | Finding | Proposed fix |
 |---|---|

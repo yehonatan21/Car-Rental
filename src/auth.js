@@ -107,14 +107,6 @@ function destroyAllSessions(userId) {
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
 }
 
-function loadSession(req) {
-  const token = req.cookies[COOKIE];
-  if (!token) return null;
-  const s = db.prepare('SELECT * FROM sessions WHERE token_hash = ?').get(sha256(token));
-  if (!s || s.expires_at < Date.now()) return null;
-  return s;
-}
-
 /**
  * The login cookie's session and its user in one query (each query is a round trip to a hosted database).
  * state: 'none' (no cookie), 'ok', 'no-user' (account gone), 'expired', 'unknown' (not in this database).
@@ -259,7 +251,7 @@ const purgeThrottle = () => db.prepare('DELETE FROM throttle WHERE window_start 
 
 module.exports = {
   hashPassword, verifyPassword, hashPasswordAsync, verifyPasswordAsync, createSession, touchSession, IDLE_MS,
-  recentlyConfirmed, confirmIdentity, RECENT_AUTH_MS, destroySession, destroyAllSessions, loadSession, loadSessionAndUser,
+  recentlyConfirmed, confirmIdentity, RECENT_AUTH_MS, destroySession, destroyAllSessions, loadSessionAndUser,
   parseCookies, createLoginCode, consumeLoginCode, throttled, release, resetThrottle, purgeThrottle,
   markEmailVerified, markResetDelivered, distrustUnverified, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
 };

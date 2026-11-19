@@ -120,7 +120,7 @@ registrations are deleted after 30 days · D4 Vercel only · D5 (pickup/return) 
    - Only if the database time is a real share of p95 latency: move to `@libsql/client` (async), keeping `BEGIN IMMEDIATE` for approvals.
    - This is the largest and riskiest refactor, so it's done only with evidence.
 
-## R6: v2.2 Simplify and report *(P2)*: **done 19/11/2026**, except the column drop (below)
+## R6: v2.2 Simplify and report *(P2)*: **done 19/11/2026** (the old 2FA columns were dropped with the file cleanup)
 
 1. **D4:** if Vercel only, remove the Docker image, SSH deployment, `Dockerfile*`, `docker-compose*`, `Caddyfile` and `deploy.sh` from CI and the docs.
 2. **Docs:** a short README (what it is, how to start, links); the details in `docs/`; `analysis/` moved to `docs/archive/` (done) once its open items are in this plan.

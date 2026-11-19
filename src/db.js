@@ -322,9 +322,15 @@ if (!schemaIsCurrent) {
     AND a.target_id = users.id), updated_at) WHERE status = 'rejected' AND rejected_at IS NULL`).run();
   // Accounts already linked to Google had their address proven by Google.
   db.prepare('UPDATE users SET email_verified_at = ? WHERE email_verified_at IS NULL AND google_sub IS NOT NULL').run(new Date().toISOString());
-  // Two-step verification was removed long ago. Its columns (users.totp_secret, users.totp_enabled,
-  // sessions.needs_2fa) are no longer read or written, and new databases don't have them; existing ones still do
-  // until the next release drops them (a running older instance must not meet a missing column mid-deploy).
+  // The columns of the two-step verification removed long ago (no version still running reads them): dropped.
+  for (const [table, column] of [['users', 'totp_secret'], ['users', 'totp_enabled'], ['sessions', 'needs_2fa']]) {
+    if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) continue;
+    try {
+      db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+    } catch (err) {
+      if (!/no such column/i.test(err.message)) throw err; // another instance got there first
+    }
+  }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
 
 

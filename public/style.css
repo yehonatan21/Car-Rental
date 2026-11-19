@@ -242,7 +242,6 @@ legend { font-weight: 600; font-size: 1.05rem; margin-bottom: .8rem; display: fl
 form.inline { display: inline-flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: 0; }
 .inline-note { width: auto; flex: 1 1 170px; }
 .actions-grid { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; }
-.action-box { border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius-sm); padding: .8rem; }
 .divider { display: flex; align-items: center; gap: .8rem; color: var(--muted); margin: .25rem 0 1rem; font-size: .9rem; }
 .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 

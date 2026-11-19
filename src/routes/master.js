@@ -777,7 +777,7 @@ ${r.users.map((u) => html`<tr>
       ${field('שם משפחה', html`<input name="last_name" maxlength="60">`)}
     </div>
     <button class="btn btn-primary">הוספה ושליחת הזמנה</button>
-    <p class="muted small">מנהל/ת המרכז יכול/ה לראות, לנהל ולמחוק את כל הלקוחות.</p>`, 'class="card"')}
+    <p class="muted small">מנהל/ת המרכז יכול/ה לראות ולנהל את כל הלקוחות, ונדרש/ת להוסיף מפתח גישה. מחיקת לקוח, החלפת מפתח מסד נתונים וסיסמאות: רק המנהל/ת הראשי/ת.</p>`, 'class="card"')}
 </div>`);
   });
 

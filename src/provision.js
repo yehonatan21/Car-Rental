@@ -91,10 +91,25 @@ async function newDatabaseKey(name, env, fetchImpl) {
  * Replaces the database's key: every earlier key (a leaked one too) stops working at once, and a new one is returned.
  * The site is down until it is redeployed with the new key (about a minute).
  */
-async function rotateDatabaseKey(name, env, fetchImpl) {
+async function rotateDatabaseKey(name, env, fetchImpl, { tries = 20, waitMs = 15000 } = {}) {
   const { call, org } = turso(env, fetchImpl);
+  const host = (await call('GET', `/organizations/${org}/databases/${encodeURIComponent(name)}`)).data?.database?.Hostname;
+  if (!host) throw new Error(`Turso did not return the database address for ${name}`);
   await call('POST', `/organizations/${org}/databases/${encodeURIComponent(name)}/auth/rotate`);
-  return newDatabaseKey(name, env, fetchImpl);
+  // Right after a rotation the database may still refuse new keys for a few minutes: each key is tried before it is
+  // used, so the site is never rebuilt with a key that does not open its database.
+  const base = clean(env.TURSO_DB_BASE) ? `${clean(env.TURSO_DB_BASE)}/${host}` : `https://${host}`;
+  for (let i = 0; i < tries; i++) {
+    const key = await newDatabaseKey(name, env, fetchImpl);
+    const r = await fetchImpl(`${base}/v2/pipeline`, {
+      method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ requests: [{ type: 'execute', stmt: { sql: 'SELECT 1' } }, { type: 'close' }] }),
+      signal: AbortSignal.timeout(15000),
+    }).catch(() => null);
+    if (r?.ok) return key;
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  throw new Error(`the database ${name} did not accept a new key; its old key no longer works. Try again in a few minutes.`);
 }
 
 /** Deletes a database with all its data. A database that is already gone is fine. */

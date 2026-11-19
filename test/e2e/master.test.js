@@ -36,7 +36,12 @@ const fake = http.createServer((req, res) => {
         return send(200, { database: { Name: m[1], Hostname: `${m[1]}-myorg.turso.io` } });
       }
       if (/\/auth\/tokens$/.test(p)) return send(200, { jwt: 'db-jwt-secret' });
-      if (/\/auth\/rotate$/.test(p)) return send(200, {});
+      if (/\/auth\/rotate$/.test(p)) { keyChecks = 0; return send(200, {}); }
+    }
+    // The database itself (TURSO_DB_BASE): refuses the first new key after a rotation, as Turso can for a few minutes.
+    if (/^\/db\/[\w.-]+\/v2\/pipeline$/.test(p)) {
+      keyChecks++;
+      return keyChecks === 1 ? send(401, { error: 'not yet' }) : send(200, { results: [] });
     }
     if (p.startsWith('/vercel/')) {
       if (req.headers.authorization !== 'Bearer vercel-key') return send(403, { error: { message: 'Not authorized' } });
@@ -65,6 +70,7 @@ const fake = http.createServer((req, res) => {
     send(404, { error: `unexpected ${req.method} ${p}` });
   });
 });
+let keyChecks = 0;
 const callsTo = (method, re) => calls.filter((c) => c.method === method && re.test(c.path));
 
 let srv, boss, fakeBase;
@@ -74,7 +80,7 @@ before(async () => {
   await new Promise((r) => fake.listen(0, '127.0.0.1', r));
   fakeBase = `http://127.0.0.1:${fake.address().port}`;
   Object.assign(process.env, {
-    TURSO_API_URL: `${fakeBase}/turso/v1`, VERCEL_API_URL: `${fakeBase}/vercel`, TURSO_API_TOKEN: 'turso-key', TURSO_ORG: 'myorg',
+    TURSO_DB_BASE: `${fakeBase}/db`, TURSO_KEY_WAIT_MS: "1", TURSO_API_URL: `${fakeBase}/turso/v1`, VERCEL_API_URL: `${fakeBase}/vercel`, TURSO_API_TOKEN: 'turso-key', TURSO_ORG: 'myorg',
     VERCEL_TOKEN: 'vercel-key', VERCEL_TEAM_ID: 'team_x', CLIENT_REPO: 'yehonatan21/Car-Rental',
   });
   srv = await startServer();
@@ -500,6 +506,8 @@ test('S-01: the console replaces a site\'s database key: old keys revoked, new o
   const i = (re) => order.findIndex((o) => re.test(o));
   assert.ok(i(/auth\/rotate$/) >= 0 && i(/auth\/rotate$/) < i(/auth\/tokens$/), 'revoke first, then a new key');
   assert.ok(i(/auth\/tokens$/) < i(/\/env$/) && i(/\/env$/) < i(/v13\/deployments$/), 'saved, then rebuilt');
+  assert.equal(order.filter((o) => /auth\/tokens$/.test(o)).length, 2, 'the first key was refused by the database, so a second one was made');
+  assert.equal(keyChecks, 2, 'each key tried against the database before it was saved');
   const env = mine.find((x) => /\/env$/.test(x.path)).body;
   assert.deepEqual(env.map((e) => [e.key, e.type]), [['LIBSQL_AUTH_TOKEN', 'sensitive']]);
   assert.match(mine.find((x) => /auth\/tokens$/.test(x.path)).query, /expiration=53w/);

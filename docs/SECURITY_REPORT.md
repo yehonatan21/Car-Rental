@@ -13,6 +13,28 @@ the GitHub workflows. Earlier pass: [archive/analysis/car-rental/SECURITY_FINDIN
   deployment protection and how secrets are stored.
 - **Dependencies:** `npm audit`, production and development.
 
+## Status: all findings fixed (19/11/2026, commit after `343c61c`)
+
+| ID | Fix |
+|---|---|
+| S-01 | Every site's database key was **replaced** (the old never-expiring keys, and any copy of them, no longer work). New keys expire on 25/11/2027; each site reports its key's expiry, the console shows it on the client page and warns a month before, and **Replace database key** there makes a new one (tested against the database before it is saved). `SMTP_PASS` on `car-rental` is now *sensitive*; `ADMIN_PASSWORD` was removed from `car-rental` and the console. Still shared: the console's SMTP mailbox (a separate mailbox per client is a business choice) |
+| S-02 | A manager's or console admin's right password is followed by a 6-digit code sent by e-mail (where SMTP is set); Google sign-in counts as both. `ADMIN_SECOND_STEP=false` turns it off |
+| S-03 | Unknown addresses take as long as wrong passwords; registration gives one message for a taken e-mail **or** ID number, and only once the rest of the form is valid. (Registration can still confirm "one of the two is taken"; hiding even that needs an e-mail confirmation before the account exists) |
+| S-04 | The 10,000 most common leaked passwords (also with a short ending, e.g. `Dragon2024!`) and passwords containing the person's name or e-mail are refused, everywhere a password is chosen |
+| S-05 | Per account: 5 e-mailed codes and 3 reset links an hour, from any address; more are silently not sent |
+| S-06 | Names 60 characters, purpose 200, notes and instructions 5,000, other fields 1,000, on every form |
+| S-07 | `docs/privacy.md` now says what the console's main admin can see |
+| S-08 | A session ends after 8 hours without activity for managers, 14 days for others; each visit extends it |
+| S-09 | Registrations nobody approved or rejected for 90 days are deleted with their license photo; the action log keeps 2 years |
+| S-10 | CSP adds `base-uri 'none'; object-src 'none'`; `Permissions-Policy` turns off camera, microphone, location, payment and USB |
+| S-11 | The CI's actions are pinned to commit SHAs (Dependabot updates them). The pre-release `sqld` stays: it is only a test server in CI, pinned to an exact version |
+
+**Service interruption during the key replacement:** each site was unavailable for about 30 seconds while it was
+rebuilt with its new key; `lapidot`, the first, for a few minutes, because its first new key was refused by the
+database. The console's button now tests every key before saving it.
+
+The findings as they were found:
+
 ## Summary
 
 | Severity | Open |

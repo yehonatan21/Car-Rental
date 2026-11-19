@@ -328,7 +328,7 @@ async function rotateDatabaseKey(client, host) {
   const p = providers();
   if (!p.turso || !p.vercel) throw new Error('חסרים מפתחות API ל־Turso או ל־Vercel (ראו "חיבורים").');
   const project = await projectOf(client);
-  const key = await provision.rotateDatabaseKey(name, env(), fetchImpl);
+  const key = await provision.rotateDatabaseKey(name, env(), fetchImpl, { waitMs: Number(env().TURSO_KEY_WAIT_MS) || 15000 });
   await provision.setEnv(project.id, { LIBSQL_AUTH_TOKEN: key }, env(), fetchImpl);
   if (!client.turso_db) update(client.slug, { turso_db: name });
   return provision.deploy(project, { repo: clientRepo(), branch: clientBranch() }, env(), fetchImpl);

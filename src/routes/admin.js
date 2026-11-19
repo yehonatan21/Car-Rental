@@ -9,7 +9,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
 const storage = require('../storage');
-const { html, raw, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, pageOf, pager, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { html, raw, markdown, filterBox, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, pageOf, pager, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 const documents = require('./documents');
 const { actionLabel } = require('../views/audit-labels');
@@ -79,7 +79,7 @@ function deleteUserCard(req, u, list) {
 function bookingsTable(list, { showUser = true, req } = {}) {
   if (!list.length) return html`<p class="empty">${icon('calendar', 28)}<span>אין רשומות.</span></p>`;
   return html`<table class="table">
-<thead><tr>${showUser ? html`<th>משתמש</th>` : ''}<th>איסוף</th><th>החזרה</th><th>מטרה</th><th>סטטוס</th><th></th></tr></thead>
+<thead><tr>${showUser ? html`<th>משתמש</th>` : ''}<th>איסוף</th><th>החזרה</th><th>מטרה</th><th>סטטוס</th><th><span class="sr-only">פעולות</span></th></tr></thead>
 <tbody>${list.map((b) => html`<tr>
   ${showUser ? html`<td data-label="משתמש">${b.kind === 'block' ? html`<span class="note-line">${icon('wrench', 16)} ${b.block_reason}</span>` : fullName(b)}</td>` : ''}
   <td data-label="איסוף">${time.fmt(b.start_at)}</td>
@@ -107,6 +107,28 @@ function approvalNotice(b, sent, { notifyUser = true } = {}) {
   const toUser = notifyUser && sent.user ? `נשלח מייל אישור אל ${b.email}` : 'לא נשלח מייל למשתמש';
   if (sent.admins === false) return ['warning', `ההזמנה אושרה (${toUser}), אבל שליחת העותק למנהלים נכשלה.`];
   return ['success', `ההזמנה אושרה. ${toUser}${sent.admins ? ' ועותק למנהלים' : ''}.`];
+}
+
+/**
+ * The status actions of the user card, as one form (U-10): the expected action first and prominent (approve, for a
+ * user waiting for it), the others as secondary buttons under it, and one note that goes with whichever is chosen.
+ */
+function userActionsForm(req, u) {
+  const canApprove = ['pending', 'license_update', 'rejected', 'blocked'].includes(u.status) && !u.pending_license_file;
+  const to = (a) => `/admin/users/${u.id}/${a}`;
+  const others = [
+    u.status === 'pending' && html`<button class="btn btn-danger" formaction="${to('reject')}" formnovalidate data-confirm="לדחות את ההרשמה של ${fullName(u)}?">דחיית ההרשמה</button>`,
+    ['active', 'pending'].includes(u.status) && html`<button class="btn btn-light" formaction="${to('request-license')}" formnovalidate>בקשת רישיון חדש</button>`,
+    u.status !== 'blocked' && html`<button class="btn btn-danger" formaction="${to('block')}" formnovalidate data-confirm="לחסום את ${fullName(u)}? הזמנות עתידיות לא יבוטלו אוטומטית.">חסימת המשתמש</button>`,
+  ].filter(Boolean);
+  return postForm(req, canApprove ? to('approve') : to('note'), html`
+  ${canApprove ? html`<div class="primary-action">
+    ${field('תוקף הרישיון, כפי שנבדק', html`<input type="date" name="license_expiry" value="${u.license_expiry}" required>`)}
+    <button class="btn btn-primary">${icon('check', 18)} ${u.status === 'blocked' ? 'הפעלה מחדש' : 'אישור המשתמש והרישיון'}</button>
+  </div>` : ''}
+  ${others.length ? html`
+  ${field('הערה למשתמש (אופציונלי, תצורף למייל)', html`<input name="note" maxlength="1000">`)}
+  <div class="secondary-actions">${others}</div>` : ''}`, 'class="user-actions"');
 }
 
 // ---------- Manager levels ----------
@@ -234,7 +256,7 @@ const auditCard = () => html`<section class="card" id="audit">
 
 const SETTINGS_TABS = [
   ['general', 'כללי', 'users'], ['bookings', 'הזמנות ותזכורות', 'calendar'], ['integrations', 'מיילים והתחברות', 'file'],
-  ['reports', 'דוחות', 'chart'], ['health', 'תקינות המערכת', 'shield'],
+  ['policies', 'נהלים', 'file'], ['reports', 'דוחות', 'chart'], ['health', 'תקינות המערכת', 'shield'],
 ];
 
 /** Settings → system health: when reminders last ran, and the e-mails that wait or failed (with "retry now"). */
@@ -440,8 +462,6 @@ ${!config.smtp && (config.production || config.onVercel) ? html`<div class="flas
   <a class="stat ${licenses.length ? 'warn' : ''}" href="/admin/users?status=license_update">${icon('id')}<b>${licenses.length}</b><span>רישיונות שפגו / עומדים לפוג</span></a>
 </div>
 
-${vehicleAlerts.length ? html`<div class="card alert"><h2 class="section-title">${icon('alert')} התראות רכב</h2><ul>${vehicleAlerts.map((a) => html`<li>${a}</li>`)}</ul><a href="/admin/vehicle">לניהול הרכב</a></div>` : ''}
-
 <div class="grid2">
   <section class="card">
     <h2 class="section-title">${icon('clock')} בקשות הזמנה ממתינות</h2>
@@ -459,6 +479,7 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2 class="section-title">
       <a href="/admin/users/${u.id}">${fullName(u)}</a> – ${time.fmt(u.license_expiry)} ${u.license_expiry < today ? badge('blocked', 'פג') : badge('pending', 'בקרוב')}</li>`)}</ul>` : ''}
   </section>
 </div>
+${vehicleAlerts.length ? html`<div class="card alert"><h2 class="section-title">${icon('alert')} התראות רכב</h2><ul>${vehicleAlerts.map((a) => html`<li>${a}</li>`)}</ul><a href="/admin/vehicle">לניהול הרכב</a></div>` : ''}
 <section class="card">
   <div class="page-head"><h2 class="section-title">${icon('calendar')} ההזמנות הקרובות</h2>
     <div class="page-actions"><a class="btn btn-light btn-sm" href="/admin/blocks/new">${icon('wrench', 16)} חסימת מועד</a> <a class="btn btn-light btn-sm" href="/calendar">ליומן</a></div></div>
@@ -486,7 +507,7 @@ ${pageHead('משתמשים', {
     iconName: 'users', sub: 'אישור נרשמים, בדיקת רישיונות וניהול הרשאות.',
     actions: html`<a class="btn btn-primary" href="/admin/users/new">${icon('userplus')} הוספת משתמש</a>`,
   })}
-<form class="filters" method="get">
+${filterBox([q, status, role].filter(Boolean).length, html`<form class="filters" method="get">
   <input name="q" value="${q}" placeholder="חיפוש לפי שם, מייל, טלפון או ת״ז" aria-label="חיפוש משתמשים">
   <select name="status" aria-label="סינון לפי סטטוס"><option value="">כל הסטטוסים</option>
     ${Object.entries(USER_STATUS).map(([k, l]) => html`<option value="${k}" ${k === status ? 'selected' : ''}>${l}</option>`)}</select>
@@ -494,10 +515,10 @@ ${pageHead('משתמשים', {
     <option value="admin" ${role === 'admin' ? 'selected' : ''}>מנהלים</option>
     <option value="user" ${role === 'user' ? 'selected' : ''}>משתמשים רגילים</option></select>
   <button class="btn btn-light">סינון</button>
-</form>
+</form>`)}
 <section class="card">
 <table class="table">
-<thead><tr><th>שם</th><th>דואר אלקטרוני</th><th>טלפון</th><th>תוקף רישיון</th><th>סטטוס</th><th></th></tr></thead>
+<thead><tr><th>שם</th><th>דואר אלקטרוני</th><th>טלפון</th><th>תוקף רישיון</th><th>סטטוס</th><th><span class="sr-only">פעולות</span></th></tr></thead>
 <tbody>${users.map((u) => html`<tr>
   <td data-label="שם">${fullName(u)} ${u.role === 'admin' ? badge('admin', 'מנהל') : ''}</td>
   <td data-label="מייל">${u.email}</td>
@@ -627,14 +648,7 @@ ${pageHead(html`${fullName(u)} ${u.role === 'admin' ? badge('admin', 'מנהל')
 
 <section class="card">
   <h2 class="section-title">${icon('settings')} פעולות</h2>
-  ${isSelf ? html`<p class="muted">לא ניתן לשנות את סטטוס החשבון שלך.</p>` : html`<div class="actions-grid">
-    ${['pending', 'license_update', 'rejected', 'blocked'].includes(u.status) && !u.pending_license_file ? postForm(req, `/admin/users/${u.id}/approve`, html`
-      ${field('תוקף רישיון שאומת', html`<input type="date" name="license_expiry" value="${u.license_expiry}" required>`)}
-      <button class="btn btn-primary">${u.status === 'blocked' ? 'הפעלה מחדש' : 'אישור המשתמש והרישיון'}</button>`, 'class="action-box"') : ''}
-    ${u.status === 'pending' ? actionButton(req, `/admin/users/${u.id}/reject`, 'דחיית ההרשמה', { cls: 'btn-danger', note: true, confirm: 'לדחות את המשתמש?' }) : ''}
-    ${['active', 'pending'].includes(u.status) ? actionButton(req, `/admin/users/${u.id}/request-license`, 'בקשת רישיון חדש', { cls: 'btn-light', note: true }) : ''}
-    ${u.status !== 'blocked' ? actionButton(req, `/admin/users/${u.id}/block`, 'חסימת המשתמש', { cls: 'btn-danger', note: true, confirm: 'לחסום את המשתמש? הזמנות עתידיות לא יבוטלו אוטומטית.' }) : ''}
-  </div>`}
+  ${isSelf ? html`<p class="muted">לא ניתן לשנות את סטטוס החשבון שלך.</p>` : userActionsForm(req, u)}
 </section>
 
 ${permissionsCard(req, u, isSelf)}
@@ -879,7 +893,7 @@ ${pageHead('הזמנות', {
     iconName: 'list', sub: 'בקשות ממתינות מופיעות ראשונות.',
     actions: html`<a class="btn btn-primary" href="/admin/bookings/new">${icon('plus')} הזמנה ידנית</a> <a class="btn btn-light" href="/admin/blocks/new">${icon('wrench')} חסימת מועד</a>`,
   })}
-<form class="filters" method="get">
+${filterBox([q, status, kind, vehicleId, from, to].filter(Boolean).length, html`<form class="filters" method="get">
   <input name="q" value="${q}" placeholder="שם משתמש, מייל או מטרה" aria-label="חיפוש הזמנות">
   <select name="status" aria-label="סינון לפי סטטוס"><option value="">כל הסטטוסים</option>
     ${Object.entries(bookings.STATUS_LABELS).map(([k, l]) => html`<option value="${k}" ${k === status ? 'selected' : ''}>${l}</option>`)}</select>
@@ -891,7 +905,7 @@ ${pageHead('הזמנות', {
   <label class="inline-label">מ־<input type="date" name="from" value="${from}"></label>
   <label class="inline-label">עד<input type="date" name="to" value="${to}"></label>
   <button class="btn btn-light">סינון</button>
-</form>
+</form>`)}
 <section class="card">${bookingsTable(list, { req })}${pager(req, p)}</section>`);
   });
 
@@ -908,10 +922,12 @@ ${pageHead('הזמנות', {
       ${field('איסוף', html`<input type="datetime-local" name="start" value="${start}" required>`)}
       ${field('החזרה', html`<input type="datetime-local" name="end" value="${end}" required>`)}
     </div>
+    <div class="duration-chips" role="group" aria-label="משך מהיר" hidden>
+      <span class="muted small">משך:</span><button type="button" class="chip" data-dur="120">שעתיים</button><button type="button" class="chip" data-dur="300">חצי יום</button><button type="button" class="chip" data-dur="1440">יום שלם</button></div>
     ${field('מטרה', html`<input name="purpose" maxlength="200">`)}
     ${field('הערות', html`<textarea name="notes" maxlength="5000" rows="2"></textarea>`)}
     <label class="check"><input type="checkbox" name="notify" value="1" checked> <span>שליחת מייל אישור למשתמש</span></label>
-    <button class="btn btn-primary btn-block">יצירת הזמנה מאושרת</button>`, 'class="card"')}
+    <button class="btn btn-primary btn-block">יצירת הזמנה מאושרת</button>`, 'class="card" data-times')}
 </div>`);
   });
 
@@ -1104,12 +1120,13 @@ ${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id
   });
 
   // ---------- Policies ----------
-  app.get('/admin/policies', requireAdmin, (req, res) => {
+  /** Settings → Rules (and /admin/policies): edit the rules as a new version, see the versions and who accepted. */
+  function policiesPanel(req) {
     const p = currentPolicy();
     const versions = db.prepare(`SELECT p.version, p.created_at, p.requires_reaccept, COUNT(a.id) AS accepted
       FROM policies p LEFT JOIN policy_acceptances a ON a.policy_version = p.version GROUP BY p.version ORDER BY p.version DESC`).all();
-    res.page('ניהול נהלים', html`
-${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: `גרסה נוכחית: ${p.version}. כל שמירה יוצרת גרסה חדשה.` })}
+    return html`
+<p class="muted">גרסה נוכחית: ${p.version}. כל שמירה יוצרת גרסה חדשה.</p>
 <div class="grid2">
   ${postForm(req, '/admin/policies', html`
     <h2 class="section-title">${icon('file')} עריכה – תיצור גרסה ${p.version + 1}</h2>
@@ -1125,30 +1142,36 @@ ${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: `גרסה 
     <h3>תצוגה מקדימה (גרסה נוכחית)</h3>
     <div class="prose">${markdown(p.content)}</div>
   </section>
-</div>`);
+</div>`;
+  }
+
+  app.get('/admin/policies', requireAdmin, (req, res) => {
+    res.page('ניהול נהלים', html`${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: 'נמצאים גם ב־הגדרות ← נהלים.' })}${policiesPanel(req)}`);
   });
 
   app.post('/admin/policies', requireAdmin, (req, res) => {
     const content = String(req.body.content || '').trim();
-    if (!content) { res.flash('error', 'התוכן ריק'); return res.redirect('/admin/policies'); }
+    if (!content) { res.flash('error', 'התוכן ריק'); return res.redirect('/admin/settings?tab=policies'); }
     const version = currentPolicy().version + 1;
     db.prepare('INSERT INTO policies (version, content, requires_reaccept, created_by, created_at) VALUES (?, ?, ?, ?, ?)')
       .run(version, content, req.body.requires_reaccept === '1' ? 1 : 0, req.user.id, time.stamp());
     audit(req.user.id, 'policy.publish', 'policy', version, req.body.requires_reaccept === '1' ? 'requires reaccept' : '');
     res.flash('success', `גרסה ${version} פורסמה`);
-    res.redirect('/admin/policies');
+    res.redirect('/admin/settings?tab=policies');
   });
 
   // ---------- Settings & audit ----------
   app.get('/admin/settings', requireAdmin, (req, res) => {
     const tab = activeTab(req, SETTINGS_TABS);
     res.page('הגדרות', html`
-${pageHead('הגדרות', { iconName: 'settings', sub: 'פרטי הארגון, כללי ההזמנה והתזכורות, מיילים והתחברות, דוחות ותקינות המערכת.' })}
+${pageHead('הגדרות', { iconName: 'settings', sub: 'פרטי הארגון, כללי ההזמנה והתזכורות, מיילים והתחברות, נהלים, דוחות ותקינות המערכת.' })}
 ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
 <div class="tab-panels">
   ${tabPanel('general', tab, brandingCard(req))}
   ${tabPanel('bookings', tab, bookingRulesCard(req))}
   ${tabPanel('integrations', tab, html`${emailStatusCard(req)}${googleStatusCard(req)}`)}
+  ${tab === 'policies' ? tabPanel('policies', tab, policiesPanel(req))
+    : html`<div class="tab-panel" id="policies" role="tabpanel" data-load hidden></div>`}
   ${tab === 'reports' ? tabPanel('reports', tab, reportsPanel(req))
     // Computed only when opened: the tab then loads ?tab=reports (data-load, see app.js), the others stay quick.
     : html`<div class="tab-panel" id="reports" role="tabpanel" data-load hidden></div>`}

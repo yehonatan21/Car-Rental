@@ -180,7 +180,7 @@ ${setupNotice()}
 </div>
 <section class="card">
 ${clients.length ? html`<table class="table">
-<thead><tr><th>לקוח</th><th>מצב</th><th>משתמשים</th><th>בקשות ממתינות</th><th>הרשמות ממתינות</th><th>הזמנות קרובות</th><th>מנהל/ת</th><th></th></tr></thead>
+<thead><tr><th>לקוח</th><th>מצב</th><th>משתמשים</th><th>בקשות ממתינות</th><th>הרשמות ממתינות</th><th>הזמנות קרובות</th><th>מנהל/ת</th><th><span class="sr-only">פעולות</span></th></tr></thead>
 <tbody>${clients.map((c, i) => {
     const st = statuses[i];
     const d = statusData(st);
@@ -573,7 +573,7 @@ ${pageHead('משתמשי האתר', { iconName: 'users', sub: `באתר של ${c
   ${q ? html`<a class="btn btn-light" href="${backTo(c, '/users')}">ניקוי</a>` : ''}
 </form>
 <section class="card">
-${r.users.length ? html`<table class="table"><thead><tr><th>שם</th><th>דואר אלקטרוני</th><th>תפקיד</th><th>התחברות</th><th></th></tr></thead><tbody>
+${r.users.length ? html`<table class="table"><thead><tr><th>שם</th><th>דואר אלקטרוני</th><th>תפקיד</th><th>התחברות</th><th><span class="sr-only">פעולות</span></th></tr></thead><tbody>
 ${r.users.map((u) => html`<tr>
   <td data-label="שם"><b>${u.firstName} ${u.lastName}</b></td>
   <td data-label="דואר אלקטרוני"><span dir="ltr">${u.email}</span></td>

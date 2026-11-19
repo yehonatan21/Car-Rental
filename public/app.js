@@ -6,15 +6,58 @@
 window.va = window.va || function va(...params) { (window.vaq = window.vaq || []).push(params); };
 
 // Confirmation prompts on destructive buttons.
+// Confirmation before an action (data-confirm on the button): the site's own dialog, in Hebrew, with a button that
+// names the action, instead of the browser's plain box (whose buttons can be in English).
+const confirmed = new WeakSet();
 document.addEventListener('submit', (e) => {
-  const btn = e.submitter || e.target.querySelector('[data-confirm]');
-  const msg = btn && btn.dataset.confirm;
-  if (msg && !window.confirm(msg)) e.preventDefault();
+  const form = e.target;
+  const btn = e.submitter || form.querySelector('[data-confirm]');
+  const msg = btn?.dataset.confirm;
+  if (confirmed.has(form)) { confirmed.delete(form); return; } // the confirmed submit itself: ask again next time
+  if (!msg) return;
+  e.preventDefault();
+  const go = () => { confirmed.add(form); btn.matches('button, input') ? form.requestSubmit(btn) : form.requestSubmit(); };
+  if (typeof HTMLDialogElement !== 'function') { if (window.confirm(msg)) go(); return; }
+  const danger = btn.matches('.btn-danger, .btn-danger-text, .btn-reject') || /מחיק|הסר|ביטול|חסימ|דחי/.test(btn.textContent);
+  const d = document.createElement('dialog');
+  d.className = 'confirm-dialog';
+  d.setAttribute('aria-labelledby', 'confirm-text');
+  const p = document.createElement('p'); p.id = 'confirm-text'; p.textContent = msg;
+  const row = document.createElement('div'); row.className = 'confirm-actions';
+  const ok = document.createElement('button'); ok.type = 'button'; ok.className = `btn ${danger ? 'btn-danger' : 'btn-primary'}`;
+  ok.textContent = (btn.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40) || 'אישור';
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-light'; cancel.textContent = 'חזרה';
+  row.append(ok, cancel); d.append(p, row); document.body.append(d);
+  const close = () => { d.close(); d.remove(); btn.focus?.(); };
+  cancel.addEventListener('click', close);
+  d.addEventListener('cancel', (ev) => { ev.preventDefault(); close(); });
+  ok.addEventListener('click', () => { d.close(); d.remove(); go(); });
+  d.showModal();
+  cancel.focus();
 });
 
-// Phones get the day view by default; a whole week is too cramped.
-if (location.pathname === '/calendar' && !new URLSearchParams(location.search).has('view') && window.innerWidth < 640) {
-  location.replace('/calendar?view=day');
+// While a form is being sent: its button shows a spinner and cannot be pressed again (a slow upload looked frozen
+// and invited a second tap). Disabled only after the browser has taken the form, so the button's own value is sent.
+document.addEventListener('submit', (e) => {
+  if (e.defaultPrevented || e.target.method === 'get' || e.target.target === '_blank') return;
+  const btn = e.submitter;
+  if (!btn || btn.matches('.linklike')) return;
+  setTimeout(() => { btn.disabled = true; btn.classList.add('busy'); btn.setAttribute('aria-busy', 'true'); }, 0);
+});
+// Back to a page from the browser history: its buttons work again.
+window.addEventListener('pageshow', () => {
+  for (const b of document.querySelectorAll('button.busy')) { b.disabled = false; b.classList.remove('busy'); b.removeAttribute('aria-busy'); }
+});
+
+// Phones get the day view by default; a whole week is too cramped. The server picks it from the "narrow" cookie, so
+// only the very first visit on a phone needs this redirect.
+{
+  const narrow = window.innerWidth < 640 ? '1' : '0';
+  const known = document.cookie.split('; ').find((c) => c.startsWith('narrow='))?.slice(7);
+  if (known !== narrow) document.cookie = `narrow=${narrow}; path=/; max-age=31536000; samesite=lax`;
+  if (!known && narrow === '1' && location.pathname === '/calendar' && !new URLSearchParams(location.search).has('view')) {
+    location.replace('/calendar?view=day');
+  }
 }
 
 // Close the mobile menu when clicking outside it.
@@ -255,19 +298,24 @@ for (const dlg of document.querySelectorAll('dialog.ev-dialog')) {
   dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); }); // a click on the backdrop
 }
 
-// Booking form: keep the return time after pickup and show live availability.
-const form = document.querySelector('form[data-availability]');
-if (form) {
+// Booking forms (data-times): the return follows the pickup, keeping the chosen length (2 hours to start with);
+// duration buttons set the return in one tap; the user's form also shows live availability (data-availability).
+for (const form of document.querySelectorAll('form[data-times]')) {
   const start = form.querySelector('[name=start]');
   const end = form.querySelector('[name=end]');
   const box = document.getElementById('availability');
   const dur = document.getElementById('duration');
+  const chips = form.querySelector('.duration-chips');
   const pad = (n) => String(n).padStart(2, '0');
   const local = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const plus = (v, mins) => local(new Date(new Date(v).getTime() + mins * 60000));
+  const minutes = () => (start.value && end.value ? Math.round((new Date(end.value) - new Date(start.value)) / 60000) : 0);
+  let length = minutes() > 0 ? minutes() : 120;
 
   const showDuration = () => {
+    const mins = minutes();
+    for (const c of chips?.querySelectorAll('[data-dur]') || []) c.setAttribute('aria-pressed', String(Number(c.dataset.dur) === mins));
     if (!dur) return;
-    const mins = start.value && end.value ? Math.round((new Date(end.value) - new Date(start.value)) / 60000) : 0;
     if (mins <= 0) { dur.textContent = ''; return; }
     const d = Math.floor(mins / 1440); const h = Math.floor((mins % 1440) / 60); const m = mins % 60;
     const parts = [d && (d === 1 ? 'יום' : `${d} ימים`), h && (h === 1 ? 'שעה' : `${h} שעות`), m && `${m} דקות`].filter(Boolean);
@@ -276,6 +324,7 @@ if (form) {
 
   const check = async () => {
     showDuration();
+    if (!box || !form.dataset.availability) return;
     if (!start.value || !end.value || end.value <= start.value) {
       box.textContent = end.value && start.value ? 'מועד ההחזרה חייב להיות אחרי מועד האיסוף' : '';
       box.className = 'availability' + (box.textContent ? ' bad' : '');
@@ -288,16 +337,24 @@ if (form) {
       box.className = 'availability ' + (data.ok ? 'good' : 'bad');
     } catch { /* offline: the server validates anyway */ }
   };
+  const setEnd = (v) => { end.value = v; end.dispatchEvent(new Event('dp-sync')); };
 
   start.addEventListener('change', () => {
     end.min = start.value;
-    if (start.value && (!end.value || end.value <= start.value)) {
-      end.value = local(new Date(new Date(start.value).getTime() + 2 * 3600000));
-    }
-    end.dispatchEvent(new Event('dp-sync')); // the date picker shows the new return time (and the new earliest date)
+    if (start.value) setEnd(plus(start.value, length)); // the return moves with the pickup, same length
+    else end.dispatchEvent(new Event('dp-sync'));
     check();
   });
-  end.addEventListener('change', check);
+  end.addEventListener('change', () => { if (minutes() > 0) length = minutes(); check(); });
+  if (chips) {
+    chips.hidden = false;
+    chips.addEventListener('click', (e) => {
+      const c = e.target.closest('[data-dur]');
+      if (!c) return;
+      length = Number(c.dataset.dur);
+      if (start.value) { setEnd(plus(start.value, length)); check(); } else showDuration();
+    });
+  }
   check();
 }
 
@@ -529,3 +586,18 @@ document.addEventListener('click', (e) => {
     }
   });
 }
+
+// Show/hide a password (the eye button beside the field).
+for (const b of document.querySelectorAll('[data-reveal]')) {
+  b.hidden = false;
+  b.addEventListener('click', () => {
+    const input = document.getElementById(b.dataset.reveal);
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    b.setAttribute('aria-pressed', String(show));
+    b.setAttribute('aria-label', show ? 'הסתרת הסיסמה' : 'הצגת הסיסמה');
+  });
+}
+
+// Phones: a list's filters start folded (unless one is on), so the list comes first.
+if (window.innerWidth <= 680) for (const d of document.querySelectorAll('details.filter-box:not([data-active])')) d.open = false;

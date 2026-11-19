@@ -111,7 +111,7 @@ test('production without a mail server: no dead-end "code sent" or "link sent" s
   config.production = true; // config.smtp stays null in tests
   try {
     const login = (await client().get('/login')).text;
-    assert.doesNotMatch(login, /כניסה עם קוד חד־פעמי/);
+    assert.doesNotMatch(login, /שליחת קוד חד־פעמי/);
     assert.match(login, /שכחת סיסמה\? פנו למנהל המערכת/);
     const code = await client().post('/login/code', { email: 'admin@pw.test' });
     assert.equal(code.status, 503);

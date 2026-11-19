@@ -40,7 +40,7 @@ function html(strings, ...values) {
 }
 
 /** Tiny Markdown subset for the policy page: #/##/### headings, lists, > quotes, **bold**, paragraphs. */
-function markdown(src) {
+function markdown(src, { top = 2 } = {}) {
   const inline = (t) => escape(t).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   const out = [];
   let list = null, para = [];
@@ -52,7 +52,7 @@ function markdown(src) {
     const t = line.trim();
     let m;
     if (!t) flush();
-    else if ((m = t.match(/^(#{1,3})\s+(.*)$/))) { flush(); const n = m[1].length + 1; out.push(`<h${n}>${inline(m[2])}</h${n}>`); }
+    else if ((m = t.match(/^(#{1,3})\s+(.*)$/))) { flush(); const n = m[1].length + top - 1; out.push(`<h${n}>${inline(m[2])}</h${n}>`); }
     else if ((m = t.match(/^[-*]\s+(.*)$/))) { if (para.length) flush(); (list ||= []).push(m[1]); }
     else if ((m = t.match(/^>\s?(.*)$/))) { flush(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); }
     else { if (list) flush(); para.push(t); }
@@ -97,6 +97,8 @@ const ICON_PATHS = {
   wrench: '<path d="M14.5 6.5a4 4 0 0 0 5 5L12 19a2.1 2.1 0 0 1-3-3z"/><path d="M14.5 6.5l3-3a4 4 0 0 0-5 5"/>',
   arrow: '<path d="M15 6l-6 6 6 6"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
@@ -111,11 +113,10 @@ function navLinks(user) {
     return [['/master', 'לקוחות', 'dashboard'], ['/master/clients/new', 'לקוח חדש', 'plus'], ['/master/admins', 'מנהלי המרכז', 'shield'],
       ['/master/settings', 'הגדרות', 'settings']];
   }
-  if (!user) return [['/login', 'התחברות', 'login'], ['/register', 'הרשמה', 'userplus'], ['/policy', 'נהלי השאלה', 'file']];
+  if (!user) return [['/login', 'התחברות', 'login'], ['/register', 'הרשמה', 'userplus'], ['/policy', 'נהלים', 'file']];
   if (user.role === 'admin') {
     return [['/admin', 'לוח בקרה', 'dashboard'], ['/admin/bookings', 'הזמנות', 'list'], ['/calendar', 'יומן', 'calendar'],
-      ['/admin/users', 'משתמשים', 'users'], ['/admin/vehicle', 'רכב', 'car'],
-      ['/admin/policies', 'נהלים', 'file'], ['/admin/settings', 'הגדרות', 'settings'],
+      ['/admin/users', 'משתמשים', 'users'], ['/admin/vehicle', 'רכב', 'car'], ['/admin/settings', 'הגדרות', 'settings'],
       // The console inside this site (MASTER_CONSOLE): for the main admin only.
       ...(config.masterConsole && user.email === require('../bootstrap').mainAdminEmail() ? [['/master', 'מרכז ניהול', 'shield']] : []),
       ['/me', 'אזור אישי', 'user']];
@@ -136,7 +137,11 @@ function layout(req, title, body, { bare = false } = {}) {
   const user = bare ? null : req.user;
   const links = bare ? [] : navLinks(user);
   const flash = req.flash;
-  const link = ([href, label, ic]) => html`<a href="${href}" ${isCurrent(req, href) ? raw('aria-current="page"') : ''}>${icon(ic)}<span>${label}</span></a>`;
+  // Managers see how many booking requests wait, on "הזמנות" (bookings) in the menu and the phone tab bar.
+  const waiting = user?.role === 'admin' && !config.master
+    ? require('../db').db.prepare("SELECT COUNT(*) AS n FROM bookings WHERE status = 'pending' AND end_at > ?").get(require('../time').now()).n : 0;
+  const count = (href) => (href === '/admin/bookings' && waiting ? html`<span class="nav-badge" aria-label="${waiting} ממתינות לאישור">${waiting > 99 ? '99+' : waiting}</span>` : '');
+  const link = ([href, label, ic]) => html`<a href="${href}" ${isCurrent(req, href) ? raw('aria-current="page"') : ''}>${icon(ic)}<span>${label}</span>${count(href)}</a>`;
   const logout = user ? html`<form method="post" action="/logout">${csrfField(req)}<button class="linklike">${icon('logout')}<span>יציאה</span></button></form>` : '';
   const tabs = links.slice(0, 4);
   const b = brand();
@@ -183,6 +188,15 @@ ${config.vercelAnalytics ? raw('<script defer src="/_vercel/insights/script.js">
 </body>
 </html>`.toString();
 }
+
+/**
+ * A list's filters in a box that phones can fold away (app.js folds it on narrow screens when no filter is on), so
+ * the list itself comes first. `active`: how many filters are on, shown on the box's title.
+ */
+const filterBox = (active, form) => html`<details class="filter-box" open ${active ? raw('data-active') : ''}>
+  <summary>${icon('search', 18)} סינון וחיפוש${active ? html` <span class="nav-badge">${active}</span>` : ''}</summary>
+  ${form}
+</details>`;
 
 /** Page title row: heading, optional subtitle and actions. */
 const pageHead = (title, { sub, actions, iconName } = {}) => html`
@@ -300,6 +314,7 @@ const fileInput = (name, { required = true } = {}) =>
 const licenseInput = (opts) => fileInput('license', opts);
 
 module.exports = {
+  filterBox,
   html, raw, escape, markdown, layout, csrfField, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, pageOf, pager, badge, icon, pageHead, pageTabs, tabPanel, activeTab, asset, newPasswordPage, USER_STATUS, VEHICLE_STATUS,
   licenseInput, fileInput, uploadLimitLabel,
 };

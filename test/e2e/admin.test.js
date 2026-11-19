@@ -290,12 +290,12 @@ test('code login page: development hint when no mail server, resend button', asy
   assert.equal(bad.status, 400);
 });
 
-test('settings are organised in tabs: general, bookings and reminders, e-mail and sign-in, reports, system health', async () => {
+test('settings are organised in tabs: general, bookings and reminders, e-mail and sign-in, rules, reports, system health', async () => {
   const page = (await admin.get('/admin/settings')).text;
   const tabs = [...page.matchAll(/<a href="\?tab=(\w+)" role="tab" data-tab="\1"[^>]*aria-selected="(\w+)"[^>]*>[\s\S]*?<span>([^<]+)<\/span><\/a>/g)]
     .map((m) => [m[1], m[3], m[2]]);
   assert.deepEqual(tabs, [['general', 'כללי', 'true'], ['bookings', 'הזמנות ותזכורות', 'false'], ['integrations', 'מיילים והתחברות', 'false'],
-    ['reports', 'דוחות', 'false'], ['health', 'תקינות המערכת', 'false']]);
+    ['policies', 'נהלים', 'false'], ['reports', 'דוחות', 'false'], ['health', 'תקינות המערכת', 'false']]);
   // Each tab's panel holds its own sections.
   const panel = (text, id) => new RegExp(`<div class="tab-panel" id="${id}" role="tabpanel" ?(hidden)?>([\\s\\S]*?)</div>\\s*(<div class="tab-panel"|</div>\\s*</main>)`).exec(text);
   assert.match(panel(page, 'general')[2], /id="branding"[\s\S]*name="org_name"[\s\S]*name="brand_color"/);

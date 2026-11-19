@@ -72,13 +72,18 @@ test('static files: a year with ?v=, a week without', async () => {
   assert.equal(plain.headers.get('cache-control'), 'public, max-age=604800');
 });
 
-test('calendar month: no window for a request hidden behind "+N"', async () => {
+test('calendar month: no window for a request hidden behind "+N"; the chosen day lists them all', async () => {
   const day = 5;
   const ids = [8, 9, 10, 11, 12].map((h) => addBooking('pending', day, h));
-  const page = await admin.get(`/calendar?view=month&date=${time.addDays(time.today(), day)}`);
+  const target = time.addDays(time.today(), day);
+  const other = target.slice(8) === '01' ? `${target.slice(0, 8)}02` : `${target.slice(0, 8)}01`; // same month, another day
+  const page = await admin.get(`/calendar?view=month&date=${other}`);
   const windows = ids.filter((id) => page.text.includes(`<dialog class="ev-dialog" id="bk-${id}"`));
   assert.deepEqual(windows, ids.slice(0, 3), 'the 3 shown in the day cell');
   assert.match(page.text, /class="more"[^>]*>\+2</);
+  const chosen = await admin.get(`/calendar?view=month&date=${target}`);
+  assert.match(chosen.text, /id="day-list"/);
+  assert.equal(ids.filter((id) => chosen.text.includes(`<dialog class="ev-dialog" id="bk-${id}"`)).length, 5, 'the chosen day lists all 5, each with its window');
   const day1 = await admin.get(`/calendar?view=day&date=${time.addDays(time.today(), day)}`);
   assert.equal(ids.filter((id) => day1.text.includes(`id="bk-${id}"`)).length, 5, 'the day view shows all of them');
   db.prepare(`DELETE FROM bookings WHERE id IN (${ids.join(',')})`).run();

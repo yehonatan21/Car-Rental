@@ -83,6 +83,8 @@ h3 { font-size: 1rem; font-weight: 600; margin: 1.1rem 0 .5rem; }
 p { margin: 0 0 .8rem; }
 code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em; }
 .muted { color: var(--muted); }
+/* Read by screen readers, not shown (e.g. the heading of a table's action column). */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .small { font-size: .875rem; }
 .pre { white-space: pre-wrap; }
 .icon { flex: none; vertical-align: middle; }
@@ -115,7 +117,7 @@ code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 
 .user-chip .avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--primary-soft); color: var(--primary-soft-ink); font-weight: 700; }
 .user-chip .who { display: flex; flex-direction: column; line-height: 1.15; }
 .user-chip .who b { font-size: .85rem; font-weight: 600; }
-.user-chip .who small { font-size: .74rem; color: var(--muted); }
+.user-chip .who small { font-size: .8rem; color: var(--muted); }
 .menu { display: none; position: relative; margin-inline-start: auto; }
 .menu summary { list-style: none; cursor: pointer; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--text); }
 .menu summary:hover { background: var(--surface-2); }
@@ -137,7 +139,7 @@ code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 
 }
 .tabbar a {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  text-decoration: none; color: var(--muted); font-size: .72rem; font-weight: 500;
+  text-decoration: none; color: var(--muted); font-size: .8rem; font-weight: 500;
 }
 .tabbar a[aria-current] { color: var(--primary); }
 .tabbar a[aria-current] .icon { background: var(--primary-soft); border-radius: 999px; padding: 3px 14px; width: 52px; height: 28px; }
@@ -152,8 +154,8 @@ code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 
   .nav-desktop, .user-chip, .desktop-logout { display: none; }
   .signed-in .menu { display: block; }
   .signed-out .nav-desktop { display: flex; justify-content: flex-end; margin: 0; }
-  .signed-out .nav-desktop a span { display: none; }
-  .signed-out .nav-desktop a { padding: .55rem; }
+  /* Visitors: each link keeps its word under the icon (an icon alone was unclear, and nameless to screen readers). */
+  .signed-out .nav-desktop a { flex-direction: column; gap: 2px; padding: .3rem .5rem; font-size: .78rem; min-width: 52px; min-height: 48px; justify-content: center; }
   .tabbar { display: grid; }
   .signed-in .container { padding-bottom: calc(var(--tabbar-h) + 1.5rem); }
   .signed-in .site-footer { display: none; }
@@ -395,12 +397,12 @@ ul.plain li:last-child { border-bottom: 0; }
 .tg-head a:hover { background: var(--surface-2); }
 .tg-head span { font-size: .78rem; }
 .tg-head b { color: var(--text); font-size: 1.15rem; min-width: 2rem; line-height: 2rem; border-radius: 999px; font-variant-numeric: tabular-nums; }
-.tg-head small { font-size: .7rem; font-variant-numeric: tabular-nums; }
+.tg-head small { font-size: .78rem; font-variant-numeric: tabular-nums; }
 .tg-head.today b { background: var(--primary); color: var(--primary-ink); }
 .tg-head.today span { color: var(--primary); font-weight: 600; }
 .tg-head.past b { color: var(--muted); }
 .tg-hours { grid-row: 2; position: sticky; inset-inline-start: 0; z-index: 2; background: var(--surface); }
-.tg-hour { height: var(--hour); font-size: .72rem; color: var(--muted); text-align: center; transform: translateY(-.55em); font-variant-numeric: tabular-nums; }
+.tg-hour { height: var(--hour); font-size: .78rem; color: var(--muted); text-align: center; transform: translateY(-.55em); font-variant-numeric: tabular-nums; }
 .tg-hour:first-child { visibility: hidden; }
 .tg-col { grid-row: 2; position: relative; border-inline-start: 1px solid var(--border); }
 .tg-col.shabbat { background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
@@ -421,7 +423,7 @@ a.tg-slot:hover::after { content: '+'; position: absolute; inset: 0; display: gr
   transition: box-shadow .15s, transform .15s;
 }
 .ev-block .l { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ev-block .t { color: var(--muted); direction: ltr; text-align: right; font-variant-numeric: tabular-nums; font-size: .72rem; }
+.ev-block .t { color: var(--muted); direction: ltr; text-align: right; font-variant-numeric: tabular-nums; font-size: .78rem; }
 .ev-block.short { flex-direction: row; gap: .4rem; align-items: center; padding-block: 1px; }
 a.ev-block:hover, a.ev:hover { color: var(--text); box-shadow: 0 4px 14px rgba(16, 32, 27, .16); transform: translateY(-1px); z-index: 2; }
 a.ev-block:focus-visible, a.ev:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; box-shadow: var(--ring); }
@@ -444,14 +446,14 @@ a.ev-block:focus-visible, a.ev:focus-visible { outline: 2px solid var(--primary)
 .m-day:hover { background: var(--primary-soft); color: var(--primary-soft-ink, var(--primary)); }
 .m-cell.today { box-shadow: inset 0 0 0 2px var(--primary); }
 .m-cell.today .m-day { background: var(--primary); color: var(--primary-ink); }
-.ev { display: block; border-radius: 6px; padding: 2px 6px; font-size: .74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-inline-start-width: 3px; }
+.ev { display: block; border-radius: 6px; padding: 2px 6px; font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-inline-start-width: 3px; }
 .ev .t { direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; color: var(--muted); }
 .ev .l { font-weight: 500; }
 .more { font-size: .75rem; font-weight: 600; text-decoration: none; padding-inline: 4px; }
 @media (max-width: 680px) {
   .m-cell { min-height: 64px; padding: .25rem; }
   .ev { font-size: 0; height: 6px; padding: 0; border-inline-start-width: 0; background: var(--c); }
-  .m-head { font-size: .7rem; padding: .35rem 0; }
+  .m-head { font-size: .78rem; padding: .35rem 0; }
   .timegrid { --hour: 40px; grid-template-columns: 3rem repeat(var(--days), minmax(84px, 1fr)); }
   .cal-scroll { max-height: 68vh; }
   h1 { font-size: 1.45rem; }
@@ -509,7 +511,7 @@ td.row-actions .decision .btn { white-space: nowrap; }
 .dp-head button:hover { background: var(--surface-2); }
 .dp-head .dp-prev svg { transform: scaleX(-1); }
 .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
-.dp-grid .dow { font-size: .72rem; color: var(--muted); padding: .2rem 0 .35rem; font-weight: 600; }
+.dp-grid .dow { font-size: .78rem; color: var(--muted); padding: .2rem 0 .35rem; font-weight: 600; }
 .dp-grid button { border: 0; background: transparent; aspect-ratio: 1; border-radius: 50%; cursor: pointer; font: inherit; font-size: .88rem; color: var(--text); font-variant-numeric: tabular-nums; }
 .dp-grid button:hover:not(:disabled) { background: var(--primary-soft); }
 .dp-grid button.other { color: var(--muted); }
@@ -543,7 +545,7 @@ ul.upcoming .badge { margin-inline-start: auto; }
   border-radius: 12px; background: var(--primary-soft); color: var(--primary-soft-ink); line-height: 1.15;
 }
 .date-chip b { font-size: .95rem; font-variant-numeric: tabular-nums; }
-.date-chip small { font-size: .72rem; }
+.date-chip small { font-size: .78rem; }
 .when { min-width: 0; font-variant-numeric: tabular-nums; }
 .empty { display: flex; flex-direction: column; align-items: center; gap: .4rem; padding: 1.2rem 0; color: var(--muted); text-align: center; }
 .empty .icon { opacity: .6; }
@@ -639,7 +641,8 @@ ul.docs .doc-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
 .card h3.sub-title { font-size: 1rem; margin: 0 0 .9rem; display: flex; align-items: center; gap: .45rem; }
 .form-actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-top: .4rem; }
 .card-intro { margin: -.35rem 0 1.1rem; }
-@media (max-width: 640px) { .page-tabs { border-radius: 16px; } .page-tabs a { padding: .55rem .9rem; } }
+/* Phones: the tabs wrap to a second row instead of scrolling out of sight (a cut-off label gave no hint of more). */
+@media (max-width: 640px) { .page-tabs { border-radius: 16px; flex-wrap: wrap; overflow: visible; } .page-tabs a { padding: .55rem .9rem; min-height: 44px; } }
 .field > .password-row { display: flex; gap: .5rem; align-items: center; font-weight: normal; margin: 0; }
 .password-row .btn { flex: none; }
 .password-row input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .03em; }
@@ -677,7 +680,7 @@ ul.docs .doc-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
 
 /* Accessibility statement link on every page, above the phone tab bar */
 .page-footer { text-align: center; font-size: .85rem; color: var(--muted); padding: 0 1rem 1.5rem; }
-.page-footer a { color: var(--muted); }
+.page-footer a { color: var(--muted); display: inline-block; padding: .55rem .35rem; }
 .signed-in .page-footer { margin-top: calc(-1 * (var(--tabbar-h) + 1rem)); padding-bottom: calc(var(--tabbar-h) + 1.5rem); }
 @media (min-width: 921px) { .signed-in .page-footer { margin-top: 0; padding-bottom: 1.5rem; } }
 mark.placeholder { background: var(--warning-soft); color: var(--warning); padding: 0 .3rem; border-radius: 4px; font-weight: 600; }
@@ -691,3 +694,81 @@ mark.placeholder { background: var(--warning-soft); color: var(--warning); paddi
 
 /* Paging under long lists (admin users / bookings). */
 .pager { display: flex; align-items: center; justify-content: center; gap: .75rem; flex-wrap: wrap; margin: 1rem 0 .25rem; color: var(--muted); font-size: .92rem; }
+
+/* A button whose form is being sent (app.js). */
+.btn.busy { position: relative; color: transparent !important; pointer-events: none; }
+.btn.busy::after { content: ''; position: absolute; inset: 0; margin: auto; width: 1.1em; height: 1.1em; border-radius: 50%;
+  border: 2px solid currentColor; border-color: var(--primary-ink, #fff) transparent var(--primary-ink, #fff) transparent; animation: spin .7s linear infinite; }
+.btn-light.busy::after { border-color: var(--primary) transparent var(--primary) transparent; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .btn.busy::after { animation-duration: 2s; } }
+
+/* The confirmation dialog (app.js, data-confirm). */
+.confirm-dialog { border: 0; border-radius: var(--radius); padding: 1.4rem; max-width: min(92vw, 420px); background: var(--surface); color: var(--text); box-shadow: var(--shadow-lift); }
+.confirm-dialog::backdrop { background: rgba(10, 20, 17, .45); }
+.confirm-dialog p { margin: 0 0 1.1rem; line-height: 1.6; font-size: 1.02rem; }
+.confirm-actions { display: flex; gap: .6rem; flex-wrap: wrap; }
+.confirm-actions .btn { flex: 1; min-height: 46px; }
+
+/* Password with a show/hide button (app.js shows the button). */
+.password-field { position: relative; display: block; }
+.password-field input { padding-inline-end: 3rem; }
+.password-field .reveal { position: absolute; inset-block: 4px; inset-inline-end: 4px; width: 42px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.password-field .reveal[aria-pressed="true"] { color: var(--primary); background: var(--primary-soft); }
+
+/* Waiting requests on "הזמנות" (bookings) in the menu and the tab bar. */
+.nav-badge { display: inline-grid; place-items: center; min-width: 1.25rem; height: 1.25rem; padding: 0 .3rem; margin-inline-start: .3rem; border-radius: 999px;
+  background: var(--warning); color: var(--surface); font-size: .75rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.tabbar a { position: relative; }
+.tabbar .nav-badge { position: absolute; top: 4px; inset-inline-start: calc(50% + 8px); margin: 0; }
+
+/* Phones: the dashboard's four numbers as a compact 2×2 grid, so the waiting requests come right after them. */
+@media (max-width: 680px) {
+  .stats:not(.stats-waiting) { grid-template-columns: 1fr 1fr; gap: .6rem; }
+  .stats:not(.stats-waiting) .stat { padding: .75rem; column-gap: .55rem; }
+  .stats:not(.stats-waiting) .stat .icon { width: 34px; height: 34px; padding: 7px; border-radius: 10px; }
+  .stats:not(.stats-waiting) .stat b { font-size: 1.45rem; }
+  .stats:not(.stats-waiting) .stat span { font-size: .82rem; line-height: 1.3; }
+}
+
+/* A list's filters (filterBox): a folding box on phones, plain on wider screens. */
+.filter-box { margin-bottom: 1rem; }
+.filter-box > summary { list-style: none; display: none; }
+.filter-box > summary::-webkit-details-marker { display: none; }
+@media (max-width: 680px) {
+  .filter-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .filter-box > summary { display: flex; align-items: center; gap: .5rem; min-height: 48px; padding: .4rem 1rem; cursor: pointer; font-weight: 600; }
+  .filter-box[open] > summary { border-bottom: 1px solid var(--border); }
+  .filter-box .filters { margin: 0; padding: .75rem; border: 0; box-shadow: none; }
+}
+
+/* Booking forms: one-tap durations, and hour/minute lists big enough to tap. */
+.duration-chips { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; margin: -.25rem 0 .9rem; }
+.duration-chips .chip { min-height: 40px; padding: .35rem .9rem; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: inherit; font-size: .92rem; cursor: pointer; }
+.duration-chips .chip:hover { border-color: var(--primary); }
+.duration-chips .chip[aria-pressed="true"] { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-soft-ink); font-weight: 600; }
+.dp-time select { min-width: 3.2rem; min-height: 44px; font-size: 1.05rem; padding-inline: .5rem; }
+
+/* Month view: a tap anywhere in a day cell chooses it; its bookings are listed under the month (dayList). */
+.m-cell { position: relative; }
+.m-day::after { content: ''; position: absolute; inset: 0; }
+.m-cell .ev, .m-cell .more { position: relative; z-index: 1; }
+.m-cell.sel { background: var(--primary-soft); }
+.day-list { margin-top: 1rem; }
+.day-list h3 { margin: 0 0 .5rem; font-size: 1.05rem; }
+.day-list .ev-row { display: flex; padding: .6rem .75rem; margin-bottom: .4rem; border-radius: 10px; background: var(--surface-2); border-inline-start: 4px solid var(--c, var(--border-strong)); }
+.day-list .ev-row a { display: flex; gap: .6rem; width: 100%; text-decoration: none; color: var(--text); min-height: 28px; align-items: center; }
+.day-list .t { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.day-list-links { margin: .6rem 0 0; }
+@media (max-width: 680px) { .m-cell .ev { pointer-events: none; } }
+
+/* Personal area: the next booking first; on phones the tiles that the tab bar already has are left out. */
+.next-booking .next-when { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.next-booking .next-when > div { flex: 1; min-width: 10rem; }
+.next-booking .next-time { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+@media (max-width: 920px) { .signed-in .quick .in-tabbar { display: none; } }
+
+/* User card: the expected action first, the others as secondary buttons sharing one note (U-10). */
+.user-actions .primary-action { display: flex; align-items: flex-end; gap: .75rem; flex-wrap: wrap; padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.user-actions .primary-action .field { flex: 1 1 14rem; margin: 0; }
+.user-actions .secondary-actions { display: flex; gap: .5rem; flex-wrap: wrap; }

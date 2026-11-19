@@ -62,18 +62,15 @@ function loginPage(req, { error, email = '', next = req.query.next || req.body?.
   ${postForm(req, '/login', html`
     <input type="hidden" name="next" value="${next}">
     ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required autocomplete="username">`)}
-    ${field('סיסמה', html`<input type="password" name="password" required autocomplete="current-password">`)}
+    ${field('סיסמה', html`<span class="password-field"><input type="password" name="password" required autocomplete="current-password" id="login-password">
+      <button type="button" class="reveal" data-reveal="login-password" aria-pressed="false" aria-label="הצגת הסיסמה" hidden>${icon('eye', 18)}</button></span>`)}
     <button class="btn btn-primary btn-block">כניסה</button>
-    ${mail.canDeliver() ? html`<p class="small"><a href="/password/forgot${email ? '?email=' + encodeURIComponent(email) : ''}">שכחתי סיסמה</a></p>`
-      : html`<p class="muted small">שכחת סיסמה? פנו למנהל המערכת.</p>`}
+    ${mail.canDeliver() ? html`
+    <p class="divider"><span>או בלי סיסמה</span></p>
+    <button class="btn btn-light btn-block" formaction="/login/code" formnovalidate>${icon('mail', 18)} שליחת קוד חד־פעמי למייל</button>
+    <p class="muted small">נשלח קוד בן 6 ספרות לכתובת הדואר האלקטרוני שלמעלה. <a href="/password/forgot${email ? '?email=' + encodeURIComponent(email) : ''}">שכחתי סיסמה</a></p>`
+    : html`<p class="muted small">שכחת סיסמה? פנו למנהל המערכת.</p>`}
   `, 'class="card"')}
-  ${mail.canDeliver() ? html`<div class="card">
-    <h2 class="section-title">${icon('lock')} כניסה עם קוד חד־פעמי</h2>
-    <p class="muted">נשלח קוד בן 6 ספרות לכתובת הדואר האלקטרוני שלך.</p>
-    ${postForm(req, '/login/code', html`
-      ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required autocomplete="email">`)}
-      <button class="btn btn-light btn-block">שליחת קוד</button>`)}
-  </div>` : ''}
   ${config.master ? '' : html`<p class="auth-foot">עדיין אין לך חשבון? <a href="/register">להרשמה</a></p>`}
 </div>`;
 }
@@ -639,10 +636,13 @@ module.exports = ({ app, licenseUpload }) => {
 
   app.get('/policy', (req, res) => {
     const policy = currentPolicy();
+    // The page's main heading (h1): the rules' own "# title" when they start with one, else the page's name.
+    const titled = /^\s*#\s/.test(policy.content);
     res.page('נהלי השאלת הרכב', html`
 <article class="card prose">
+  ${titled ? '' : html`<h1>נהלי השאלת הרכב</h1>`}
   <p class="muted">גרסה ${policy.version} · עודכן ${time.fmt(policy.created_at)}</p>
-  ${markdown(policy.content)}
+  ${markdown(policy.content, { top: 1 })}
 </article>
 ${req.user ? raw(`<p><a href="/policy/accept">לאישור הנהלים</a></p>`) : ''}`);
   });

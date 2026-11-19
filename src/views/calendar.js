@@ -101,7 +101,7 @@ function timeGrid(days, entries, { linkFor, slotLink, nowStr }) {
 </div></div>`;
 }
 
-function monthGrid(win, entries, { linkFor, nowStr }) {
+function monthGrid(win, entries, { linkFor, slotLink, nowStr, date }) {
   const days = [];
   for (let d = win.from; d < win.to; d = time.addDays(d, 1)) days.push(d);
   return html`
@@ -112,13 +112,33 @@ function monthGrid(win, entries, { linkFor, nowStr }) {
     const dayStart = d + 'T00:00';
     const dayEntries = entries.filter((e) => e.start_at < dayEnd && e.end_at > dayStart);
     const out = d < win.monthStart || d >= win.monthEnd;
-    return html`<div class="m-cell ${out ? 'out' : ''} ${d === nowStr.slice(0, 10) ? 'today' : ''} ${d < nowStr.slice(0, 10) ? 'past' : ''} ${dayEntries.length ? 'has' : 'free'}">
-      <a class="m-day" href="?view=day&date=${d}" aria-label="${dayLabel(d)}">${Number(d.slice(8))}</a>
+    // The day's number covers the whole cell (CSS): a tap anywhere in it shows that day's bookings under the month.
+    return html`<div class="m-cell ${out ? 'out' : ''} ${d === nowStr.slice(0, 10) ? 'today' : ''} ${d < nowStr.slice(0, 10) ? 'past' : ''} ${d === date ? 'sel' : ''} ${dayEntries.length ? 'has' : 'free'}">
+      <a class="m-day" href="?view=month&date=${d}#day-list" aria-label="${dayLabel(d)}${dayEntries.length ? `, ${dayEntries.length} הזמנות` : ''}" ${d === date ? raw('aria-current="date"') : ''}>${Number(d.slice(8))}</a>
       ${dayEntries.slice(0, 3).map((e) => entryChip(e, linkFor))}
-      ${dayEntries.length > 3 ? html`<a class="more" href="?view=day&date=${d}">+${dayEntries.length - 3}</a>` : ''}
+      ${dayEntries.length > 3 ? html`<a class="more" href="?view=month&date=${d}#day-list">+${dayEntries.length - 3}</a>` : ''}
     </div>`;
   })}
-</div>`;
+</div>
+${dayList(date, entries, { linkFor, slotLink, nowStr })}`;
+}
+
+/** Under the month: the bookings of the chosen day (today to start with), readable on a phone. */
+function dayList(d, entries, { linkFor, slotLink, nowStr }) {
+  const dayStart = d + 'T00:00';
+  const dayEnd = time.addDays(d, 1) + 'T00:00';
+  const list = entries.filter((e) => e.start_at < dayEnd && e.end_at > dayStart);
+  const free = slotLink && d >= nowStr.slice(0, 10) ? slotLink(`${d}T${d === nowStr.slice(0, 10) ? nowStr.slice(11, 13) : '09'}:00`) : null;
+  return html`<section class="day-list" id="day-list" aria-live="polite">
+  <h3>${dayLabel(d)}</h3>
+  ${list.length ? html`<ul class="plain">${list.map((e) => {
+    const href = linkFor(e);
+    const when = html`<span class="t">${e.start_at < dayStart ? 'מאתמול' : hhmm(e.start_at)}–${e.end_at > dayEnd ? 'למחרת' : hhmm(e.end_at)}</span>`;
+    return html`<li class="ev-row ${e.cls}">${href ? raw(`<a href="${escape(href)}"${dialogAttr(e)}>${when} <span class="l">${escape(String(e.label))}</span></a>`)
+      : html`${when} <span class="l">${e.label}</span>`}</li>`;
+  })}</ul>` : html`<p class="muted">אין הזמנות ביום הזה.</p>`}
+  <p class="day-list-links"><a href="?view=day&date=${d}">לתצוגת היום</a>${free ? html` · <a href="${free}">הזמנה ביום הזה</a>` : ''}</p>
+</section>`;
 }
 
 /**

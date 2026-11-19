@@ -34,13 +34,13 @@ function bookingRow(req, b, { showCancel }) {
     <td data-label="">${showCancel && ['pending', 'approved'].includes(b.status)
       ? (lateApproved
         ? html`<small class="muted">ביטול דרך המנהל בלבד</small>`
-        : actionButton(req, `/me/bookings/${b.id}/cancel`, 'ביטול', { cls: 'btn-danger btn-sm', confirm: 'לבטל את ההזמנה?' }))
+        : actionButton(req, `/me/bookings/${b.id}/cancel`, 'ביטול ההזמנה', { cls: 'btn-danger btn-sm', confirm: `לבטל את ההזמנה של ${time.fmt(b.start_at)}?` }))
       : ''}</td>
   </tr>`;
 }
 
 const bookingTable = (req, list, opts) => list.length
-  ? html`<table class="table"><thead><tr><th>איסוף</th><th>החזרה</th><th>מטרה</th><th>סטטוס</th><th></th></tr></thead>
+  ? html`<table class="table"><thead><tr><th>איסוף</th><th>החזרה</th><th>מטרה</th><th>סטטוס</th><th><span class="sr-only">פעולות</span></th></tr></thead>
       <tbody>${list.map((b) => bookingRow(req, b, opts))}</tbody></table>`
   : html`<p class="empty">${icon('calendar', 28)}<span>אין הזמנות להצגה.</span></p>`;
 
@@ -58,6 +58,10 @@ module.exports = ({ app, requireLogin, requireRecentAuth, licenseUpload }) => {
     const u = req.user;
     const upcoming = upcomingFor(u.id);
     const needsPolicy = !userAcceptedPolicy(u.id);
+    // The next booking comes first, with what can be done about it (U-9).
+    const next = upcoming[0];
+    const cancellable = next && (next.status === 'pending'
+      || (next.status === 'approved' && time.hoursBetween(time.now(), next.start_at) >= getSettings().cancel_hours_before));
     res.page('אזור אישי', html`
 ${pageHead(`שלום ${u.first_name}`, { iconName: 'user', sub: 'האזור האישי שלך: סטטוס החשבון, ההזמנות והפרטים.' })}
 <div class="card status-card status-${u.status}">
@@ -72,10 +76,21 @@ ${pageHead(`שלום ${u.first_name}`, { iconName: 'user', sub: 'האזור הא
   ${u.status === 'license_update' && !u.pending_license_file ? html`<a class="btn btn-primary" href="/me/license">${icon('id')} העלאת רישיון</a>` : ''}
 </div>
 
+${next ? html`<section class="card next-booking">
+  <h2 class="section-title">${icon('calendar')} ההזמנה הבאה שלך</h2>
+  <div class="next-when"><span class="date-chip"><b>${time.fmt(next.start_at).slice(0, 5)}</b><small>${time.HE_DAYS[time.parse(next.start_at).getDay()]}</small></span>
+    <div><b class="next-time">${time.fmt(next.start_at).slice(11)} – ${next.end_at.slice(0, 10) === next.start_at.slice(0, 10) ? time.fmt(next.end_at).slice(11) : time.fmt(next.end_at)}</b>
+      <div class="muted small">${next.purpose || 'ללא מטרה'}</div></div>
+    ${bookingBadge(next.status)}</div>
+  ${next.status === 'pending' ? html`<p class="muted small">הבקשה ממתינה לאישור המנהל. תישלח הודעה במייל כשתאושר.</p>` : ''}
+  <div class="kv-inline"><a class="btn btn-light btn-sm" href="/me/bookings#b-${next.id}">פרטים</a>
+    ${cancellable ? postForm(req, `/me/bookings/${next.id}/cancel`, html`<button class="btn btn-danger btn-sm" data-confirm="לבטל את ההזמנה של ${time.fmt(next.start_at)}?">ביטול ההזמנה</button>`, 'class="inline"') : ''}</div>
+</section>` : ''}
+
 <nav class="quick" aria-label="פעולות מהירות">
-  ${u.status === 'active' && !needsPolicy ? html`<a href="/bookings/new">${icon('plus')}הזמנה חדשה<small>בחירת מועד ושליחת בקשה</small></a>` : ''}
-  <a href="/calendar">${icon('calendar')}יומן הרכב<small>מתי הרכב פנוי</small></a>
-  <a href="/me/bookings">${icon('list')}ההזמנות שלי<small>עתידיות והיסטוריה</small></a>
+  ${u.status === 'active' && !needsPolicy ? html`<a class="in-tabbar" href="/bookings/new">${icon('plus')}הזמנה חדשה<small>בחירת מועד ושליחת בקשה</small></a>` : ''}
+  <a class="in-tabbar" href="/calendar">${icon('calendar')}יומן הרכב<small>מתי הרכב פנוי</small></a>
+  <a class="in-tabbar" href="/me/bookings">${icon('list')}ההזמנות שלי<small>עתידיות והיסטוריה</small></a>
   <a href="/me/license">${icon('id')}רישיון נהיגה<small>תוקף והעלאת רישיון חדש</small></a>
   <a href="/me/security">${icon('lock')}סיסמה ואבטחה<small>שינוי סיסמה</small></a>
   ${u.status === 'active' && require('./documents').visibleDocumentCount(defaultVehicle().id)
@@ -84,12 +99,12 @@ ${pageHead(`שלום ${u.first_name}`, { iconName: 'user', sub: 'האזור הא
 
 <div class="grid2">
   <section class="card">
-    <h2 class="section-title">${icon('clock')} ההזמנות הקרובות</h2>
-    ${upcoming.length ? html`<ul class="plain upcoming">${upcoming.map((b) => html`<li>
+    <h2 class="section-title">${icon('clock')} ${next ? 'הזמנות נוספות' : 'ההזמנות הקרובות'}</h2>
+    ${upcoming.length > 1 || (!next && upcoming.length) ? html`<ul class="plain upcoming">${upcoming.slice(next ? 1 : 0).map((b) => html`<li>
       <span class="date-chip"><b>${time.fmt(b.start_at).slice(0, 5)}</b><small>${time.HE_DAYS[time.parse(b.start_at).getDay()]}</small></span>
       <span class="when">${time.fmt(b.start_at).slice(11)} – ${time.fmt(b.end_at)}<br><small class="muted">${b.purpose || 'ללא מטרה'}</small></span>
       ${bookingBadge(b.status)}</li>`)}</ul>`
-      : html`<p class="empty">${icon('calendar', 28)}<span>אין הזמנות קרובות.</span></p>`}
+      : html`<p class="empty">${icon('calendar', 28)}<span>${next ? 'אין הזמנות נוספות.' : 'אין הזמנות קרובות.'}</span></p>`}
     <a href="/me/bookings">לכל ההזמנות</a>
   </section>
   <section class="card">
@@ -198,8 +213,11 @@ ${pageHead('ההזמנות שלי', {
   app.get('/calendar', requireLogin, (req, res) => {
     const u = req.user;
     const isAdmin = u.role === 'admin';
-    const view = ['day', 'week', 'month'].includes(req.query.view) ? req.query.view : 'week';
-    const date = time.isValidDate(req.query.date) ? req.query.date : time.today();
+    // A phone (app.js remembers it in the "narrow" cookie) opens on the day, a wider screen on the week. A day view
+    // opened in the evening (from 20:00) without a date shows tomorrow: today is mostly over.
+    const view = ['day', 'week', 'month'].includes(req.query.view) ? req.query.view : req.cookies.narrow === '1' ? 'day' : 'week';
+    const evening = Number(time.now().slice(11, 13)) >= 20;
+    const date = time.isValidDate(req.query.date) ? req.query.date : view === 'day' && evening ? time.addDays(time.today(), 1) : time.today();
     const vehicle = defaultVehicle();
     const win = windowFor(view, date);
     const items = bookings.inRange(vehicle.id, win.from + 'T00:00', win.to + 'T00:00', ['approved', 'completed', 'pending'])
@@ -282,6 +300,8 @@ ${isAdmin ? entries.filter((e) => e.dialogShown).map((e) => bookingDialog(req, e
       ${field('איסוף הרכב', html`<input type="datetime-local" name="start" value="${start}" required min="${time.now()}">`)}
       ${field('החזרת הרכב', html`<input type="datetime-local" name="end" value="${end}" required min="${time.now()}">`)}
     </div>
+    <div class="duration-chips" role="group" aria-label="משך מהיר" hidden>
+      <span class="muted small">משך:</span><button type="button" class="chip" data-dur="120">שעתיים</button><button type="button" class="chip" data-dur="300">חצי יום</button><button type="button" class="chip" data-dur="1440">יום שלם</button></div>
     <div id="duration" class="duration" aria-live="polite"></div>
     <div id="availability" class="availability" aria-live="polite"></div>
     <h2 class="section-title">${icon('file')} פרטים נוספים</h2>
@@ -290,7 +310,7 @@ ${isAdmin ? entries.filter((e) => e.dialogShown).map((e) => bookingDialog(req, e
     <label class="check"><input type="checkbox" name="accept_rules" value="1" required> <span>אני מתחייב/ת לפעול לפי <a href="/policy" target="_blank">נהלי השאלת הרכב</a></span></label>
     <button class="btn btn-primary btn-block">שליחת בקשה</button>
     <p class="muted small">${s.max_booking_hours ? `משך הזמנה מקסימלי: ${bookings.durationLabel(s.max_booking_hours)}. ` : ''}${s.buffer_minutes ? `נדרשות ${s.buffer_minutes} דקות התארגנות בין הזמנות. ` : ''}הבקשה תישלח לאישור המנהל.</p>
-  `, 'class="card" data-availability="/api/availability"')}
+  `, 'class="card" data-times data-availability="/api/availability"')}
 </div>`;
   }
 

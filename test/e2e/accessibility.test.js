@@ -46,7 +46,7 @@ test('filters and searches have names; month days and empty slots have names tha
   assert.match(bookings, /name="q"[^>]*aria-label="חיפוש הזמנות"/);
   assert.match((await admin.get('/admin/users')).text, /<select name="role" aria-label="סינון לפי תפקיד">/);
   const month = (await admin.get('/calendar?view=month')).text;
-  assert.match(month, /<a class="m-day" href="[^"]+" aria-label="(\d+) ב[^"]+, יום [^"]+">\1<\/a>/);
+  assert.match(month, /<a class="m-day" href="[^"]+" aria-label="(\d+) ב[^"]+, יום [^"]+"[^>]*>\1<\/a>/);
   assert.match((await admin.get('/calendar?view=week')).text, /class="tg-slot"[^>]*aria-label="הזמנה מ־/);
 });
 

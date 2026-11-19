@@ -22,6 +22,34 @@
   - text under 12 px
   - headings
 
+## Status: done (19/11/2026)
+
+Every finding was fixed except U-15 (the coordinator's details: to be filled in by the site, Settings → General) and
+U-18 (kept on purpose). Re-checked on all 75 page views afterwards: **0 accessibility issues** (axe, WCAG 2.1 AA and
+best practice), **no sideways scrolling**, **no text under 12 px**. Covered by `test/e2e/ux.test.js`.
+
+| # | What changed |
+|---|---|
+| U-1 | Visitors' header links keep their words under the icons (התחברות, הרשמה, נהלים) |
+| U-2 | Hour/minute lists 44 px tall and wider; the return follows the pickup keeping the chosen length; duration buttons שעתיים / חצי יום / יום שלם (user's and manager's booking forms). *Note: the form already set the return 2 hours after a newly chosen pickup; the report overstated that part.* |
+| U-3 | Sign-in: one e-mail field, "כניסה" and "שליחת קוד חד־פעמי למייל" buttons, and a show/hide password button |
+| U-4 | Phone dashboard: the four numbers in a 2×2 grid, waiting requests right after them, car alerts below; a count of waiting requests on "הזמנות" in the menu and the tab bar |
+| U-5 | Booking and user lists: the filters in a "סינון וחיפוש" box, folded on phones unless a filter is on (the count shows on it) |
+| U-6 | Month view: the whole day cell is the tap target; the chosen day's bookings are listed under the month, with links to the day view and to book that day |
+| U-7 | All text 12 px or more (tab bar, user chip, calendar hours, day headings, booking blocks) |
+| U-8 | A spinner on the button while its form is sent; the button cannot be pressed twice |
+| U-9 | Personal area: "ההזמנה הבאה שלך" first, with details and cancel; on phones the tiles the tab bar already has are left out |
+| U-10 | User card: one form; the expected action (approve) first with the license date, the others as secondary buttons sharing one note |
+| U-11 | Settings tabs wrap to a second row on phones |
+| U-12 | `<h1>` on the rules page; "פעולות" heading (screen readers) on every table's action column |
+| U-13 | The site's own confirmation dialog (Hebrew buttons; the action button names the action, in red for destructive ones) |
+| U-14 | The calendar view is chosen on the server (a phone is remembered), so no flash of the week view |
+| U-16 | Footer links with room around them |
+| U-17 | "נהלים" moved from the manager menu to Settings → Rules (as was done with the reports); the old address still works |
+| U-19 | The day view opened in the evening (from 20:00) without a date shows tomorrow |
+
+The findings as they were found:
+
 ## Summary
 
 | Area | Verdict |

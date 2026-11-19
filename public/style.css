@@ -574,6 +574,19 @@ a.back .icon { transform: scaleX(-1); }
 .actions-grid > form .field { margin: 0; }
 .actions-grid > form .inline-note { width: 100%; flex: none; }
 .actions-grid > form .btn { width: 100%; }
+/* File fields (app.js): a Hebrew button, the chosen file's name, and drag-and-drop */
+.file-pick { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .8rem; padding: .6rem .7rem;
+  border: 1px dashed var(--border-strong); border-radius: 12px; background: var(--surface-2); transition: border-color .15s, background .15s; }
+.file-pick.drag { border-color: var(--primary); background: var(--primary-soft); }
+.file-pick.has-file { border-style: solid; }
+.file-pick-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
+.file-pick-input:focus-visible + .file-pick-btn, .file-pick:focus-within .file-pick-btn { box-shadow: var(--ring); }
+.file-pick-name { font-size: .92rem; overflow-wrap: anywhere; }
+.file-pick-ext { color: var(--muted); }
+.file-pick:not(.has-file) .file-pick-name { color: var(--muted); }
+.file-pick-drop { color: var(--muted); font-size: .8rem; margin-inline-start: auto; }
+.file-pick.has-file .file-pick-drop { display: none; }
+@media (hover: none) { .file-pick-drop { display: none; } }
 .upload-note { display: block; color: var(--muted); font-size: .84rem; margin-top: .3rem; }
 .upload-note:empty { display: none; }
 .upload-note.bad { color: var(--danger); font-weight: 500; }

@@ -265,6 +265,54 @@ async function shrinkImage(file, maxSide = 2400, quality = 0.85) {
   return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg', lastModified: Date.now() });
 }
 
+// File fields in Hebrew: the browser's own button and "no file chosen" follow its language (an English browser says
+// "Choose File / No file chosen"). The real input stays in the form, hidden but focusable and still validated; a
+// button opens it, the chosen file's name is shown, and a file can also be dropped onto the field.
+for (const input of document.querySelectorAll('input[type=file]')) {
+  const box = document.createElement('div');
+  box.className = 'file-pick';
+  box.innerHTML = `<button type="button" class="btn btn-light btn-sm file-pick-btn">${svg('<path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>', 16)} בחירת קובץ</button>`
+    + '<span class="file-pick-name" dir="auto">לא נבחר קובץ</span><small class="file-pick-drop">או גררו קובץ לכאן</small>';
+  input.before(box);
+  box.prepend(input);
+  input.classList.add('file-pick-input');
+  const name = box.querySelector('.file-pick-name');
+  const show = () => {
+    const f = input.files && input.files[0];
+    // The name in its own direction and the extension apart, so "רישיון-רכב-2027.pdf" doesn't come out as
+    // "pdf.2027-רישיון-רכב" (text, never HTML: a file name is not trusted).
+    name.replaceChildren();
+    name.dir = 'rtl'; // set, not "auto": the pieces below are isolated, so "auto" would find no letters and go LTR
+    if (!f) { name.textContent = 'לא נבחר קובץ'; } else {
+      const dot = f.name.lastIndexOf('.');
+      const base = document.createElement('bdi');
+      base.textContent = dot > 0 ? f.name.slice(0, dot) : f.name;
+      name.append(base);
+      if (dot > 0) {
+        const ext = document.createElement('bdi');
+        ext.dir = 'ltr';
+        ext.className = 'file-pick-ext';
+        ext.textContent = f.name.slice(dot);
+        name.append(ext);
+      }
+    }
+    box.classList.toggle('has-file', Boolean(f));
+  };
+  box.querySelector('.file-pick-btn').addEventListener('click', () => input.click());
+  input.addEventListener('change', show);
+  box.addEventListener('dragover', (e) => { e.preventDefault(); box.classList.add('drag'); });
+  box.addEventListener('dragleave', () => box.classList.remove('drag'));
+  box.addEventListener('drop', (e) => {
+    e.preventDefault();
+    box.classList.remove('drag');
+    if (!e.dataTransfer.files.length) return;
+    input.files = e.dataTransfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  input.form?.addEventListener('reset', () => setTimeout(show, 0));
+  input.addEventListener('file-pick-sync', show); // after app.js swaps in a smaller photo
+}
+
 for (const input of document.querySelectorAll('input[type=file][data-max-bytes]')) {
   const max = Number(input.dataset.maxBytes);
   const note = document.createElement('small');
@@ -283,6 +331,7 @@ for (const input of document.querySelectorAll('input[type=file][data-max-bytes]'
     }
     if (out.size > max) {
       input.value = '';
+      input.dispatchEvent(new Event('file-pick-sync'));
       note.textContent = `הקובץ גדול מדי (${mb(out.size)}). המקסימום הוא ${mb(max)}: צלמו שוב, או העלו צילום מסך או PDF קטן יותר.`;
       note.classList.add('bad');
       return;
@@ -291,6 +340,7 @@ for (const input of document.querySelectorAll('input[type=file][data-max-bytes]'
       const dt = new DataTransfer();
       dt.items.add(out);
       input.files = dt.files; // assigning does not fire "change" again
+      input.dispatchEvent(new Event('file-pick-sync'));
       note.textContent = `התמונה הוקטנה מ־${mb(file.size)} ל־${mb(out.size)}.`;
     } else {
       note.textContent = '';

@@ -595,3 +595,12 @@ test('delete a user: account, bookings and license photos go; actions they did s
   assert.match(admin.flash().text, /לא ניתן למחוק את החשבון שלך/);
   assert.doesNotMatch((await admin.get(`/admin/users/${me.id}`)).text, /id="delete"/, 'no delete button on your own page');
 });
+
+test('action log: Hebrew action names and the people by name', async () => {
+  const u = createUser({ email: 'logged@adm.test', first_name: 'לוג', last_name: 'בדיקה' });
+  const me = db.prepare("SELECT id FROM users WHERE email = 'admin@adm.test'").get();
+  db.prepare("INSERT INTO audit_log (actor_id, action, target_type, target_id, details, at) VALUES (?, 'user.block', 'user', ?, 'בדיקה', '2026-11-19 10:00:00')").run(me.id, u.id);
+  const page = (await admin.get('/admin/audit')).text;
+  assert.match(page, /<span title="user.block">חסימת משתמש<\/span>/);
+  assert.match(page, new RegExp(`<a href="/admin/users/${u.id}">לוג בדיקה</a>`));
+});

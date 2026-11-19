@@ -11,6 +11,7 @@ const storage = require('../storage');
 const { html, markdown, postForm, actionButton, decisionButtons, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 const documents = require('./documents');
+const { actionLabel } = require('../views/audit-labels');
 const { brand, saveBrand, validColor, DEFAULT_COLOR } = require('../brand');
 
 const SETTING_LABELS = {
@@ -566,7 +567,7 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
 </section>
 <section class="card">
   <h2 class="section-title">${icon('clock')} יומן פעולות</h2>
-  ${log.length ? html`<ul class="plain small">${log.map((a) => html`<li>${time.fmt(a.at)} – ${a.action} ${a.details ? '(' + a.details + ')' : ''} ${a.first_name ? '· ' + fullName(a) : ''}</li>`)}</ul>` : html`<p class="muted">אין פעולות.</p>`}
+  ${log.length ? html`<ul class="plain small">${log.map((a) => html`<li>${time.fmt(a.at)} – <span title="${a.action}">${actionLabel(a.action)}</span> ${a.details ? '(' + a.details + ')' : ''} ${a.first_name ? '· ' + fullName(a) : ''}</li>`)}</ul>` : html`<p class="muted">אין פעולות.</p>`}
 </section>`);
   });
 
@@ -1076,18 +1077,26 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
   });
 
   app.get('/admin/audit', requireAdmin, (req, res) => {
-    const rows = db.prepare(`SELECT a.*, u.first_name, u.last_name FROM audit_log a LEFT JOIN users u ON u.id = a.actor_id
+    // Who did it, and who or what it was about, by name (the account may have been deleted since: then by number).
+    const rows = db.prepare(`SELECT a.*, u.first_name, u.last_name, t.first_name AS t_first, t.last_name AS t_last
+      FROM audit_log a LEFT JOIN users u ON u.id = a.actor_id LEFT JOIN users t ON a.target_type = 'user' AND t.id = a.target_id
       ORDER BY a.id DESC LIMIT 300`).all();
-    const link = (r) => (r.target_type === 'user' ? `/admin/users/${r.target_id}` : r.target_type === 'booking' ? `/admin/bookings/${r.target_id}` : null);
+    const target = (r) => {
+      if (r.target_type === 'user') {
+        return r.t_first != null ? html`<a href="/admin/users/${r.target_id}">${r.t_first} ${r.t_last}</a>` : html`משתמש/ת #${r.target_id} (נמחק/ה)`;
+      }
+      if (r.target_type === 'booking') return html`<a href="/admin/bookings/${r.target_id}">הזמנה #${r.target_id}</a>`;
+      return r.target_type ? `${r.target_type} #${r.target_id}` : '';
+    };
     res.page('יומן פעולות', html`
-${pageHead('יומן פעולות', { iconName: 'clock', sub: '300 הפעולות האחרונות במערכת.' })}
+${pageHead('יומן פעולות', { iconName: 'clock', sub: 'מי עשה מה ומתי: 300 הפעולות האחרונות באתר.' })}
 <section class="card">
-<table class="table"><thead><tr><th>מועד</th><th>מבצע</th><th>פעולה</th><th>יעד</th><th>פרטים</th></tr></thead><tbody>
-${rows.map((r) => html`<tr><td data-label="מועד">${time.fmt(r.at)}</td><td data-label="מבצע">${r.actor_id ? fullName(r) : 'מערכת'}</td>
-  <td data-label="פעולה"><code>${r.action}</code></td>
-  <td data-label="יעד">${link(r) ? html`<a href="${link(r)}">${r.target_type} #${r.target_id}</a>` : ''}</td>
-  <td data-label="פרטים">${r.details}</td></tr>`)}
-</tbody></table>
+${rows.length ? html`<table class="table"><thead><tr><th>מועד</th><th>מבצע/ת</th><th>פעולה</th><th>על</th><th>פרטים</th></tr></thead><tbody>
+${rows.map((r) => html`<tr><td data-label="מועד">${time.fmt(r.at)}</td><td data-label="מבצע/ת">${r.actor_id ? fullName(r) || `#${r.actor_id}` : 'מערכת'}</td>
+  <td data-label="פעולה"><span title="${r.action}">${actionLabel(r.action)}</span></td>
+  <td data-label="על">${target(r)}</td>
+  <td data-label="פרטים" class="audit-details">${r.details}</td></tr>`)}
+</tbody></table>` : html`<p class="empty">${icon('clock', 28)}<span>עדיין אין פעולות ביומן. כאן יופיעו אישורים, ביטולים, שינויי הגדרות ופעולות מנהלים אחרות.</span></p>`}
 </section>`);
   });
 };

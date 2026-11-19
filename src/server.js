@@ -48,7 +48,12 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use('/static', express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
+// Static files. Versioned addresses (?v=<hash of the file>, see views/html.js asset()) never change content: a year,
+// immutable. The rest (fonts, icons): a week. On Vercel these are served by the CDN instead (vercel.json), same rules.
+app.use('/static', (req, res, next) => {
+  res.set('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=604800');
+  next();
+}, express.static(path.join(__dirname, '..', 'public'), { cacheControl: false }));
 // Browsers ask for /favicon.ico on their own (e.g. when showing a PDF); the tab icon is an SVG.
 app.get('/favicon.ico', (req, res) => res.redirect(301, '/static/favicon.svg'));
 

@@ -17,6 +17,7 @@
 | `APP_MODE=master` | הפריסה היא מרכז הניהול ([master.md](master.md)) |
 | `MASTER_CONSOLE=true` | מרכז הניהול בתוך אתר רגיל, למנהל הראשי בלבד |
 | `APP_NAME`, `BRAND_COLOR`, `CONTACT_EMAIL`, `CONTACT_PHONE`, `WELCOME_TEXT` | המיתוג ההתחלתי. מנהל האתר משנה אותו ב־הגדרות ← הארגון ומיתוג |
+| `VERCEL_ANALYTICS=true` | סטטיסטיקת צפיות של Vercel, אחרי Analytics → Enable בפרויקט ([vercel.md](vercel.md)). כבויה כברירת מחדל |
 | `APP_TIMEZONE` | אזור הזמן (ברירת מחדל `Asia/Jerusalem`, גם כשהשרת ב־UTC) |
 | `PORT`, `DATA_DIR` | בהרצה מקומית: הפורט (3000) ותיקיית הנתונים (`./data`) |
 | `HTTPS`, `HTTPS_CERT_FILE`, `HTTPS_KEY_FILE` | בהרצה מקומית: HTTPS מהשרת עצמו (ברירת המחדל בפיתוח). ב־Vercel ה־HTTPS לפני האפליקציה |

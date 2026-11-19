@@ -126,9 +126,9 @@ module.exports = {
   forceHttps: production && !onVercel && process.env.FORCE_HTTPS !== 'false',
   dataDir,
   onVercel,
-  // Vercel Web Analytics (page views, no cookies): on by default on Vercel; enable it in the Vercel dashboard
-  // (project → Analytics → Enable). VERCEL_ANALYTICS=false turns the script off.
-  vercelAnalytics: onVercel && process.env.VERCEL_ANALYTICS !== 'false',
+  // Vercel Web Analytics (page views, no cookies): only with VERCEL_ANALYTICS=true, after enabling it in the Vercel
+  // dashboard (project → Analytics → Enable). Without that the script is a 404 and an error in every page's console.
+  vercelAnalytics: onVercel && process.env.VERCEL_ANALYTICS === 'true',
   // Data does not survive restarts (Vercel without DATA_DIR pointing at persistent storage): warn on every page.
   ephemeral: temporaryData,
   // Set when the app must not start: Vercel without a hosted database (and no ALLOW_TEMPORARY_DATA=true).

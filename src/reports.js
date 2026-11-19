@@ -47,7 +47,10 @@ function usageReport(vehicleId, from, to) {
   const perDay = new Map(days.map((d) => [d, 0]));
   for (const b of used) {
     bookedHours += overlapHours(b.start_at, b.end_at, start, until);
-    for (const d of days) {
+    // Only the days this booking covers (usually one or two), not every day of the period.
+    const first = b.start_at > start ? b.start_at.slice(0, 10) : from;
+    const last = (b.end_at < until ? b.end_at : until).slice(0, 10); // a midnight end adds nothing (h = 0 below)
+    for (let d = first; d <= last && d <= to; d = time.addDays(d, 1)) {
       const ds = `${d}T00:00`;
       if (ds >= until) break;
       const h = overlapHours(b.start_at, b.end_at, ds, time.addDays(d, 1) + 'T00:00');

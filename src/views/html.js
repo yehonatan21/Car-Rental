@@ -262,6 +262,28 @@ function errorSummary(errors) {
     ? html`<ul class="plain">${item(list[0], 0)}</ul>` : html`<ul>${list.map(item)}</ul>`}</div>`;
 }
 
+/** Page n of a list, from ?page= and the total: { page, pages, limit, offset, total }. */
+function pageOf(req, total, limit = 50) {
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(pages, Math.max(1, parseInt(req.query.page, 10) || 1));
+  return { page, pages, limit, offset: (page - 1) * limit, total };
+}
+
+/** "הקודם · עמוד 2 מתוך 5 · הבא", keeping the list's other filters in the links. */
+function pager(req, p) {
+  if (p.pages <= 1) return '';
+  const link = (n) => {
+    const q = new URLSearchParams(Object.entries(req.query).filter(([, v]) => typeof v === 'string'));
+    q.set('page', String(n));
+    return `?${q}`;
+  };
+  return html`<nav class="pager" aria-label="עמודי הרשימה">
+  ${p.page > 1 ? html`<a class="btn btn-light btn-sm" href="${link(p.page - 1)}" rel="prev">הקודם</a>` : ''}
+  <span>עמוד ${p.page} מתוך ${p.pages} · ${p.total} רשומות</span>
+  ${p.page < p.pages ? html`<a class="btn btn-light btn-sm" href="${link(p.page + 1)}" rel="next">הבא</a>` : ''}
+</nav>`;
+}
+
 function field(label, input, hint) {
   return html`<label class="field"><span>${label}</span>${input}${hint ? html`<small>${hint}</small>` : ''}</label>`;
 }
@@ -277,6 +299,6 @@ const fileInput = (name, { required = true } = {}) =>
 const licenseInput = (opts) => fileInput('license', opts);
 
 module.exports = {
-  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, badge, icon, pageHead, pageTabs, tabPanel, activeTab, asset, newPasswordPage, USER_STATUS, VEHICLE_STATUS,
+  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, pageOf, pager, badge, icon, pageHead, pageTabs, tabPanel, activeTab, asset, newPasswordPage, USER_STATUS, VEHICLE_STATUS,
   licenseInput, fileInput, uploadLimitLabel,
 };

@@ -20,6 +20,26 @@ function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(expected, actual);
 }
 
+// The same, off the main thread (libuv pool): a sign-in takes ~35 ms of CPU, which the sync versions spend blocking
+// every other request on the instance. Same parameters and format, so either can check what the other stored.
+const scryptAsync = (password, salt, len) => new Promise((resolve, reject) => {
+  crypto.scrypt(password, salt, len, (err, key) => (err ? reject(err) : resolve(key)));
+});
+
+async function hashPasswordAsync(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = await scryptAsync(password, salt, 64);
+  return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
+}
+
+async function verifyPasswordAsync(password, stored) {
+  if (!stored) return false;
+  const [, salt, hash] = stored.split('$');
+  const expected = Buffer.from(hash, 'base64');
+  const actual = await scryptAsync(password, Buffer.from(salt, 'base64'), expected.length);
+  return crypto.timingSafeEqual(expected, actual);
+}
+
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 function createSession(res, userId) {
@@ -137,11 +157,13 @@ function checkPasswordReset(token) {
 }
 
 /** Sets the new password with a valid token: the token is used up and every session of the user is ended. */
-function resetPassword(token, password) {
-  const userId = checkPasswordReset(token);
+async function resetPassword(token, password) {
+  if (!checkPasswordReset(token)) return null;
+  const passwordHash = await hashPasswordAsync(password);
+  const userId = checkPasswordReset(token); // again: another request may have used the link meanwhile
   if (!userId) return null;
   const delivered = db.prepare('SELECT delivered FROM password_resets WHERE token_hash = ?').get(sha256(token))?.delivered;
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, userId);
   db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(userId);
   destroyAllSessions(userId);
   if (delivered) markEmailVerified(userId); // the link was e-mailed to this address (not shown to an admin)
@@ -192,7 +214,7 @@ const resetThrottle = (key) => db.prepare('DELETE FROM throttle WHERE key = ?').
 const purgeThrottle = () => db.prepare('DELETE FROM throttle WHERE window_start < ?').run(Date.now() - 86400000);
 
 module.exports = {
-  hashPassword, verifyPassword, createSession, destroySession, destroyAllSessions, loadSession, loadSessionAndUser,
+  hashPassword, verifyPassword, hashPasswordAsync, verifyPasswordAsync, createSession, destroySession, destroyAllSessions, loadSession, loadSessionAndUser,
   parseCookies, createLoginCode, consumeLoginCode, throttled, release, resetThrottle, purgeThrottle,
   markEmailVerified, markResetDelivered, distrustUnverified, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
 };

@@ -688,3 +688,6 @@ mark.placeholder { background: var(--warning-soft); color: var(--warning); paddi
 /* A field the server refused (app.js marks it after a form comes back with errors) */
 [aria-invalid="true"]:not(:focus) { border-color: var(--danger); }
 .file-pick:has([aria-invalid="true"]), .dp-field:has([aria-invalid="true"]) input:not(:focus) { border-color: var(--danger); }
+
+/* Paging under long lists (admin users / bookings). */
+.pager { display: flex; align-items: center; justify-content: center; gap: .75rem; flex-wrap: wrap; margin: 1rem 0 .25rem; color: var(--muted); font-size: .92rem; }

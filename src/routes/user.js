@@ -6,6 +6,7 @@ const time = require('../time');
 const bookings = require('../bookings');
 const storage = require('../storage');
 const { renderCalendar, windowFor } = require('../views/calendar');
+const { later } = require('../later');
 const { html, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
 const { normalizePhone, validPhone, safeNext } = require('./public');
 
@@ -178,7 +179,7 @@ ${pageHead('ההזמנות שלי', {
   app.post('/me/bookings/:id/cancel', requireLogin, async (req, res) => {
     try {
       const b = bookings.cancel(Number(req.params.id), req.user);
-      await mail.bookingCancelled(b, false);
+      await later(() => mail.bookingCancelled(b, false), 'cancellation e-mails');
       res.flash('success', 'ההזמנה בוטלה');
     } catch (err) {
       if (!(err instanceof bookings.BookingError)) throw err;
@@ -200,7 +201,10 @@ ${pageHead('ההזמנות שלי', {
     const entries = items.map((b) => {
       if (b.kind === 'block') return { ...b, label: isAdmin ? '🔧 ' + b.block_reason : 'לא זמין', cls: 'block' };
       if (isAdmin) {
-        return { ...b, label: `${b.first_name} ${b.last_name}${b.status === 'pending' ? ' (ממתינה)' : ''}`, cls: b.status === 'pending' ? 'pending' : 'busy', dialog: `bk-${b.id}` };
+        // Only a request waiting for a decision opens a window (approve / reject) over the calendar; any other booking
+        // links to its page. Rendering a window for every booking made a busy month ~1 MB.
+        return { ...b, label: `${b.first_name} ${b.last_name}${b.status === 'pending' ? ' (ממתינה)' : ''}`, cls: b.status === 'pending' ? 'pending' : 'busy',
+          dialog: b.status === 'pending' ? `bk-${b.id}` : undefined };
       }
       if (b.user_id === u.id) return { ...b, label: `שלי · ${bookings.STATUS_LABELS[b.status]}`, cls: b.status === 'pending' ? 'mine pending' : 'mine' };
       return { ...b, label: 'תפוס', cls: 'busy' };
@@ -225,7 +229,7 @@ ${renderCalendar(entries, {
   slotLink: canBook ? (slot) => `${isAdmin ? '/admin/bookings/new' : '/bookings/new'}?start=${slot}` : null,
 })}
 ${canBook ? html`<p class="muted small">לחיצה על משבצת פנויה ביומן פותחת בקשת הזמנה מאותה שעה.${isAdmin ? ' לחיצה על הזמנה מציגה את פרטיה, ובקשה ממתינה אפשר לאשר או לדחות ישר מכאן.' : ''}</p>` : ''}
-${isAdmin ? entries.filter((e) => e.dialog).map((e) => bookingDialog(req, e, req.originalUrl)) : ''}`);
+${isAdmin ? entries.filter((e) => e.dialogShown).map((e) => bookingDialog(req, e, req.originalUrl)) : ''}`);
   });
 
   /** "2 ימים ו־4 שעות", "3 שעות ו־30 דקות". */
@@ -317,7 +321,7 @@ ${isAdmin ? entries.filter((e) => e.dialog).map((e) => bookingDialog(req, e, req
       let b = bookings.createRequest(req.user, { vehicleId: defaultVehicle().id, ...v });
       const approved = bookings.autoApprove(b);
       if (approved) b = approved;
-      await (approved ? mail.bookingApproved(b, { approvedBy: 'המערכת (אישור אוטומטי)' }) : mail.bookingRequested(b));
+      await later(() => (approved ? mail.bookingApproved(b, { approvedBy: 'המערכת (אישור אוטומטי)' }) : mail.bookingRequested(b)), 'request e-mails');
       res.page(approved ? 'ההזמנה אושרה' : 'הבקשה נשלחה', html`
 <div class="narrow card success-card">
   <span class="success-mark">${icon('check', 34)}</span>
@@ -389,14 +393,14 @@ ${accepted?.policy_version === policy.version ? html`<p class="note-line">${icon
 </div>`);
   });
 
-  app.post('/me/password', requireLogin, (req, res) => {
+  app.post('/me/password', requireLogin, async (req, res) => {
     const u = req.user;
-    if (u.password_hash && !auth.verifyPassword(String(req.body.current || ''), u.password_hash)) {
+    if (u.password_hash && !(await auth.verifyPasswordAsync(String(req.body.current || ''), u.password_hash))) {
       res.flash('error', 'הסיסמה הנוכחית שגויה');
     } else if (String(req.body.password || '').length < 8) {
       res.flash('error', 'הסיסמה חייבת להכיל לפחות 8 תווים');
     } else {
-      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(auth.hashPassword(String(req.body.password)), u.id);
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await auth.hashPasswordAsync(String(req.body.password)), u.id);
       // Log out other devices, keep this session.
       db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(u.id, req.session.token_hash);
       audit(u.id, 'user.password_change', 'user', u.id);

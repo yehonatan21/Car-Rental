@@ -74,13 +74,15 @@ Register the **production domain** in Google Cloud Console: the origin `https://
 on every deploy and can't all be registered. On those, the login page links to the production domain instead.
 
 ## Web Analytics (page views)
-Every page includes Vercel's analytics script (`/_vercel/insights/script.js`) when running on Vercel. This app renders
-plain HTML (no React/Next.js), so it uses the HTML script rather than the `<Analytics/>` component; the result is the same.
-1. In the Vercel project, open **Analytics → Enable** (until then the script returns 404 and nothing is counted).
-2. Deploy, then open the site and move between a few pages. Data shows up in the Analytics tab after about 30 seconds.
-   Ad/content blockers hide your own visits.
+Off by default. When switched on, every page includes Vercel's analytics script (`/_vercel/insights/script.js`). This
+app renders plain HTML (no React/Next.js), so it uses the HTML script rather than the `<Analytics/>` component.
+1. In the Vercel project, open **Analytics → Enable**.
+2. Add the environment variable `VERCEL_ANALYTICS=true` and redeploy. (Without step 1 the script is a 404 and an error
+   in every page's console, which is why it is not on by default.)
+3. Open the site and move between a few pages. Data shows up in the Analytics tab after about 30 seconds. Ad/content
+   blockers hide your own visits.
 
-Analytics is cookieless; the privacy page mentions it. Set `VERCEL_ANALYTICS=false` to remove the script.
+Analytics is cookieless; the privacy page mentions it only while it is on.
 
 ## Branches: Vercel deploys production (`main`) only
 Only `main` is deployed on Vercel, to **Production**. `dev` and every other branch are tested by CI (GitHub Actions) but

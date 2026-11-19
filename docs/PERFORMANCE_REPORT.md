@@ -1,10 +1,46 @@
 # Performance report
 
-*Measured 19/11/2026 on commit `565fc6d`.*
+*Measured 19/11/2026 on commit `565fc6d`; re-measured after the fixes the same day.*
 
 **What was measured:**
 - **Live:** the four production sites and the console. Request timing from this session (outside Israel), the app's own `Server-Timing` header, and Lighthouse 12 on the public pages.
 - **Local:** a database 10× larger than a busy real site: 2,005 users, 20,526 bookings over two years, 30,000 log rows (6.3 MB). Every page was timed on the server (best of 3), load-tested with autocannon (10 connections × 10 s, one process), and the hot queries were checked with `EXPLAIN QUERY PLAN`.
+
+## After the fixes (all nine recommendations done)
+
+Same large database, same scripts, same machine.
+
+| Page / measure | Before | After |
+|---|---|---|
+| `/admin/reports`, 365 days | 9,107 ms | **134 ms** |
+| `/admin/reports`, 30 days | 750 ms | **23 ms** |
+| `/admin` (dashboard) | 925 KB · 75 req/s | **36 KB · 254 req/s** |
+| `/admin/users` | 766 KB (all 2,005) | **31 KB** (50 per page) |
+| `/admin/bookings` | 774 KB (500 rows) | **88 KB** (50 per page) |
+| `/calendar?view=month` (admin) | 954 KB · 37 ms · 28 req/s | **82 KB · 12 ms · 132 req/s** |
+| user `/me/bookings` | 693 req/s | **1,358 req/s** |
+| Calendar / conflict query | scans all earlier bookings | **index on `end_at`: <1 ms** on 20k bookings |
+| Sign-in (scrypt) | 35 ms blocking the instance | runs off the main thread |
+| Approve / reject / cancel | waits for SMTP | answers at once on Vercel; the e-mails go out right after (`waitUntil`), failures retried by the outbox |
+| Static files | through the function, 1 hour | Vercel CDN; `?v=` files a year (`immutable`), others a week |
+| Analytics script | 404 + console error on every page | only with `VERCEL_ANALYTICS=true` |
+
+What changed:
+1. **Indexes** `bookings(vehicle_id, end_at)`, `bookings(status, kind)`, `bookings(user_id, start_at)`,
+   `booking_history(booking_id)`, `audit_log(target_type, target_id)`, `sessions(user_id)`.
+2. **Reports:** the daily usage loop visits only the days each booking covers.
+3. **Paging:** users and bookings 50 per page (the pager keeps the filters); the dashboard shows 10 rows per list with
+   "לכל N …" links.
+4. **Calendar windows:** rendered only for pending requests that are drawn on the calendar (the month cell shows 3 a
+   day); the month grid computes each day's bounds once instead of once per booking.
+5. **Static files** from Vercel's CDN with long caching.
+6. **E-mails after the response** (`src/later.js`): only on Vercel with SMTP. Elsewhere they are awaited as before.
+7. **Analytics** off unless switched on.
+8. **Calendar range:** bounded by the `end_at` index (#1); no query change needed.
+9. **Async scrypt** at sign-in, registration, password change and reset (`verifyPasswordAsync`/`hashPasswordAsync`,
+   same format).
+
+The figures below are the original measurements, before the fixes.
 
 ## Summary
 

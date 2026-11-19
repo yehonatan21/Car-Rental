@@ -89,14 +89,14 @@ test('SEC-003: a proven address keeps its password; e-mailed codes and reset lin
   assert.ok(db.prepare('SELECT email_verified_at FROM users WHERE id = ?').get(v.id).email_verified_at);
 });
 
-test('SEC-003: only a link that was really e-mailed proves the address; the ADMIN_EMAIL account is proven from the start', () => {
+test('SEC-003: only a link that was really e-mailed proves the address; the ADMIN_EMAIL account is proven from the start', async () => {
   const shown = createUser({ email: 'shown@hard.test' });
-  auth.resetPassword(auth.createPasswordReset(shown.id), 'Shown-Pass1');
+  await auth.resetPassword(auth.createPasswordReset(shown.id), 'Shown-Pass1');
   assert.equal(db.prepare('SELECT email_verified_at FROM users WHERE id = ?').get(shown.id).email_verified_at, null, 'a link shown to an admin');
   const mailed = createUser({ email: 'mailed@hard.test' });
   const t = auth.createPasswordReset(mailed.id);
   auth.markResetDelivered(t);
-  auth.resetPassword(t, 'Mailed-Pass1');
+  await auth.resetPassword(t, 'Mailed-Pass1');
   assert.ok(db.prepare('SELECT email_verified_at FROM users WHERE id = ?').get(mailed.id).email_verified_at, 'a link that was e-mailed');
   assert.ok(db.prepare("SELECT email_verified_at FROM users WHERE email = 'owner@hard.test'").get().email_verified_at);
 });

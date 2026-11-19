@@ -246,7 +246,7 @@ module.exports = ({ app, licenseUpload }) => {
     res.page('התחברות', loginPage(req));
   });
 
-  app.post('/login', (req, res) => {
+  app.post('/login', async (req, res) => {
     const email = String(req.body.email || '').trim().slice(0, 254);
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     // Every attempt is counted first, in the database, per network address and per account; a success gives its count
@@ -258,7 +258,7 @@ module.exports = ({ app, licenseUpload }) => {
     if (overIp || overAccount) {
       return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי ניסיונות. נסו שוב בעוד מספר דקות, או התחברו עם קוד במייל.', email }));
     }
-    if (!user || !auth.verifyPassword(String(req.body.password || ''), user.password_hash)) {
+    if (!user || !(await auth.verifyPasswordAsync(String(req.body.password || ''), user.password_hash))) {
       return res.status(401).page('התחברות', loginPage(req, { error: fieldError(['email', 'password'], 'דואר אלקטרוני או סיסמה שגויים'), email }));
     }
     auth.release(ipKey);
@@ -436,7 +436,7 @@ module.exports = ({ app, licenseUpload }) => {
     let passwordHash = draft?.password_hash || null;
     const password = String(b.password || '');
     if (password && password.length < 8) errors.push(fieldError('password', 'הסיסמה חייבת להכיל לפחות 8 תווים'));
-    else if (password) passwordHash = auth.hashPassword(password);
+    else if (password) passwordHash = await auth.hashPasswordAsync(password);
 
     if (!v.first_name || !v.last_name) errors.push(fieldError(['first_name', 'last_name'], 'יש למלא שם פרטי ושם משפחה'));
     if (!validIsraeliId(v.id_number)) errors.push(fieldError('id_number', 'מספר תעודת הזהות אינו תקין'));
@@ -531,7 +531,7 @@ module.exports = ({ app, licenseUpload }) => {
     if (password !== String(req.body.confirm || '')) {
       return res.status(400).page('איפוס סיסמה', resetPage(req, { token, error: fieldError('confirm', 'הסיסמאות אינן זהות') }));
     }
-    const userId = auth.resetPassword(token, password);
+    const userId = await auth.resetPassword(token, password);
     if (!userId) return res.status(400).page('איפוס סיסמה', invalidResetPage());
     audit(userId, 'user.password_reset', 'user', userId);
     await mail.passwordChanged(db.prepare('SELECT * FROM users WHERE id = ?').get(userId));

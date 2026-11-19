@@ -64,7 +64,7 @@ test('the Vercel entry point serves the app without writing next to the code', a
     const s = http.createServer(require('./api/index.js')).listen(0, '127.0.0.1', () => console.log('PORT ' + s.address().port));`;
   const child = spawn(process.execPath, ['--no-warnings', '-e', script], {
     cwd: root, env: { PATH: process.env.PATH, VERCEL: '1', VERCEL_URL: 'demo.vercel.app', NODE_ENV: 'production', TMPDIR: tmp,
-      ADMIN_EMAIL: 'vercel-admin@test.org', ADMIN_PASSWORD: 'VercelAdmin1', ALLOW_TEMPORARY_DATA: 'true' },
+      ADMIN_EMAIL: 'vercel-admin@test.org', ADMIN_PASSWORD: 'VercelAdmin1', ALLOW_TEMPORARY_DATA: 'true', VERCEL_ANALYTICS: 'true' },
   });
   try {
     const port = await new Promise((resolve, reject) => {
@@ -83,7 +83,7 @@ test('the Vercel entry point serves the app without writing next to the code', a
     const login = await get('/login');
     assert.equal(login.status, 200);
     assert.match(login.body, /סביבת הדגמה/);
-    assert.match(login.body, /<script defer src="\/_vercel\/insights\/script.js"><\/script>/, 'Vercel Web Analytics on every page');
+    assert.match(login.body, /<script defer src="\/_vercel\/insights\/script.js"><\/script>/, 'Vercel Web Analytics on every page, when switched on');
     assert.match((await get('/privacy')).body, /Vercel Web Analytics/);
     assert.equal((await get('/static/style.css')).status, 200);
     assert.ok(fs.existsSync(path.join(tmp, 'car-rental', 'app.db')), 'database in the temp dir');
@@ -96,9 +96,10 @@ test('the Vercel entry point serves the app without writing next to the code', a
 test('vercel.json routes everything to the function and does not publish the source code', () => {
   const v = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
   assert.equal(v.outputDirectory, 'public', 'only public/ is served as static files');
-  assert.equal(v.rewrites.length, 1);
-  assert.equal(v.rewrites[0].destination, '/api/index');
-  const routed = new RegExp(`^${v.rewrites[0].source.replace('/(', '/(?:').replace(/\)$/, ')')}$`);
+  assert.equal(v.rewrites.length, 2);
+  assert.deepEqual(v.rewrites[0], { source: '/static/(.*)', destination: '/$1' }, 'CSS, JS and fonts straight from Vercel\'s CDN');
+  assert.equal(v.rewrites[1].destination, '/api/index');
+  const routed = new RegExp(`^${v.rewrites[1].source.replace('/(', '/(?:').replace(/\)$/, ')')}$`);
   assert.ok(routed.test('/login') && routed.test('/') && routed.test('/admin/users/1'), 'app pages go to the function');
   assert.ok(!routed.test('/_vercel/insights/script.js') && !routed.test('/_vercel/insights/view'), 'Vercel Analytics paths are left to Vercel');
   assert.match(v.functions['api/index.js'].includeFiles, /src/);
@@ -107,14 +108,18 @@ test('vercel.json routes everything to the function and does not publish the sou
   assert.doesNotMatch(v.functions['api/index.js'].includeFiles, /musl|@libsql\}/, 'not the musl build (Vercel runs glibc): it doubled every deployment\'s size');
   assert.equal(v.ignoreCommand, 'node scripts/vercel-ignore-build.js');
   assert.deepEqual(v.crons.map((c) => c.path), ['/internal/cron']);
+  const cache = (has) => v.headers.find((h) => h.source === '/static/(.*)' && h[has])?.headers.find((x) => x.key === 'Cache-Control')?.value;
+  assert.equal(cache('has'), 'public, max-age=31536000, immutable', 'versioned files: a year');
+  assert.equal(cache('missing'), 'public, max-age=604800', 'others: a week');
 });
 
-test('the analytics script is only added on Vercel and can be turned off', () => {
+test('the analytics script is added only on Vercel, and only when switched on', () => {
   const flag = (env) => JSON.parse(execFileSync(process.execPath, ['--no-warnings', '-e', 'console.log(require("./src/config").vercelAnalytics)'],
     { cwd: root, env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' }));
   assert.equal(flag({}), false, 'not off Vercel (the script would 404)');
-  assert.equal(flag({ VERCEL: '1' }), true);
-  assert.equal(flag({ VERCEL: '1', VERCEL_ANALYTICS: 'false' }), false);
+  assert.equal(flag({ VERCEL: '1' }), false, 'not enabled on the project: the script would 404');
+  assert.equal(flag({ VERCEL: '1', VERCEL_ANALYTICS: 'true' }), true);
+  assert.equal(flag({ VERCEL_ANALYTICS: 'true' }), false);
 });
 
 test('Vercel entry point: a database that cannot be reached gives an explained 503, not a crash', async () => {

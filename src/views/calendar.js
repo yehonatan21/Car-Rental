@@ -47,7 +47,13 @@ function segmentsForDay(entries, day) {
 /** "יוסי מזרחי · 19/11/2026 14:00 – 18:30", the tooltip of an entry. */
 const tip = (e) => `${e.label} · ${time.fmt(e.start_at)} – ${e.end_at.slice(0, 10) === e.start_at.slice(0, 10) ? hhmm(e.end_at) : time.fmt(e.end_at)}`;
 /** Attributes of an entry that opens a window (admins: details, approve / reject) instead of following its link. */
-const dialogAttr = (e) => (e.dialog ? ` data-dialog="${e.dialog}" aria-haspopup="dialog"` : '');
+// Marks the entry as drawn (e.dialogShown), so the page renders windows only for what is on screen: the month view
+// shows 3 entries a day, and a window for each hidden one only made the page heavier.
+const dialogAttr = (e) => {
+  if (!e.dialog) return '';
+  e.dialogShown = true;
+  return ` data-dialog="${e.dialog}" aria-haspopup="dialog"`;
+};
 
 /** "5 בנובמבר 2026, יום חמישי": starts with the day number that is shown, so "click 5" works by voice (WCAG 2.5.3). */
 const dayLabel = (d) => `${Number(d.slice(8))} ב${time.HE_MONTHS[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}, יום ${time.HE_DAYS[time.parse(d).getDay()]}`;
@@ -102,7 +108,9 @@ function monthGrid(win, entries, { linkFor, nowStr }) {
 <div class="month">
   ${time.HE_DAYS.map((n) => html`<div class="m-head">${n}</div>`)}
   ${days.map((d) => {
-    const dayEntries = entries.filter((e) => e.start_at < time.addDays(d, 1) + 'T00:00' && e.end_at > d + 'T00:00');
+    const dayEnd = time.addDays(d, 1) + 'T00:00'; // once per day, not once per entry
+    const dayStart = d + 'T00:00';
+    const dayEntries = entries.filter((e) => e.start_at < dayEnd && e.end_at > dayStart);
     const out = d < win.monthStart || d >= win.monthEnd;
     return html`<div class="m-cell ${out ? 'out' : ''} ${d === nowStr.slice(0, 10) ? 'today' : ''} ${d < nowStr.slice(0, 10) ? 'past' : ''} ${dayEntries.length ? 'has' : 'free'}">
       <a class="m-day" href="?view=day&date=${d}" aria-label="${dayLabel(d)}">${Number(d.slice(8))}</a>

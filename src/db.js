@@ -127,6 +127,11 @@ if (!schemaIsCurrent) {
     CHECK (end_at > start_at)
   );
   CREATE INDEX IF NOT EXISTS bookings_range ON bookings(vehicle_id, start_at, end_at);
+  -- Lookups that otherwise read whole tables (docs/PERFORMANCE_REPORT.md): a booking's history, pending requests,
+  -- a user's bookings, the calendar from its first day on (by end time), a user's action log and sessions.
+  CREATE INDEX IF NOT EXISTS bookings_end ON bookings(vehicle_id, end_at);
+  CREATE INDEX IF NOT EXISTS bookings_status ON bookings(status, kind);
+  CREATE INDEX IF NOT EXISTS bookings_user ON bookings(user_id, start_at);
 
   CREATE TABLE IF NOT EXISTS booking_history (
     id INTEGER PRIMARY KEY,
@@ -263,6 +268,9 @@ if (!schemaIsCurrent) {
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS booking_history_booking ON booking_history(booking_id);
+  CREATE INDEX IF NOT EXISTS audit_log_target ON audit_log(target_type, target_id);
+  CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
   `);
 
   // Columns added after the first release (existing databases are upgraded in place). On Vercel several instances can

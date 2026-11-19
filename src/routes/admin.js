@@ -8,10 +8,11 @@ const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
 const storage = require('../storage');
-const { html, raw, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { html, raw, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, pageOf, pager, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 const documents = require('./documents');
 const { actionLabel } = require('../views/audit-labels');
+const { later } = require('../later');
 const { brand, saveBrand, validColor, DEFAULT_COLOR } = require('../brand');
 
 const SETTING_LABELS = {
@@ -53,6 +54,9 @@ const guarded = (fallback, fn) => async (req, res) => {
   }
 };
 
+/** How many rows each list on the dashboard shows; the rest is one link away (the counts above stay exact). */
+const DASHBOARD_ROWS = 10;
+
 /** A local path to return to after an action (only this site's own pages). */
 const safeBack = (v) => (typeof v === 'string' && /^\/(?![/\\])/.test(v) && !/[\r\n]/.test(v) ? v : null);
 
@@ -90,6 +94,8 @@ function bookingsTable(list, { showUser = true, req } = {}) {
  * rather than assuming they went out. Returns [flashType, text].
  */
 function approvalNotice(b, sent, { notifyUser = true } = {}) {
+  // Sent after the response (later()): nothing to report yet; a failure is retried and shown in Settings → health.
+  if (sent === undefined) return ['success', 'ההזמנה אושרה. המיילים נשלחים ברקע; מייל שלא יגיע יישלח שוב אוטומטית (הגדרות ← תקינות המערכת).'];
   if (!sent.delivered) {
     return ['warning', 'ההזמנה אושרה, אבל המיילים לא נשלחו בפועל: לא הוגדר שרת דואר (SMTP), ולכן הם נשמרו רק בתיקייה data/outbox. '
       + 'ההגדרה מוסברת בהגדרות ← שליחת מיילים.'];
@@ -405,22 +411,25 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2 class="section-title">
 <div class="grid2">
   <section class="card">
     <h2 class="section-title">${icon('clock')} בקשות הזמנה ממתינות</h2>
-    ${bookingsTable(pendingBookings, { req })}
+    ${bookingsTable(pendingBookings.slice(0, DASHBOARD_ROWS), { req })}
+    ${pendingBookings.length > DASHBOARD_ROWS ? html`<p><a href="/admin/bookings?status=pending">לכל ${pendingBookings.length} הבקשות הממתינות</a></p>` : ''}
   </section>
   <section class="card">
     <h2 class="section-title">${icon('users')} משתמשים ורישיונות לבדיקה</h2>
     ${pendingUsers.length || pendingLicenses.length ? html`<ul class="plain">
-      ${pendingUsers.map((u) => html`<li><a href="/admin/users/${u.id}">${fullName(u)}</a> – הרשמה חדשה (${time.fmt(u.created_at)})</li>`)}
+      ${pendingUsers.slice(0, DASHBOARD_ROWS).map((u) => html`<li><a href="/admin/users/${u.id}">${fullName(u)}</a> – הרשמה חדשה (${time.fmt(u.created_at)})</li>`)}
+      ${pendingUsers.length > DASHBOARD_ROWS ? html`<li><a href="/admin/users?status=pending">לכל ${pendingUsers.length} הנרשמים הממתינים</a></li>` : ''}
       ${pendingLicenses.map((u) => html`<li><a href="/admin/users/${u.id}">${fullName(u)}</a> – רישיון חדש לבדיקה</li>`)}
     </ul>` : html`<p class="empty">${icon('check', 28)}<span>אין פריטים לבדיקה.</span></p>`}
-    ${licenses.length ? html`<h3>תוקף רישיונות</h3><ul class="plain">${licenses.map((u) => html`<li>
+    ${licenses.length ? html`<h3>תוקף רישיונות</h3><ul class="plain">${licenses.slice(0, DASHBOARD_ROWS).map((u) => html`<li>
       <a href="/admin/users/${u.id}">${fullName(u)}</a> – ${time.fmt(u.license_expiry)} ${u.license_expiry < today ? badge('blocked', 'פג') : badge('pending', 'בקרוב')}</li>`)}</ul>` : ''}
   </section>
 </div>
 <section class="card">
   <div class="page-head"><h2 class="section-title">${icon('calendar')} ההזמנות הקרובות</h2>
     <div class="page-actions"><a class="btn btn-light btn-sm" href="/admin/blocks/new">${icon('wrench', 16)} חסימת מועד</a> <a class="btn btn-light btn-sm" href="/calendar">ליומן</a></div></div>
-  ${bookingsTable(upcoming)}
+  ${bookingsTable(upcoming.slice(0, DASHBOARD_ROWS))}
+  ${upcoming.length > DASHBOARD_ROWS ? html`<p><a href="/admin/bookings?status=approved&from=${today}">לכל ${upcoming.length} ההזמנות הקרובות</a></p>` : ''}
 </section>`);
   });
 
@@ -434,8 +443,10 @@ ${vehicleAlerts.length ? html`<div class="card alert"><h2 class="section-title">
     if (status) { where.push('status = ?'); args.push(status); }
     if (role) { where.push('role = ?'); args.push(role); }
     if (q) { where.push("(first_name || ' ' || last_name LIKE ? OR email LIKE ? OR phone LIKE ? OR id_number LIKE ?)"); args.push(...Array(4).fill(`%${q}%`)); }
-    const users = db.prepare(`SELECT * FROM users ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY
-      CASE status WHEN 'pending' THEN 0 WHEN 'license_update' THEN 1 ELSE 2 END, created_at DESC`).all(...args);
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const p = pageOf(req, db.prepare(`SELECT COUNT(*) AS n FROM users ${whereSql}`).get(...args).n);
+    const users = db.prepare(`SELECT * FROM users ${whereSql} ORDER BY
+      CASE status WHEN 'pending' THEN 0 WHEN 'license_update' THEN 1 ELSE 2 END, created_at DESC LIMIT ? OFFSET ?`).all(...args, p.limit, p.offset);
     res.page('משתמשים', html`
 ${pageHead('משתמשים', {
     iconName: 'users', sub: 'אישור נרשמים, בדיקת רישיונות וניהול הרשאות.',
@@ -462,6 +473,7 @@ ${pageHead('משתמשים', {
   <td><a class="btn btn-light btn-sm" href="/admin/users/${u.id}">כרטיס משתמש</a></td>
 </tr>`)}</tbody></table>
 ${users.length ? '' : html`<p class="empty">${icon('users', 28)}<span>לא נמצאו משתמשים.</span></p>`}
+${pager(req, p)}
 </section>
 <p class="muted small">למינוי מנהל: פותחים את כרטיס המשתמש ← "הרשאות" ← "הפיכה למנהל".</p>`);
   });
@@ -801,9 +813,11 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
     if (q) { where.push("(u.first_name || ' ' || u.last_name LIKE ? OR u.email LIKE ? OR b.block_reason LIKE ? OR b.purpose LIKE ?)"); args.push(...Array(4).fill(`%${q}%`)); }
     if (from) { where.push('b.end_at > ?'); args.push(from + 'T00:00'); }
     if (to) { where.push('b.start_at < ?'); args.push(time.addDays(to, 1) + 'T00:00'); }
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const p = pageOf(req, db.prepare(`SELECT COUNT(*) AS n FROM bookings b LEFT JOIN users u ON u.id = b.user_id ${whereSql}`).get(...args).n);
     const list = db.prepare(`SELECT b.*, u.first_name, u.last_name FROM bookings b LEFT JOIN users u ON u.id = b.user_id
-      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-      ORDER BY CASE b.status WHEN 'pending' THEN 0 ELSE 1 END, b.start_at DESC LIMIT 500`).all(...args);
+      ${whereSql}
+      ORDER BY CASE b.status WHEN 'pending' THEN 0 ELSE 1 END, b.start_at DESC LIMIT ? OFFSET ?`).all(...args, p.limit, p.offset);
     res.page('הזמנות', html`
 ${pageHead('הזמנות', {
     iconName: 'list', sub: 'בקשות ממתינות מופיעות ראשונות.',
@@ -822,7 +836,7 @@ ${pageHead('הזמנות', {
   <label class="inline-label">עד<input type="date" name="to" value="${to}"></label>
   <button class="btn btn-light">סינון</button>
 </form>
-<section class="card">${bookingsTable(list, { req })}</section>`);
+<section class="card">${bookingsTable(list, { req })}${pager(req, p)}</section>`);
   });
 
   app.get('/admin/bookings/new', requireAdmin, (req, res) => {
@@ -851,7 +865,7 @@ ${pageHead('הזמנות', {
       purpose: String(req.body.purpose || '').trim(), notes: String(req.body.notes || '').trim(),
     });
     const notifyUser = req.body.notify === '1';
-    const [type, text] = approvalNotice(b, await mail.bookingApproved(b, { approvedBy: fullName(req.user), notifyUser }), { notifyUser });
+    const [type, text] = approvalNotice(b, await later(() => mail.bookingApproved(b, { approvedBy: fullName(req.user), notifyUser }), 'approval e-mails'), { notifyUser });
     res.flash(type, text.replace('ההזמנה אושרה', 'ההזמנה נוצרה ואושרה'));
     res.redirect(`/admin/bookings/${b.id}`);
   }));
@@ -938,7 +952,7 @@ ${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id
 
   app.post('/admin/bookings/:id/approve', requireAdmin, guarded((req) => safeBack(req.body.back) || `/admin/bookings/${req.params.id}`, async (req, res) => {
     const b = bookings.approve(Number(req.params.id), req.user.id);
-    const [type, text] = approvalNotice(b, await mail.bookingApproved(b, { approvedBy: fullName(req.user) }));
+    const [type, text] = approvalNotice(b, await later(() => mail.bookingApproved(b, { approvedBy: fullName(req.user) }), 'approval e-mails'));
     const competing = bookings.findPendingOverlaps(b.vehicle_id, b.start_at, b.end_at, b.id);
     res.flash(competing.length ? 'warning' : type, competing.length
       ? `${text} יש ${competing.length} בקשות ממתינות נוספות לאותו מועד שכבר לא ניתן לאשר – מומלץ לדחות אותן.`
@@ -949,7 +963,7 @@ ${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id
   app.post('/admin/bookings/:id/reject', requireAdmin, guarded((req) => safeBack(req.body.back) || `/admin/bookings/${req.params.id}`, async (req, res) => {
     const note = String(req.body.note || '').trim().slice(0, 500);
     const b = bookings.reject(Number(req.params.id), req.user.id, note);
-    await mail.bookingRejected(b, note);
+    await later(() => mail.bookingRejected(b, note), 'rejection e-mail');
     res.flash('success', 'הבקשה נדחתה והמשתמש עודכן');
     res.redirect(303, safeBack(req.body.back) || '/admin/bookings?status=pending');
   }));
@@ -957,7 +971,7 @@ ${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id
   app.post('/admin/bookings/:id/cancel', requireAdmin, guarded((req) => `/admin/bookings/${req.params.id}`, async (req, res) => {
     const note = String(req.body.note || '').trim().slice(0, 500);
     const b = bookings.cancel(Number(req.params.id), req.user, note);
-    if (b.kind === 'booking') await mail.bookingCancelled(b, true, note);
+    if (b.kind === 'booking') await later(() => mail.bookingCancelled(b, true, note), 'cancellation e-mails');
     res.flash('success', b.kind === 'block' ? 'החסימה הוסרה' : 'ההזמנה בוטלה ונשלחה הודעה');
     res.redirect(`/admin/bookings/${b.id}`);
   }));

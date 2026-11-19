@@ -83,6 +83,15 @@ const database = {
   authToken: dbEnv ? clean(process.env[dbEnv.token]).replace(/^Bearer\s+/i, '') : '',
   from: dbEnv?.url || null,
 };
+/** When the database key stops working (its JWT "exp"), as an ISO date, or null for a key that never expires (S-01). */
+const databaseKeyExpiresAt = (() => {
+  try {
+    const exp = JSON.parse(Buffer.from(database.authToken.split('.')[1] || '', 'base64url').toString()).exp;
+    return exp ? new Date(exp * 1000).toISOString() : null;
+  } catch {
+    return null;
+  }
+})();
 // On Vercel the disk is temporary and separate for every instance: without a hosted database, accounts and logins
 // would exist on one instance and not the next (redirect loops) and everything would vanish on each new version.
 // So the app refuses to start there, unless a throwaway demo is wanted on purpose.
@@ -135,6 +144,7 @@ module.exports = {
   missingDatabase: temporaryData && !allowTemporaryData,
   // Hosted libSQL / Turso database (data survives redeploys). Names match Vercel's Turso integration.
   database,
+  databaseKeyExpiresAt,
   dbFile: process.env.DB_FILE || path.join(dataDir, 'app.db'),
   // Private storage for license images: outside any static folder, served only through an admin-checked route.
   uploadsDir: path.join(dataDir, 'licenses'),

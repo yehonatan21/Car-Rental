@@ -2,6 +2,7 @@
 const crypto = require('node:crypto');
 const { db, audit, currentPolicy } = require('../db');
 const auth = require('../auth');
+const { passwordProblem } = require('../passwords');
 const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
@@ -77,6 +78,35 @@ function loginPage(req, { error, email = '', next = req.query.next || req.body?.
 }
 
 /** Password, e-mail code or Google checked: start the session and go on. */
+/** "Enter the code": after asking for a code, and as a manager's second step after the password (S-02). */
+function codePage(req, email, { secondStep = false, next = req.body?.next || '' } = {}) {
+  return html`
+<div class="narrow">
+  <h1>${secondStep ? 'אימות כניסה של מנהל' : 'הזנת קוד'}</h1>
+  ${secondStep
+    ? html`<p>הסיסמה נכונה. כדי להגן על פרטי המשתמשים, כניסה של מנהל דורשת גם קוד: שלחנו קוד בן 6 ספרות לכתובת <b dir="ltr">${email}</b>. הקוד תקף ל־10 דקות.</p>`
+    : html`<p>אם הכתובת <b dir="ltr">${email}</b> רשומה במערכת, נשלח אליה קוד בן 6 ספרות. הקוד תקף ל־10 דקות.</p>`}
+  ${!config.smtp && !config.production ? html`<div class="flash flash-warning small">
+    מצב פיתוח: לא הוגדר שרת דואר (SMTP), ולכן המייל לא נשלח בפועל. <b>הקוד מודפס בחלון השרת</b> (החלון שבו רץ start.cmd / npm run dev).</div>` : ''}
+  ${postForm(req, '/login/code/verify', html`
+    <input type="hidden" name="email" value="${email}">
+    ${next ? html`<input type="hidden" name="next" value="${next}">` : ''}
+    ${field('קוד', html`<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" pattern="[0-9 \-]*" required autofocus>`)}
+    <button class="btn btn-primary btn-block">כניסה</button>`, 'class="card"')}
+  <p class="muted small">לא הגיע? בדקו בתיקיית הספאם / קידומי מכירות. אפשר לבקש קוד חדש; גם הקוד הקודם ימשיך לעבוד עד שיפוג.</p>
+  ${postForm(req, '/login/code', html`<input type="hidden" name="email" value="${email}"><button class="btn btn-light btn-sm">שליחת קוד חדש</button>`)}
+</div>`;
+}
+
+/**
+ * Managers (and console admins) need more than a password (S-02): they see ID numbers and license photos. After the
+ * right password, a code goes to their e-mail and the sign-in finishes with it. Only where e-mail really goes out
+ * (SMTP); Google sign-in and the console's "sign in as manager" already count as the second step.
+ * ADMIN_SECOND_STEP=false turns it off.
+ */
+const needsSecondStep = (user) => user.role === 'admin' && user.status === 'active' && Boolean(config.smtp)
+  && process.env.ADMIN_SECOND_STEP !== 'false';
+
 function finishLogin(req, res, user, next = req.body?.next) {
   // Only this account's failures are cleared: signing in to some other account must not reset the counter of the one
   // being guessed (SEC-002). The per-address counter runs out on its own.
@@ -121,8 +151,8 @@ ${postForm(req, '/register', html`
   <fieldset>
     <legend>${icon('user')} פרטים אישיים</legend>
     <div class="grid2">
-      ${field('שם פרטי', html`<input name="first_name" value="${v.first_name}" required autocomplete="given-name">`)}
-      ${field('שם משפחה', html`<input name="last_name" value="${v.last_name}" required autocomplete="family-name">`)}
+      ${field('שם פרטי', html`<input name="first_name" maxlength="60" value="${v.first_name}" required autocomplete="given-name">`)}
+      ${field('שם משפחה', html`<input name="last_name" maxlength="60" value="${v.last_name}" required autocomplete="family-name">`)}
       ${field('מספר תעודת זהות', html`<input name="id_number" value="${v.id_number}" required inputmode="numeric" maxlength="9">`)}
       ${field('טלפון נייד', html`<input type="tel" name="phone" value="${v.phone}" required placeholder="05XXXXXXXX" autocomplete="tel">`)}
     </div>
@@ -133,7 +163,7 @@ ${postForm(req, '/register', html`
       ? field('סיסמה', html`<input type="password" name="password" minlength="8" autocomplete="new-password" placeholder="••••••••">`,
         html`<span class="saved">✓ הסיסמה שהזנת נשמרה. אפשר להשאיר ריק, או להקליד סיסמה אחרת.</span>`)
       : field(gs ? 'סיסמה (אופציונלי)' : 'סיסמה', html`<input type="password" name="password" minlength="8" autocomplete="new-password">`,
-        gs ? 'לא חובה: אפשר להתחבר תמיד עם Google.' : 'לפחות 8 תווים. ניתן להשאיר ריק ולהתחבר תמיד באמצעות קוד חד־פעמי שיישלח לדואר האלקטרוני.')}
+        gs ? 'לא חובה: אפשר להתחבר תמיד עם Google.' : 'לפחות 8 תווים, לא סיסמה נפוצה ולא השם או המייל. ניתן להשאיר ריק ולהתחבר תמיד באמצעות קוד חד־פעמי שיישלח לדואר האלקטרוני.')}
   </fieldset>
   <fieldset>
     <legend>${icon('id')} רישיון נהיגה</legend>
@@ -207,7 +237,7 @@ function resetPage(req, { token, error } = {}) {
   ${errorSummary(error)}
   ${postForm(req, '/password/reset', html`
     <input type="hidden" name="token" value="${token}">
-    ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password" autofocus>`, 'לפחות 8 תווים')}
+    ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password" autofocus>`, 'לפחות 8 תווים, לא סיסמה נפוצה ולא השם או המייל')}
     ${field('אימות הסיסמה', html`<input type="password" name="confirm" minlength="8" required autocomplete="new-password">`)}
     <button class="btn btn-primary btn-block">שמירת הסיסמה</button>
     <p class="muted small">לאחר השמירה תנותק מכל המכשירים ותצטרך להתחבר מחדש.</p>`, 'class="card"')}
@@ -258,10 +288,20 @@ module.exports = ({ app, licenseUpload }) => {
     if (overIp || overAccount) {
       return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי ניסיונות. נסו שוב בעוד מספר דקות, או התחברו עם קוד במייל.', email }));
     }
-    if (!user || !(await auth.verifyPasswordAsync(String(req.body.password || ''), user.password_hash))) {
+    const passwordOk = await auth.verifyPasswordAsync(String(req.body.password || ''), user?.password_hash); // same time either way (S-03)
+    if (!user || !passwordOk) {
       return res.status(401).page('התחברות', loginPage(req, { error: fieldError(['email', 'password'], 'דואר אלקטרוני או סיסמה שגויים'), email }));
     }
     auth.release(ipKey);
+    if (needsSecondStep(user)) {
+      const sent = !auth.throttled(`code:acct:${user.id}`, 5, 3600000) && await mail.loginCode(user, auth.createLoginCode(user.id));
+      if (!sent) {
+        return res.status(503).page('התחברות', loginPage(req, { email,
+          error: 'הסיסמה נכונה, אבל לא ניתן לשלוח עכשיו את קוד האימות למייל (או שנשלחו יותר מדי קודים בשעה האחרונה). נסו שוב מאוחר יותר, או התחברו עם Google.' }));
+      }
+      audit(user.id, 'user.login_second_step', 'user', user.id);
+      return res.page('אימות כניסה', codePage(req, user.email, { secondStep: true }));
+    }
     finishLogin(req, res, user);
   });
 
@@ -276,25 +316,15 @@ module.exports = ({ app, licenseUpload }) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).page('התחברות', loginPage(req, { error: fieldError('email', 'כתובת הדואר האלקטרוני אינה תקינה'), email }));
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     // Same response whether or not the address exists, to avoid revealing registered e-mails.
-    const sent = user ? await mail.loginCode(user, auth.createLoginCode(user.id)) : true;
+    // At most 5 codes an hour per account, from any network address (S-05): more are silently not sent, with the same
+    // answer, so the limit does not reveal the account either.
+    const sent = user && !auth.throttled(`code:acct:${user.id}`, 5, 3600000) ? await mail.loginCode(user, auth.createLoginCode(user.id)) : true;
     if (!sent) {
       return res.status(503).page('התחברות', loginPage(req, {
         error: 'שליחת המייל נכשלה, ולכן הקוד לא נשלח. נסו שוב בעוד כמה דקות, או התחברו עם סיסמה. אם הבעיה נמשכת, פנו למנהל המערכת.', email,
       }));
     }
-    res.page('קוד התחברות', html`
-<div class="narrow">
-  <h1>הזנת קוד</h1>
-  <p>אם הכתובת <b dir="ltr">${email}</b> רשומה במערכת, נשלח אליה קוד בן 6 ספרות. הקוד תקף ל־10 דקות.</p>
-  ${!config.smtp && !config.production ? html`<div class="flash flash-warning small">
-    מצב פיתוח: לא הוגדר שרת דואר (SMTP), ולכן המייל לא נשלח בפועל. <b>הקוד מודפס בחלון השרת</b> (החלון שבו רץ start.cmd / npm run dev).</div>` : ''}
-  ${postForm(req, '/login/code/verify', html`
-    <input type="hidden" name="email" value="${email}">
-    ${field('קוד', html`<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" pattern="[0-9 \-]*" required autofocus>`)}
-    <button class="btn btn-primary btn-block">כניסה</button>`, 'class="card"')}
-  <p class="muted small">לא הגיע? בדקו בתיקיית הספאם / קידומי מכירות. אפשר לבקש קוד חדש; גם הקוד הקודם ימשיך לעבוד עד שיפוג.</p>
-  ${postForm(req, '/login/code', html`<input type="hidden" name="email" value="${email}"><button class="btn btn-light btn-sm">שליחת קוד חדש</button>`)}
-</div>`);
+    res.page('קוד התחברות', codePage(req, email));
   });
 
   app.post('/login/code/verify', (req, res) => {
@@ -435,7 +465,8 @@ module.exports = ({ app, licenseUpload }) => {
     }
     let passwordHash = draft?.password_hash || null;
     const password = String(b.password || '');
-    if (password && password.length < 8) errors.push(fieldError('password', 'הסיסמה חייבת להכיל לפחות 8 תווים'));
+    const weak = password && passwordProblem(password, { email: b.email, first_name: b.first_name, last_name: b.last_name });
+    if (weak) errors.push(fieldError('password', weak));
     else if (password) passwordHash = await auth.hashPasswordAsync(password);
 
     if (!v.first_name || !v.last_name) errors.push(fieldError(['first_name', 'last_name'], 'יש למלא שם פרטי ושם משפחה'));
@@ -449,8 +480,11 @@ module.exports = ({ app, licenseUpload }) => {
     if (Number(b.policy_version) !== currentPolicy().version) errors.push(fieldError('accept_policy', 'הנהלים עודכנו בזמן ההרשמה. יש לקרוא ולאשר אותם מחדש'));
     // Two separate messages: "this e-mail already has an account" (sign in instead) is a different problem from
     // "this ID number belongs to another account".
-    if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(v.email)) errors.push('כבר קיים חשבון עם כתובת הדואר האלקטרוני הזו. אפשר להתחבר אליו במקום להירשם.');
-    else if (db.prepare('SELECT 1 FROM users WHERE id_number = ?').get(v.id_number)) errors.push('מספר תעודת הזהות הזה כבר רשום בחשבון אחר. בדקו את המספר, או פנו למנהל האתר.');
+    // One message for both, so the form does not tell which of the two (an e-mail, or someone's ID number) is
+    // registered (S-03). Only checked once the rest is valid, so it cannot be probed with half-empty forms.
+    if (!errors.length && db.prepare('SELECT 1 FROM users WHERE email = ? OR id_number = ?').get(v.email, v.id_number)) {
+      errors.push(html`כבר קיים חשבון עם כתובת המייל או מספר תעודת הזהות האלה. אם זה החשבון שלך, <a href="/login">התחברו</a> או <a href="/password/forgot">אפסו את הסיסמה</a>. אחרת בדקו את הפרטים, או פנו למנהל האתר.`);
+    }
     if (errors.length) {
       const token = saveDraft(draft?.token, { licenseFile, licenseName, passwordHash });
       return res.status(400).page('הרשמה', registerPage(req, {
@@ -494,15 +528,17 @@ module.exports = ({ app, licenseUpload }) => {
     if (!validEmail(email)) return res.status(400).page('שכחתי סיסמה', forgotPage(req, { email, error: 'כתובת הדואר האלקטרוני אינה תקינה' }));
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     // Same answer whether or not the address is registered.
-    const resetToken = user && auth.createPasswordReset(user.id);
-    const sent = user ? await mail.passwordReset(user, resetToken) : true;
-    if (user && sent && config.smtp) auth.markResetDelivered(resetToken);
+    // At most 3 links an hour per account, from any network address (S-05); more are silently not sent.
+    const allowed = user && !auth.throttled(`reset:acct:${user.id}`, 3, 3600000);
+    const resetToken = allowed && auth.createPasswordReset(user.id);
+    const sent = allowed ? await mail.passwordReset(user, resetToken) : true;
+    if (allowed && sent && config.smtp) auth.markResetDelivered(resetToken);
     if (!sent) {
       return res.status(503).page('שכחתי סיסמה', forgotPage(req, {
         email, error: 'שליחת המייל נכשלה. נסו שוב בעוד כמה דקות, או פנו למנהל המערכת.',
       }));
     }
-    if (user) audit(user.id, 'user.password_reset_requested', 'user', user.id);
+    if (allowed) audit(user.id, 'user.password_reset_requested', 'user', user.id);
     res.page('שכחתי סיסמה', html`
 <div class="narrow card">
   <h1>בדקו את תיבת הדואר</h1>
@@ -527,7 +563,8 @@ module.exports = ({ app, licenseUpload }) => {
     const password = String(req.body.password || '');
     if (auth.throttled('reset-set:' + req.ip, 10)) return res.status(429).page('איפוס סיסמה', invalidResetPage());
     if (!auth.checkPasswordReset(token)) return res.status(400).page('איפוס סיסמה', invalidResetPage());
-    if (password.length < 8) return res.status(400).page('איפוס סיסמה', resetPage(req, { token, error: fieldError('password', 'הסיסמה חייבת להכיל לפחות 8 תווים') }));
+    const weak = passwordProblem(password, db.prepare('SELECT email, first_name, last_name FROM users WHERE id = ?').get(auth.checkPasswordReset(token)));
+    if (weak) return res.status(400).page('איפוס סיסמה', resetPage(req, { token, error: fieldError('password', weak) }));
     if (password !== String(req.body.confirm || '')) {
       return res.status(400).page('איפוס סיסמה', resetPage(req, { token, error: fieldError('confirm', 'הסיסמאות אינן זהות') }));
     }

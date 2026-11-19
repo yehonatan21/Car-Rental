@@ -77,6 +77,18 @@ async function runJobs({ by = 'timer' } = {}) {
     audit(null, 'user.license_deleted', 'user', u.id, '30 ימים אחרי דחיית ההרשמה');
   }
 
+  // Registrations nobody approved or rejected for 90 days: the account and its license photo are deleted (S-09,
+  // docs/privacy.md). The dashboard lists them all along. Never an account with bookings, or a manager.
+  const unhandledSince = time.stamp(new Date(Date.now() - 90 * 86400000));
+  for (const u of db.prepare(`SELECT id, email, license_file, pending_license_file FROM users WHERE status = 'pending' AND role = 'user'
+    AND created_at < ? AND NOT EXISTS (SELECT 1 FROM bookings WHERE user_id = users.id)`).all(unhandledSince)) {
+    if (!claim("DELETE FROM users WHERE id = ? AND status = 'pending'", u.id)) continue;
+    for (const f of [u.license_file, u.pending_license_file]) if (f) storage.remove(f);
+    audit(null, 'user.pending_expired', 'user', u.id, '90 ימים בלי אישור או דחייה');
+  }
+  // The action log keeps two years.
+  db.prepare('DELETE FROM audit_log WHERE at < ?').run(time.stamp(new Date(Date.now() - 730 * 86400000)));
+
   // Abandoned registration attempts: delete the kept license image too.
   for (const d of db.prepare('SELECT * FROM registration_drafts WHERE expires_at < ?').all(Date.now())) {
     storage.remove(d.license_file);

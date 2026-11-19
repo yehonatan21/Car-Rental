@@ -81,12 +81,15 @@ test('a forged or expired draft token gives nothing', async () => {
   assert.match(late.text, /יש להעלות צילום רישיון/);
 });
 
-test('a clash says which field: the e-mail (sign in instead) or the ID number (another account)', async () => {
+test('a clash gives one message for the e-mail and the ID number, so it does not tell which is registered (S-03)', async () => {
   const taken = createUser({ email: 'taken@reg.test' });
-  let r = await client().post('/register', registrationForm({ email: 'taken@reg.test' }));
-  assert.match(r.text, /כבר קיים חשבון עם כתובת הדואר האלקטרוני הזו/);
-  assert.doesNotMatch(r.text, /מספר תעודת הזהות הזה כבר רשום/);
-  r = await client().post('/register', registrationForm({ email: 'fresh@reg.test', id_number: taken.id_number }));
-  assert.match(r.text, /מספר תעודת הזהות הזה כבר רשום בחשבון אחר/);
-  assert.doesNotMatch(r.text, /כבר קיים חשבון עם כתובת/);
+  const byEmail = await client().post('/register', registrationForm({ email: 'taken@reg.test' }));
+  const byId = await client().post('/register', registrationForm({ email: 'fresh@reg.test', id_number: taken.id_number }));
+  for (const r of [byEmail, byId]) {
+    assert.equal(r.status, 400);
+    assert.match(r.text, /כבר קיים חשבון עם כתובת המייל או מספר תעודת הזהות האלה/);
+    assert.match(r.text, /href="\/password\/forgot"/);
+  }
+  const half = await client().post('/register', registrationForm({ email: 'taken@reg.test', phone: '03-1' }));
+  assert.doesNotMatch(half.text, /כבר קיים חשבון/, 'not checked while other fields are wrong');
 });

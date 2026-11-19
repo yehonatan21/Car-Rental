@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const { db, audit } = require('../db');
 const auth = require('../auth');
+const { passwordProblem } = require('../passwords');
 const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
@@ -60,6 +61,16 @@ function stateBadge(c, st) {
 
 const dot = (color) => html`<span class="client-dot" style="background:${/^#[0-9a-f]{6}$/i.test(color || '') ? color : DEFAULT_COLOR}"></span>`;
 const statusData = (st) => (st.online ? st.data : st.last);
+
+/** The database key's expiry (S-01): a warning a month before, and for a key that never expires. */
+function keyExpiry(at) {
+  if (!at) return html`${badge('pending', 'ללא תפוגה')} <span class="muted small">מפתח ישן שלא פג לעולם: מומלץ להחליף אותו (למטה) במפתח לשנה.</span>`;
+  const days = Math.floor((new Date(at) - Date.now()) / 86400000);
+  const date = time.fmt(at.slice(0, 10));
+  if (days < 0) return html`${badge('rejected', 'פג תוקף')} ${date}: האתר לא יכול לפתוח את מסד הנתונים. החליפו את המפתח עכשיו.`;
+  if (days <= 30) return html`${badge('pending', `פג בעוד ${days} ימים`)} ${date}. החליפו את המפתח לפני כן.`;
+  return html`תקף עד ${date}`;
+}
 
 /** Short version label, and whether it differs from the console's own code. */
 function versionLabel(data) {
@@ -376,6 +387,7 @@ ${d ? html`<section class="card" id="system">
   <dl class="dl">
     <dt>גרסה</dt><dd>${versionLabel(d) || '—'}</dd>
     <dt>מסד נתונים</dt><dd>${d.storage.kind === 'hosted' ? 'קבוע (Turso)' : d.storage.kind === 'temporary' ? html`<b>זמני – הנתונים נמחקים!</b>` : 'קובץ מקומי'} · מזהה <code>${d.storage.id}</code></dd>
+    ${d.storage.kind === 'hosted' ? html`<dt>מפתח מסד הנתונים</dt><dd>${keyExpiry(d.storage.keyExpiresAt)}</dd>` : ''}
     <dt>מיילים</dt><dd>${d.mail.configured ? html`נשלחים מ־<span dir="ltr">${d.mail.from}</span>`
     : st.mailShared ? html`${badge('pending', 'בהגדרה')} הגדרות הדואר של מרכז הניהול נשלחו לאתר, והוא נבנה מחדש. המיילים יישלחו בעוד כ־1–2 דקות.`
       : c.mail_shared_at && config.smtp ? html`<b>עדיין לא מוגדרים</b> – הגדרות הדואר של מרכז הניהול נשלחו ב־${c.mail_shared_at.slice(11, 16)}. אם זה נמשך, לחצו "העתקת הגדרות הדואר" למטה.`
@@ -420,6 +432,7 @@ ${st.online && isMainAdmin(req.user) ? html`<section class="card" id="users">
     <button class="btn btn-primary">שמירה</button>`)}
   <div class="kv-inline">
     ${project && p.vercel ? postForm(req, backTo(c, '/redeploy'), html`<button class="btn btn-light btn-sm" data-confirm="לבנות מחדש את האתר של ${c.name} מהגרסה האחרונה?">${icon('wrench', 16)} בנייה מחדש (גרסה אחרונה)</button>`, 'class="inline"') : ''}
+    ${project && p.vercel && p.turso && d?.storage?.kind === 'hosted' ? postForm(req, backTo(c, '/rotate-db-key'), html`<button class="btn btn-light btn-sm" data-confirm="ליצור מפתח חדש למסד הנתונים של ${c.name}? המפתח הנוכחי יפסיק לעבוד מיד, והאתר לא יהיה זמין כדקה עד שייבנה מחדש עם המפתח החדש.">${icon('lock', 16)} החלפת מפתח מסד הנתונים</button>`, 'class="inline"') : ''}
     ${project && p.vercel && config.smtp ? postForm(req, backTo(c, '/share-mail'), html`<button class="btn btn-light btn-sm" data-confirm="להעתיק לאתר של ${c.name} את הגדרות הדואר של מרכז הניהול (SMTP), ולבנות אותו מחדש?">${icon('mail', 16)} העתקת הגדרות הדואר</button>`, 'class="inline"') : ''}
     <a class="btn btn-light btn-sm btn-danger-text" href="${backTo(c, '/delete')}">מחיקת הלקוח…</a>
   </div>
@@ -559,7 +572,8 @@ ${r.users.map((u) => html`<tr>
 
   clientAction('users/:id/password', async (req, res, c) => {
     const password = String(req.body.password || '');
-    if (password.length < 8) return sitePasswordPage(req, res, c, 'הסיסמה צריכה להכיל לפחות 8 תווים');
+    const problem = passwordProblem(password);
+    if (problem) return sitePasswordPage(req, res, c, problem);
     const r = await master.call(c, 'POST', `/api/manage/users/${Number(req.params.id)}/password`, {
       password, notify: req.body.notify === '1', by: req.user.email,
     });
@@ -587,6 +601,14 @@ ${r.users.map((u) => html`<tr>
     await master.redeploy(c);
     audit(req.user.id, 'master.client_redeploy', null, null, c.slug);
     res.flash('success', 'הבנייה מחדש התחילה. האתר יתעדכן בעוד כ־1–2 דקות.');
+    res.redirect(303, backTo(c));
+  });
+
+  clientAction('rotate-db-key', async (req, res, c) => {
+    const st = await master.statusOf(c);
+    await master.rotateDatabaseKey(c, statusData(st)?.storage?.host);
+    audit(req.user.id, 'master.client_db_key', null, null, c.slug);
+    res.flash('success', 'נוצר מפתח חדש למסד הנתונים, והקודם הפסיק לעבוד. האתר נבנה מחדש עם המפתח החדש, ויחזור לפעול בעוד כ־1–2 דקות.');
     res.redirect(303, backTo(c));
   });
 
@@ -794,7 +816,8 @@ ${r.users.map((u) => html`<tr>
     const a = consoleAdmin(req.params.id);
     if (!a) return res.redirect(303, '/master/admins');
     const password = String(req.body.password || '');
-    if (password.length < 8 || password.length > 200) return consolePasswordPage(req, res, a, 'הסיסמה צריכה להכיל לפחות 8 תווים');
+    const problem = passwordProblem(password, a);
+    if (problem) return consolePasswordPage(req, res, a, problem);
     db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(auth.hashPassword(password), time.stamp(), a.id);
     db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(a.id);
     // Everyone signed in with this account is signed out, except the person doing it on their own account.

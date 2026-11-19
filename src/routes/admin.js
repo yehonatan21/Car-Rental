@@ -2,6 +2,7 @@
 const path = require('node:path');
 const { db, transaction, audit, getSettings, setSetting, currentPolicy, defaultVehicle, storageInfo } = require('../db');
 const auth = require('../auth');
+const { passwordProblem } = require('../passwords');
 const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
@@ -249,7 +250,9 @@ function systemCard() {
   <dl class="dl small">
     ${env.VERCEL_ENV ? html`<dt>סביבה</dt><dd>${env.VERCEL_ENV === 'production' ? 'Production (main)' : `${env.VERCEL_ENV} (${env.VERCEL_GIT_COMMIT_REF || '—'})`}</dd>` : ''}
     ${commit ? html`<dt>גרסה</dt><dd><code>${commit}</code> ${env.VERCEL_GIT_COMMIT_MESSAGE ? html`<span class="muted">${env.VERCEL_GIT_COMMIT_MESSAGE.split('\n')[0].slice(0, 80)}</span>` : ''}</dd>` : ''}
-    ${s.host ? html`<dt>מסד נתונים</dt><dd><code dir="ltr">${s.host}</code> <span class="muted">(מתוך ${s.from})</span></dd>` : ''}
+    ${s.host ? html`<dt>מסד נתונים</dt><dd><code dir="ltr">${s.host}</code> <span class="muted">(מתוך ${s.from})</span></dd>
+    <dt>מפתח מסד הנתונים</dt><dd>${s.keyExpiresAt ? `תקף עד ${time.fmt(s.keyExpiresAt.slice(0, 10))}` : 'ללא תפוגה'}
+      <span class="muted small">(מוחלף ממרכז הניהול)</span></dd>` : ''}
     <dt>מזהה מסד הנתונים</dt><dd><code>${s.id}</code> <span class="muted">נוצר ${time.fmt(s.createdAt)}</span></dd>
     <dt>נתונים</dt><dd>${count('SELECT COUNT(*) AS n FROM users')} משתמשים · ${count("SELECT COUNT(*) AS n FROM bookings WHERE kind = 'booking'")} הזמנות</dd>
   </dl>
@@ -331,8 +334,8 @@ function newUserPage(req, { errors = [], v = {} } = {}) {
     <fieldset>
       <legend>${icon('user')} פרטים אישיים</legend>
       <div class="grid2">
-        ${field('שם פרטי', html`<input name="first_name" value="${v.first_name}" required>`)}
-        ${field('שם משפחה', html`<input name="last_name" value="${v.last_name}" required>`)}
+        ${field('שם פרטי', html`<input name="first_name" maxlength="60" value="${v.first_name}" required>`)}
+        ${field('שם משפחה', html`<input name="last_name" maxlength="60" value="${v.last_name}" required>`)}
         ${field('מספר תעודת זהות', html`<input name="id_number" value="${v.id_number}" required inputmode="numeric" maxlength="9">`)}
         ${field('טלפון נייד', html`<input type="tel" name="phone" value="${v.phone}" required placeholder="05XXXXXXXX">`)}
       </div>
@@ -780,7 +783,8 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
     if (protectsMainAdmin(req, res, u)) return;
     if (!notSelf(req, res, u)) return;
     const password = String(req.body.password || '');
-    if (password.length < 8 || password.length > 200) return passwordFor(req, res, u, 'הסיסמה צריכה להכיל לפחות 8 תווים');
+    const problem = passwordProblem(password, u);
+    if (problem) return passwordFor(req, res, u, problem);
     db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(auth.hashPassword(password), time.stamp(), u.id);
     db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(u.id);
     auth.destroyAllSessions(u.id);
@@ -853,7 +857,7 @@ ${pageHead('הזמנות', {
       ${field('החזרה', html`<input type="datetime-local" name="end" value="${end}" required>`)}
     </div>
     ${field('מטרה', html`<input name="purpose" maxlength="200">`)}
-    ${field('הערות', html`<textarea name="notes" rows="2"></textarea>`)}
+    ${field('הערות', html`<textarea name="notes" maxlength="5000" rows="2"></textarea>`)}
     <label class="check"><input type="checkbox" name="notify" value="1" checked> <span>שליחת מייל אישור למשתמש</span></label>
     <button class="btn btn-primary btn-block">יצירת הזמנה מאושרת</button>`, 'class="card"')}
 </div>`);
@@ -1009,7 +1013,7 @@ ${pageHead(`${b.kind === 'block' ? 'חסימת יומן' : 'הזמנה'} #${b.id
       ${field('טיפול הבא', html`<input type="date" name="next_service" value="${v.next_service}">`)}
     </div>
     ${field('הנחיות לנהג (יופיעו במייל האישור)', html`<textarea name="instructions" rows="3" placeholder="מיקום החניה, איסוף מפתח, כרטיס דלק…">${v.instructions}</textarea>`)}
-    ${field('הערות מנהל (פנימי)', html`<textarea name="notes" rows="3">${v.notes}</textarea>`)}
+    ${field('הערות מנהל (פנימי)', html`<textarea name="notes" maxlength="5000" rows="3">${v.notes}</textarea>`)}
     <button class="btn btn-primary btn-block">שמירה</button>`, 'class="card"')}
   ${documents.documentsCard(req, v)}
   <nav class="quick" aria-label="תחזוקה">

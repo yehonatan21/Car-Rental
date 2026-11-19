@@ -454,8 +454,8 @@ test('admin adds a user manually: active with a checked license, invitation link
   const page = await person.get(link);
   assert.equal(page.status, 200);
   const token = /name="token" value="([^"]+)"/.exec(page.text)[1];
-  await person.post('/password/reset', { token, password: 'RonPassword1', confirm: 'RonPassword1' });
-  await person.login('ron@manual.test', 'RonPassword1');
+  await person.post('/password/reset', { token, password: 'Green-Door-Bell-4', confirm: 'Green-Door-Bell-4' });
+  await person.login('ron@manual.test', 'Green-Door-Bell-4');
 });
 
 test('added without a license date: the person is asked to upload a license first', async () => {
@@ -532,7 +532,7 @@ test('a manager sets a new password for a user: signed out everywhere, signs in 
   const plain = client();
   await plain.login('forgot@adm.test', 'Shira-New-77');
   assert.equal((await plain.get(`/admin/users/${u.id}/password`)).status, 403);
-  assert.equal((await plain.req('POST', `/admin/users/${u.id}/password`, { password: 'Hacked-123' })).status, 303);
+  assert.equal((await plain.req('POST', `/admin/users/${u.id}/password`, { password: 'Hacked-Pass-9' })).status, 303);
   await client().login('forgot@adm.test', 'Shira-New-77');
 });
 

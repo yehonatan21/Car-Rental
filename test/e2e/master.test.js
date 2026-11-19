@@ -36,6 +36,7 @@ const fake = http.createServer((req, res) => {
         return send(200, { database: { Name: m[1], Hostname: `${m[1]}-myorg.turso.io` } });
       }
       if (/\/auth\/tokens$/.test(p)) return send(200, { jwt: 'db-jwt-secret' });
+      if (/\/auth\/rotate$/.test(p)) return send(200, {});
     }
     if (p.startsWith('/vercel/')) {
       if (req.headers.authorization !== 'Bearer vercel-key') return send(403, { error: { message: 'Not authorized' } });
@@ -146,6 +147,7 @@ test('a new client: its own database and Vercel project, with its own management
   assert.equal(vars.APP_NAME.value, 'גמח בני אדם');
   assert.equal(vars.BRAND_COLOR.value, '#1d4ed8');
   assert.equal(vars.ADMIN_PASSWORD, undefined, 'no password in the deployment: the manager is invited');
+  assert.match(callsTo('POST', /\/auth\/tokens$/).at(-1).query, /expiration=53w/, 'the database key expires (S-01)');
   const [deployment] = callsTo('POST', /\/v13\/deployments$/);
   assert.deepEqual(deployment.body.gitSource, { type: 'github', repoId: 777, ref: 'main' });
   assert.equal(master.get('bne-adam').manager_email, 'dana@bne-adam.org');
@@ -177,8 +179,8 @@ test('a new client: its own database and Vercel project, with its own management
   // The manager chooses a password on the client's own site and manages it.
   const dana = new Client(site.base);
   const token = decodeURIComponent(link.split('token=')[1]);
-  assert.equal((await dana.post('/password/reset', { token, password: 'Dana12345', confirm: 'Dana12345' })).status, 303);
-  await dana.login('dana@bne-adam.org', 'Dana12345');
+  assert.equal((await dana.post('/password/reset', { token, password: 'Blue-Sky-Garden-5', confirm: 'Blue-Sky-Garden-5' })).status, 303);
+  await dana.login('dana@bne-adam.org', 'Blue-Sky-Garden-5');
   const admin = await dana.get('/admin');
   assert.equal(admin.status, 200);
   assert.match(admin.text, /גמח בני אדם/);
@@ -468,21 +470,37 @@ test('the main admin sets a new password for any user: on a client site, and for
   let r = await owner.post(href, { password: 'short' }, href);
   assert.equal(r.status, 400);
   assert.match(r.text, /לפחות 8 תווים/);
-  r = await owner.post(href, { password: 'Michal-2026!' }, href);
+  r = await owner.post(href, { password: 'Michal-Lake-26!' }, href);
   assert.equal(r.status, 303);
   assert.match(owner.flash().text, /נקבעה סיסמה חדשה ל־מיכל[\s\S]*manager@pw-site\.org/);
   const michal = new Client(site.base);
-  await michal.login('manager@pw-site.org', 'Michal-2026!');
+  await michal.login('manager@pw-site.org', 'Michal-Lake-26!');
   assert.equal((await michal.get('/admin')).status, 200, 'the manager signs in to their site with it');
 
   // Console admins: another admin is signed out; the main admin's own change keeps them signed in.
   const bossId = db.prepare("SELECT id FROM users WHERE email = 'boss@master.test'").get().id;
   assert.match((await owner.get('/master/admins')).text, new RegExp(`href="/master/admins/${bossId}/password"`));
-  r = await owner.post(`/master/admins/${bossId}/password`, { password: 'BossNew123' }, `/master/admins/${bossId}/password`);
+  r = await owner.post(`/master/admins/${bossId}/password`, { password: 'Night-Owl-777' }, `/master/admins/${bossId}/password`);
   assert.equal(r.location, '/master/admins');
   assert.equal((await boss.get('/master')).status, 401, 'signed out');
-  await new Client(srv.base).login('boss@master.test', 'BossNew123');
-  await owner.post(`/master/admins/${ownerRow.id}/password`, { password: 'OwnerPass2' }, `/master/admins/${ownerRow.id}/password`);
+  await new Client(srv.base).login('boss@master.test', 'Night-Owl-777');
+  await owner.post(`/master/admins/${ownerRow.id}/password`, { password: 'Red-Kite-Hill-3' }, `/master/admins/${ownerRow.id}/password`);
   assert.equal((await owner.get('/master')).status, 200, 'still signed in after changing their own');
-  await new Client(srv.base).login('owner@master.test', 'OwnerPass2');
+  await new Client(srv.base).login('owner@master.test', 'Red-Kite-Hill-3');
+});
+
+test('S-01: the console replaces a site\'s database key: old keys revoked, new one saved at Vercel, site rebuilt', async () => {
+  const c = master.get('second');
+  assert.ok(c?.turso_db, 'a site the console created');
+  assert.equal(master.databaseName({ slug: 'x' }, 'car-rental-lapidot-myorg.aws-eu-central-1.turso.io'), 'car-rental-lapidot', 'name from the address');
+  const before = calls.length;
+  await master.rotateDatabaseKey(c);
+  const mine = calls.slice(before);
+  const order = mine.map((x) => `${x.method} ${x.path.replace(/^\/(turso|vercel)/, '$1')}`);
+  const i = (re) => order.findIndex((o) => re.test(o));
+  assert.ok(i(/auth\/rotate$/) >= 0 && i(/auth\/rotate$/) < i(/auth\/tokens$/), 'revoke first, then a new key');
+  assert.ok(i(/auth\/tokens$/) < i(/\/env$/) && i(/\/env$/) < i(/v13\/deployments$/), 'saved, then rebuilt');
+  const env = mine.find((x) => /\/env$/.test(x.path)).body;
+  assert.deepEqual(env.map((e) => [e.key, e.type]), [['LIBSQL_AUTH_TOKEN', 'sensitive']]);
+  assert.match(mine.find((x) => /auth\/tokens$/.test(x.path)).query, /expiration=53w/);
 });

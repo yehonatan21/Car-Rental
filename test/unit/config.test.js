@@ -56,3 +56,13 @@ test('sender name from the environment: MAIL_FROM_NAME, else the name in "Name <
   assert.deepEqual(sender({ ...gmail, MAIL_FROM: 'גמח רכב בני אדם <gmach.car.bne.adam@gmail.com>' }), ['גמח רכב בני אדם', 'gmach.car.bne.adam@gmail.com']);
   assert.deepEqual(sender(gmail), ['', 'gmach.car.bne.adam@gmail.com'], 'not set: the client name is used (brand.js)');
 });
+
+test('S-01: the database key\'s expiry is read from the key itself (only its date)', () => {
+  const read = (token) => JSON.parse(execFileSync(process.execPath, ['--no-warnings', '-e', 'console.log(JSON.stringify(require("./src/config").databaseKeyExpiresAt))'], {
+    cwd: path.join(__dirname, '..', '..'), env: { PATH: process.env.PATH, LIBSQL_URL: 'libsql://x-org.turso.io', LIBSQL_AUTH_TOKEN: token }, encoding: 'utf8',
+  }));
+  const jwt = (payload) => `eyJhbGciOiJFZERTQSJ9.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.c2ln`;
+  assert.equal(read(jwt({ exp: 1893456000, a: 'rw' })), '2030-01-01T00:00:00.000Z');
+  assert.equal(read(jwt({ a: 'rw' })), null, 'a key that never expires');
+  assert.equal(read('not-a-jwt'), null);
+});

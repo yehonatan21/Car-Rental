@@ -65,9 +65,11 @@ before(async () => {
   smtp = await startSmtp();
   smtpPort = smtp.address().port;
   config.smtp = smtpConfig();
+  process.env.ADMIN_SECOND_STEP = 'false'; // on only in its own test below, so the other tests sign managers in directly
   srv = await startServer();
 });
 after(async () => {
+  delete process.env.ADMIN_SECOND_STEP;
   config.smtp = null;
   await srv.close();
   smtp.close();
@@ -88,6 +90,40 @@ test('login code is delivered by SMTP and works', async () => {
   assert.ok(found, 'code in the message');
   const r = await c.post('/login/code/verify', { email: 'smtp-user@test.org', code: found });
   assert.equal(r.location, '/calendar');
+});
+
+/** The 6-digit code in the last message to `email`. */
+function lastCode(email) {
+  const m = received.findLast((x) => x.to.includes(email));
+  const body = Buffer.from(/Content-Transfer-Encoding: base64\n\n([\s\S]*?)\n\n/.exec(m?.data || '')?.[1]?.replace(/\n/g, '') || '', 'base64').toString();
+  return /(\d{6})/.exec(body)?.[1];
+}
+
+test('S-02: a manager\'s right password is not enough: a code goes to their e-mail and finishes the sign-in', async () => {
+  delete process.env.ADMIN_SECOND_STEP;
+  try {
+    createUser({ role: 'admin', email: 'two-step@test.org' });
+    const c = new Client(srv.base);
+    const before = received.length;
+    const r = await c.post('/login', { email: 'two-step@test.org', password: 'Password1', next: '/admin/users' });
+    assert.equal(r.status, 200, 'no redirect: the code page');
+    assert.match(r.text, /אימות כניסה של מנהל/);
+    assert.equal(c.cookies.sid, undefined, 'not signed in yet');
+    assert.ok(received.length > before, 'a code was e-mailed');
+    assert.equal((await c.post('/login/code/verify', { email: 'two-step@test.org', code: '000000' })).status, 401);
+    const ok = await c.post('/login/code/verify', { email: 'two-step@test.org', code: lastCode('two-step@test.org'), next: '/admin/users' });
+    assert.equal(ok.location, '/admin/users', 'continues to the page asked for');
+    assert.equal((await c.get('/admin')).status, 200);
+    // A wrong password still gets no code.
+    const n = received.length;
+    assert.equal((await new Client(srv.base).post('/login', { email: 'two-step@test.org', password: 'wrong-guess-1' })).status, 401);
+    assert.equal(received.length, n);
+    // Regular users are not affected.
+    createUser({ email: 'one-step@test.org' });
+    assert.equal((await new Client(srv.base).post('/login', { email: 'one-step@test.org', password: 'Password1' })).status, 303);
+  } finally {
+    process.env.ADMIN_SECOND_STEP = 'false';
+  }
 });
 
 test('startup check reports a good SMTP login', async () => {

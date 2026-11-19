@@ -1,6 +1,7 @@
 'use strict';
 const { db, audit, currentPolicy, userAcceptedPolicy, getSettings, defaultVehicle } = require('../db');
 const auth = require('../auth');
+const { passwordProblem } = require('../passwords');
 const mail = require('../mail');
 const time = require('../time');
 const bookings = require('../bookings');
@@ -387,7 +388,7 @@ ${accepted?.policy_version === policy.version ? html`<p class="note-line">${icon
   ${postForm(req, '/me/password', html`
     <h2 class="section-title">${icon('lock')} ${u.password_hash ? 'שינוי סיסמה' : 'הגדרת סיסמה'}</h2>
     ${u.password_hash ? field('סיסמה נוכחית', html`<input type="password" name="current" required autocomplete="current-password">`) : ''}
-    ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password">`)}
+    ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password">`, 'לפחות 8 תווים, לא סיסמה נפוצה ולא השם או המייל')}
     <button class="btn btn-primary">שמירה</button>`, 'class="card"')}
   ${u.google_sub ? html`<section class="card"><h2 class="section-title">${icon('user')} חשבון Google</h2><p>${badge('active', 'מקושר')} ניתן להתחבר עם חשבון Google של ${u.email}.</p></section>` : ''}
 </div>`);
@@ -397,8 +398,8 @@ ${accepted?.policy_version === policy.version ? html`<p class="note-line">${icon
     const u = req.user;
     if (u.password_hash && !(await auth.verifyPasswordAsync(String(req.body.current || ''), u.password_hash))) {
       res.flash('error', 'הסיסמה הנוכחית שגויה');
-    } else if (String(req.body.password || '').length < 8) {
-      res.flash('error', 'הסיסמה חייבת להכיל לפחות 8 תווים');
+    } else if (passwordProblem(req.body.password, u)) {
+      res.flash('error', passwordProblem(req.body.password, u));
     } else {
       db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await auth.hashPasswordAsync(String(req.body.password)), u.id);
       // Log out other devices, keep this session.

@@ -214,7 +214,7 @@ function newPasswordPage(req, { action, user, where, back, mailOn, error }) {
     ${field('הסיסמה החדשה', html`<span class="password-row"><input type="text" name="password" minlength="8" maxlength="200" required dir="ltr"
       autocomplete="off" spellcheck="false" autocapitalize="off" data-password-target>
       <button type="button" class="btn btn-light btn-sm" data-generate-password>הצעת סיסמה</button></span>`,
-    'לפחות 8 תווים. הסיסמה מוצגת כדי שתוכלו להעביר אותה.')}
+    'לפחות 8 תווים, לא סיסמה נפוצה. הסיסמה מוצגת כדי שתוכלו להעביר אותה.')}
     <label class="check"><input type="checkbox" name="notify" value="1" ${mailOn ? 'checked' : raw('disabled')}>
       <span>שליחת מייל שהסיסמה הוחלפה (הסיסמה עצמה לא נשלחת)${mailOn ? '' : ' – אין שליחת מיילים באתר הזה'}</span></label>
     <p class="muted small">${icon('alert', 16)} כל החיבורים הפעילים של ${user.firstName || 'המשתמש/ת'} ינותקו, וקישורי איפוס שנשלחו קודם יבוטלו.
@@ -231,7 +231,7 @@ const postForm = (req, action, inner, attrs = '') =>
 
 /** Inline single-button POST form, optionally asking for confirmation. */
 const actionButton = (req, action, label, { cls = '', confirm, note } = {}) => postForm(req, action, html`
-  ${note ? html`<input name="note" placeholder="הערה (אופציונלי)" class="inline-note">` : ''}
+  ${note ? html`<input name="note" maxlength="1000" placeholder="הערה (אופציונלי)" class="inline-note">` : ''}
   <button class="btn ${cls}" ${confirm ? html`data-confirm="${confirm}"` : ''}>${label}</button>`, 'class="inline"');
 
 /**

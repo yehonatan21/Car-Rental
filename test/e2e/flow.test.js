@@ -41,9 +41,9 @@ test('registration creates a pending user who cannot book yet', async () => {
 
 test('registration rejects invalid data and duplicates', async () => {
   const c = client();
-  let r = await c.post('/register', registrationForm({ email: 'alice@test.org', id_number: '123456782' }));
+  let r = await c.post('/register', registrationForm({ email: 'alice@test.org' }));
   assert.equal(r.status, 400);
-  assert.match(r.text, /כבר קיים חשבון עם כתובת הדואר האלקטרוני הזו/);
+  assert.match(r.text, /כבר קיים חשבון עם כתובת המייל או מספר תעודת הזהות האלה/);
   r = await c.post('/register', registrationForm({ id_number: '123456789' }));
   assert.match(r.text, /תעודת הזהות אינו תקין/);
   r = await c.post('/register', registrationForm({ phone: '03-1234567' }));

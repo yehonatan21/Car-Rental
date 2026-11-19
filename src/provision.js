@@ -60,7 +60,11 @@ const turso = (env, fetchImpl) => ({
   org: encodeURIComponent(clean(env.TURSO_ORG)),
 });
 
-/** Creates (or reuses) the client's database and a never-expiring read/write token for it. */
+// Database keys expire (S-01): a leaked key stops working by itself. The console shows each site's expiry and warns a
+// month before; "rotate the database key" there makes a new one.
+const KEY_LIFETIME = '53w';
+
+/** Creates (or reuses) the client's database and a read/write token for it, valid for about a year. */
 async function createDatabase(o, env, fetchImpl, log = () => {}) {
   const { call, org } = turso(env, fetchImpl);
   const name = resourceName(o.slug);
@@ -72,9 +76,25 @@ async function createDatabase(o, env, fetchImpl, log = () => {}) {
   }
   const hostname = r.data?.database?.Hostname;
   if (!hostname) throw new Error(`Turso did not return the database address for ${name}`);
-  const t = await call('POST', `/organizations/${org}/databases/${encodeURIComponent(name)}/auth/tokens?expiration=never&authorization=full-access`);
+  return { name, url: `libsql://${hostname}`, token: await newDatabaseKey(name, env, fetchImpl) };
+}
+
+/** A new read/write key for the database, valid KEY_LIFETIME. */
+async function newDatabaseKey(name, env, fetchImpl) {
+  const { call, org } = turso(env, fetchImpl);
+  const t = await call('POST', `/organizations/${org}/databases/${encodeURIComponent(name)}/auth/tokens?expiration=${KEY_LIFETIME}&authorization=full-access`);
   if (!t.data?.jwt) throw new Error('Turso did not return a database token');
-  return { name, url: `libsql://${hostname}`, token: t.data.jwt };
+  return t.data.jwt;
+}
+
+/**
+ * Replaces the database's key: every earlier key (a leaked one too) stops working at once, and a new one is returned.
+ * The site is down until it is redeployed with the new key (about a minute).
+ */
+async function rotateDatabaseKey(name, env, fetchImpl) {
+  const { call, org } = turso(env, fetchImpl);
+  await call('POST', `/organizations/${org}/databases/${encodeURIComponent(name)}/auth/rotate`);
+  return newDatabaseKey(name, env, fetchImpl);
 }
 
 /** Deletes a database with all its data. A database that is already gone is fine. */
@@ -202,6 +222,7 @@ function instanceVars(o, env, secrets) {
 const randomSecret = (bytes = 24) => crypto.randomBytes(bytes).toString('hex');
 
 module.exports = {
+  newDatabaseKey, rotateDatabaseKey, KEY_LIFETIME,
   providers, resourceName, validSlug, validate, api, SECRETS, instanceVars, randomSecret, clean,
   createDatabase, deleteDatabase, checkTurso,
   getProject, ensureProject, setEnv, deploy, createDeployment, projectDomains, deleteProject, checkVercel,

@@ -54,7 +54,7 @@ test('full reset: e-mail link → new password → old one stops working, everyo
   await client().login('forgot@pw.test', 'NewPassword1');
   assert.ok(outbox().some((m) => m.subject === 'הסיסמה שלך שונתה' && m.to.includes('forgot@pw.test')));
 
-  const reuse = await c.post('/password/reset', { token, password: 'Another123', confirm: 'Another123' });
+  const reuse = await c.post('/password/reset', { token, password: 'Another-Pass-77', confirm: 'Another-Pass-77' });
   assert.equal(reuse.status, 400, 'single use');
   assert.match(reuse.text, /הקישור אינו תקף/);
 });

@@ -19,6 +19,7 @@ const crypto = require('node:crypto');
 const express = require('express');
 const { db, audit, storageInfo } = require('../db');
 const auth = require('../auth');
+const { passwordProblem } = require('../passwords');
 const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
@@ -112,7 +113,7 @@ function status() {
     suspended: suspension(),
     counts: counts(),
     lastBookingAt: last || null,
-    storage: { kind: s.kind, id: s.id, createdAt: s.createdAt, perDeployment: s.perDeployment },
+    storage: { kind: s.kind, id: s.id, createdAt: s.createdAt, perDeployment: s.perDeployment, host: s.host, keyExpiresAt: s.keyExpiresAt },
     mail: { configured: Boolean(config.smtp), from: config.mailFrom },
     google: google.enabled(),
     googleRelay: google.status().relay,
@@ -304,7 +305,8 @@ module.exports = ({ app }) => {
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
     if (!u) return res.status(404).json({ error: 'not_found', message: 'המשתמש/ת לא נמצא/ה' });
     const password = String(req.body?.password || '');
-    if (password.length < 8 || password.length > 200) return bad(res, 'הסיסמה צריכה להכיל לפחות 8 תווים');
+    const problem = passwordProblem(password, u);
+    if (problem) return bad(res, problem);
     db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(auth.hashPassword(password), time.stamp(), u.id);
     db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(u.id);
     auth.destroyAllSessions(u.id);

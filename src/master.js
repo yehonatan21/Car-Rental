@@ -307,6 +307,33 @@ async function redeploy(client) {
   return provision.deploy(project, { repo: clientRepo(), branch: clientBranch() }, env(), fetchImpl);
 }
 
+/**
+ * The client's Turso database name: saved when the console created it, else read from the address the site reports
+ * (<name>-<organisation>.<region>.turso.io).
+ */
+function databaseName(client, host) {
+  if (client.turso_db) return client.turso_db;
+  const org = String(env().TURSO_ORG || '').trim();
+  const m = org && new RegExp(`^(.+)-${org.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.`).exec(String(host || ''));
+  return m ? m[1] : null;
+}
+
+/**
+ * A new database key for the client (S-01): the old one, and any copy of it, stops working at once; the new one
+ * (valid about a year) is saved in the site's Vercel project and the site is rebuilt. Down for about a minute.
+ */
+async function rotateDatabaseKey(client, host) {
+  const name = databaseName(client, host);
+  if (!name) throw new Error('לא ידוע מה שם מסד הנתונים של האתר ב־Turso.');
+  const p = providers();
+  if (!p.turso || !p.vercel) throw new Error('חסרים מפתחות API ל־Turso או ל־Vercel (ראו "חיבורים").');
+  const project = await projectOf(client);
+  const key = await provision.rotateDatabaseKey(name, env(), fetchImpl);
+  await provision.setEnv(project.id, { LIBSQL_AUTH_TOKEN: key }, env(), fetchImpl);
+  if (!client.turso_db) update(client.slug, { turso_db: name });
+  return provision.deploy(project, { repo: clientRepo(), branch: clientBranch() }, env(), fetchImpl);
+}
+
 /** Sets the client's MANAGE_TOKEN at Vercel and redeploys, so a site added by hand can be managed from here. */
 async function installToken(client) {
   const project = await projectOf(client);
@@ -380,5 +407,6 @@ async function checkConnections() {
 module.exports = {
   manageToken, masterSecret, providers, clientRepo, clientBranch, list, get, add, update, remove, normalizeUrl,
   call, statusOf, statusAll, discoverUrl, createClient, redeploy, installToken, shareMail, runAllJobs, deleteClient, checkConnections,
+  rotateDatabaseKey, databaseName,
   sharedMailVars, sharedGoogleVars, InstanceError, INSTANCE_ERRORS,
 };

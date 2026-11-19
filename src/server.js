@@ -39,7 +39,9 @@ app.use((req, res, next) => {
 
 app.use((req, res, next) => {
   res.set({
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; form-action 'self'",
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'",
+    // No page here uses the camera, microphone, location or payment (S-10).
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'same-origin',
     'X-Frame-Options': 'DENY',
@@ -138,6 +140,7 @@ app.use((req, res, next) => {
   }
   if (session) {
     if (user) {
+      auth.touchSession(req, res, session, user);
       req.session = session;
       // Admin rights require an active account: a blocked/suspended admin is treated as a regular user everywhere.
       req.user = user.role === 'admin' && user.status !== 'active' ? { ...user, role: 'user' } : user;
@@ -191,8 +194,19 @@ function foreignRequest(req) {
 }
 const discardUpload = (req) => { if (req.file) fs.rmSync(req.file.path, { force: true }); };
 
+// Text fields are cut to a sensible length (S-06): a 100,000-character name made managers' pages and e-mails huge.
+// The browser's maxlength stops typing earlier; this is for posts made without the form.
+const FIELD_MAX = { first_name: 60, last_name: 60, purpose: 200, content: 100000, welcome_text: 5000, instructions: 5000, notes: 5000, admin_note: 5000 };
+function capFields(body) {
+  if (!body || typeof body !== 'object') return;
+  for (const [k, v] of Object.entries(body)) {
+    if (typeof v === 'string') body[k] = v.slice(0, FIELD_MAX[k] ?? 1000);
+  }
+}
+
 // CSRF: every POST must come from our own origin; logged-in POSTs must also carry the session token.
 function verifyCsrf(req, res, next) {
+  capFields(req.body);
   if (foreignRequest(req)) {
     discardUpload(req);
     return res.status(403).send('Forbidden');

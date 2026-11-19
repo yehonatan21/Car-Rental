@@ -239,7 +239,7 @@ function registrationForm({ license, licenseBlob, licenseName, ...fields } = {})
   const fd = new FormData();
   const values = {
     first_name: 'ישראל', last_name: 'ישראלי', id_number: nextIdNumber(), phone: '050-1234567',
-    email: `reg${idCounter}@test.org`, password: 'Password1', license_expiry: time.addDays(time.today(), 365),
+    email: `reg${idCounter}@test.org`, password: 'Kfar-Saba-Bus-42', license_expiry: time.addDays(time.today(), 365),
     accept_policy: '1', accept_privacy: '1', policy_version: String(currentPolicy().version), ...fields,
   };
   for (const [k, v] of Object.entries(values)) if (v != null) fd.set(k, v);

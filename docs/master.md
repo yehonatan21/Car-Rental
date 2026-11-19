@@ -140,6 +140,7 @@ client page shows the exact value.
 | Set a new password for any user of a client site | **Main admin only.** On the client's page, go to **Site users** (משתמשי האתר) → search → **New password** (סיסמה חדשה). The user is signed out everywhere. Optionally they get an e-mail that the password was changed; the password itself is never sent |
 | Set a new password for a console admin (or yourself) | **Main admin only.** **Console admins** (מנהלי המרכז) → **New password** (סיסמה חדשה) |
 | Add another console admin | **Console admins** (מנהלי המרכז) |
+| Replace a site's database key | client page → **Replace database key** (החלפת מפתח מסד הנתונים). The old key stops working at once and the site is rebuilt with a new one, valid for a year; the site is unavailable for about a minute. The client page shows each key's expiry and warns a month before |
 | Remove a client | client page → **Delete client** (מחיקת הלקוח); type its id. **Full delete** removes its Vercel project and database, with all its data, permanently. To keep a backup first: `turso db shell car-rental-<id> .dump > backup.sql` |
 
 ## Security
@@ -150,4 +151,7 @@ client page shows the exact value.
 - **Sign in as manager** works through a one-time link: valid for 2 minutes, single use, and only a hash of it is
   stored.
 - The Turso and Vercel tokens stay in the console's Vercel variables (Sensitive). Client database tokens go straight
-  into each client's project and are never stored by the console.
+  into each client's project and are never stored by the console. They expire after a year (replace them from the
+  client page before then).
+- Signing in to the console, like a manager's sign-in on a site, needs the password **and** a code sent by e-mail
+  (when e-mail is set up). Google sign-in counts as both.

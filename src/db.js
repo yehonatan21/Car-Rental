@@ -383,6 +383,7 @@ function storageInfo() {
   const host = db.remote ? new URL(config.database.url).host : null;
   return {
     kind, id: meta.db_id, createdAt: meta.created_at, host, from: config.database.from, file: db.remote ? null : config.dbFile,
+    keyExpiresAt: db.remote ? config.databaseKeyExpiresAt : null,
     perDeployment: isPerDeploymentHost(host),
   };
 }

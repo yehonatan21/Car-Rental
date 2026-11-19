@@ -161,7 +161,7 @@ test('registration still works end to end after all of the above', async () => {
   const c = new Client(srv.base);
   const fd = new FormData();
   for (const [k, v] of Object.entries({ first_name: 'נטע', last_name: 'בר', id_number: nextIdNumber(), phone: '0541234567',
-    email: 'reg-flow@reg.test', password: 'Password123', license_expiry: inDays(400).slice(0, 10), accept_policy: '1', accept_privacy: '1',
+    email: 'reg-flow@reg.test', password: 'Kfar-Saba-Bus-42', license_expiry: inDays(400).slice(0, 10), accept_policy: '1', accept_privacy: '1',
     policy_version: '1' })) fd.set(k, v);
   fd.set('license', new Blob([Buffer.from('89504e470d0a1a0a', 'hex')], { type: 'image/png' }), 'license.png');
   const { page } = await landsOn(await c.post('/register', fd), [c]);

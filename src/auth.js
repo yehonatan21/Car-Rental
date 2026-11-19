@@ -32,8 +32,16 @@ async function hashPasswordAsync(password) {
   return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
 }
 
+// For an unknown address (or an account without a password) the same work is done against this, so the answer takes
+// as long as for a real account and does not tell who is registered (S-03).
+let dummyHash = null;
+
 async function verifyPasswordAsync(password, stored) {
-  if (!stored) return false;
+  if (!stored) {
+    dummyHash ||= hashPassword(crypto.randomBytes(16).toString('hex'));
+    await verifyPasswordAsync(password, dummyHash);
+    return false;
+  }
   const [, salt, hash] = stored.split('$');
   const expected = Buffer.from(hash, 'base64');
   const actual = await scryptAsync(password, Buffer.from(salt, 'base64'), expected.length);
@@ -42,15 +50,42 @@ async function verifyPasswordAsync(password, stored) {
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
+// How long a session lasts without activity (S-08): managers 8 hours (they see ID numbers and license photos; a
+// forgotten session on a shared computer ends the same day), everyone else 14 days. Each visit extends it; the
+// database is written at most every 10 minutes (managers) or once a day (others), not on every request.
+const IDLE_MS = { admin: 8 * 3600000, user: config.sessionDays * 86400000 };
+const REFRESH_MS = { admin: 10 * 60000, user: 86400000 };
+const idleFor = (role) => (role === 'admin' ? IDLE_MS.admin : IDLE_MS.user);
+
+const setCookie = (res, token, expires) => res.cookie(COOKIE, token, {
+  httpOnly: true, sameSite: 'lax', secure: res.req.secure, expires: new Date(expires), path: '/',
+});
+
 function createSession(res, userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   const csrf = crypto.randomBytes(24).toString('base64url');
-  const expires = Date.now() + config.sessionDays * 86400000;
+  const role = db.prepare('SELECT role FROM users WHERE id = ?').get(userId)?.role;
+  const expires = Date.now() + idleFor(role);
   db.prepare('INSERT INTO sessions (token_hash, user_id, csrf, expires_at) VALUES (?, ?, ?, ?)')
     .run(sha256(token), userId, csrf, expires);
-  res.cookie(COOKIE, token, {
-    httpOnly: true, sameSite: 'lax', secure: res.req.secure, expires: new Date(expires), path: '/',
-  });
+  setCookie(res, token, expires);
+}
+
+/** Extends a session in use (see IDLE_MS); a manager's session never lasts longer than 8 hours of inactivity. */
+function touchSession(req, res, session, user) {
+  const idle = idleFor(user.role);
+  const now = Date.now();
+  const left = session.expires_at - now;
+  const refresh = user.role === 'admin' ? REFRESH_MS.admin : REFRESH_MS.user;
+  if (left > idle) { // made as a regular user's session, then the person became a manager: shorten it now
+    session.expires_at = now + idle;
+  } else if (left < idle - refresh) {
+    session.expires_at = now + idle;
+  } else {
+    return;
+  }
+  db.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').run(session.expires_at, session.token_hash);
+  setCookie(res, req.cookies[COOKIE], session.expires_at);
 }
 
 function destroySession(req, res) {
@@ -214,7 +249,7 @@ const resetThrottle = (key) => db.prepare('DELETE FROM throttle WHERE key = ?').
 const purgeThrottle = () => db.prepare('DELETE FROM throttle WHERE window_start < ?').run(Date.now() - 86400000);
 
 module.exports = {
-  hashPassword, verifyPassword, hashPasswordAsync, verifyPasswordAsync, createSession, destroySession, destroyAllSessions, loadSession, loadSessionAndUser,
+  hashPassword, verifyPassword, hashPasswordAsync, verifyPasswordAsync, createSession, touchSession, IDLE_MS, destroySession, destroyAllSessions, loadSession, loadSessionAndUser,
   parseCookies, createLoginCode, consumeLoginCode, throttled, release, resetThrottle, purgeThrottle,
   markEmailVerified, markResetDelivered, distrustUnverified, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
 };

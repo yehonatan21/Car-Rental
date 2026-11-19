@@ -51,7 +51,7 @@ test('creates the database, the Vercel project with its variables, and the first
   assert.equal(turso[0].url, 'https://api.turso.tech/v1/organizations/myorg/databases');
   assert.deepEqual(turso[0].body, { name: 'car-rental-bne-adam', group: 'default' });
   assert.equal(turso[0].auth, 'Bearer turso-api-token');
-  assert.match(turso[1].url, /\/databases\/car-rental-bne-adam\/auth\/tokens\?expiration=never&authorization=full-access$/);
+  assert.match(turso[1].url, /\/databases\/car-rental-bne-adam\/auth\/tokens\?expiration=53w&authorization=full-access$/);
 
   const vercel = calls.filter((c) => c.url.includes('api.vercel.com'));
   assert.equal(vercel[0].url, 'https://api.vercel.com/v11/projects?teamId=team_x');

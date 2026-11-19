@@ -114,9 +114,9 @@ test('managers: a new one gets an invitation with a link to choose a password, a
   const browser = new Client(srv.base);
   const token = decodeURIComponent(r.data.link.split('token=')[1]);
   assert.equal((await browser.get(r.data.link)).status, 200);
-  const reset = await browser.post('/password/reset', { token, password: 'Manager123', confirm: 'Manager123' });
+  const reset = await browser.post('/password/reset', { token, password: 'Manager-Kfar-9', confirm: 'Manager-Kfar-9' });
   assert.equal(reset.status, 303);
-  await browser.login('new.manager@client.org', 'Manager123');
+  await browser.login('new.manager@client.org', 'Manager-Kfar-9');
   assert.equal((await browser.get('/admin')).status, 200);
   assert.equal((await api('GET', '/api/manage/admins')).data.admins.find((a) => a.id === added.id).invitePending, false);
 

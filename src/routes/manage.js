@@ -271,7 +271,9 @@ module.exports = ({ app }) => {
     auth.destroySession(req, res);
     auth.createSession(res, row.user_id);
     audit(row.user_id, 'manage.sso', 'user', row.user_id, 'כניסה ממרכז הניהול');
-    res.set('Cache-Control', 'no-store').redirect(303, '/admin');
+    // ?next=: the console can open a page of the admin area (e.g. the pending requests); nothing outside /admin.
+    const next = String(req.query.next || '');
+    res.set('Cache-Control', 'no-store').redirect(303, /^\/admin(\/|\?|$)/.test(next) && !/[\r\n\\]/.test(next) ? next : '/admin');
   });
 
   // Users, for the console's main admin: find someone and set them a new password.

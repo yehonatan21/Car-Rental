@@ -194,6 +194,22 @@ test('signing in to a client site as a manager, from the console', async () => {
   assert.match(admin.text, /יהונתן ראשי/);
   assert.equal((await new Client(c.url).get(r.location.slice(c.url.length))).status, 400, 'the link works once');
 
+  // Straight to a page of the admin area (the waiting requests); anything outside /admin is ignored.
+  const toList = await boss.get('/master/clients/bne-adam/login?next=' + encodeURIComponent('/admin/bookings?status=pending'));
+  assert.match(toList.location, /&next=%2Fadmin%2Fbookings%3Fstatus%3Dpending$/);
+  const b2 = new Client(c.url);
+  assert.equal((await b2.get(toList.location.slice(c.url.length))).location, '/admin/bookings?status=pending');
+  const evil = await boss.get('/master/clients/bne-adam/login?next=' + encodeURIComponent('//evil.example/admin'));
+  assert.doesNotMatch(evil.location, /next=/, 'not passed on');
+  const b3 = new Client(c.url);
+  const token = /token=([^&]+)/.exec(evil.location)[1];
+  assert.equal((await b3.get(`/manage/sso?token=${token}&next=${encodeURIComponent('https://evil.example')}`)).location, '/admin', 'the site ignores it too');
+
+  // The list: requests and registrations in separate boxes, each naming the sites with any, linked to that list.
+  const list = (await boss.get('/master')).text;
+  assert.match(list, /בקשות הזמנה ממתינות לאישור/);
+  assert.match(list, /הרשמות ורישיונות ממתינים לבדיקה/);
+
   // A link from another site does not sign in by itself: it asks first.
   const cross = await boss.req('GET', '/master/clients/bne-adam/login', null, { 'sec-fetch-site': 'cross-site' });
   assert.equal(cross.status, 200);

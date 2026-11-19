@@ -631,3 +631,10 @@ ul.docs .doc-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
 .danger-zone form { display: flex; flex-direction: column; gap: .8rem; align-items: flex-start; }
 .toggle-row { padding: .8rem 1rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); margin: 0 0 1rem; }
 .toggle-row input { margin-top: .25rem; }
+
+/* Console: the sites behind a summary number, each a link into that site's list */
+.stat-sites { list-style: none; margin: .45rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem; }
+.stat-sites a { display: inline-block; font-size: .8rem; padding: .15rem .55rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); text-decoration: none; }
+.stat-sites a:hover { border-color: var(--primary); }
+a.waiting-link { display: inline-block; min-width: 1.8rem; text-align: center; font-weight: 700; padding: .1rem .5rem; border-radius: 999px;
+  background: var(--warning-soft, #fef3c7); color: var(--warning); text-decoration: none; }

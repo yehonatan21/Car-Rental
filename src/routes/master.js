@@ -32,6 +32,25 @@ const ROLE_LABEL = (u) => (u.role === 'admin' ? badge('admin', 'מנהל/ת') : 
 /** Created here in the last 20 minutes: a site that does not answer yet is most likely still being built. */
 const isNew = (c) => Boolean(c.provisioned) && c.created_at >= time.stamp(new Date(Date.now() - 20 * 60000));
 
+/** The console's "sign in as manager" for client c, opening `next` (a page under /admin) on its site. */
+const loginTo = (c, next) => `/master/clients/${encodeURIComponent(c.slug)}/login${next ? `?next=${encodeURIComponent(next)}` : ''}`;
+
+/** A count of waiting items in the list: when there are any, it signs in to that site straight at the page with them. */
+const waitingCount = (c, st, n, page) => (n && st.online
+  ? html`<a class="waiting-link" href="${loginTo(c, page)}" title="כניסה כמנהל לרשימה באתר של ${c.name}">${n}</a>` : String(n || 0));
+
+/**
+ * A summary box of one kind of waiting item across all sites, with the sites that have any: each opens that site,
+ * signed in as manager, at the list of those items.
+ */
+function waitingBox(clients, statuses, key, iconName, label, page) {
+  const sites = clients.map((c, i) => ({ c, st: statuses[i], n: statuses[i].online ? statuses[i].data.counts?.[key] || 0 : 0 })).filter((x) => x.n);
+  const total = sites.reduce((t, x) => t + x.n, 0);
+  return html`<div class="stat ${total ? 'hot' : ''}">${icon(iconName)}<b>${total}</b><span>${label}</span>
+    ${sites.length ? html`<ul class="stat-sites">${sites.map(({ c, n }) => html`<li><a href="${loginTo(c, page)}">${c.name}: ${n}</a></li>`)}</ul>`
+    : html`<small class="muted">אין כרגע באף אתר</small>`}</div>`;
+}
+
 function stateBadge(c, st) {
   if (st.online) return st.data.suspended ? badge('pending', 'מושהה') : badge('active', 'פעיל');
   if (!c.url) return badge('pending', isNew(c) ? 'בבנייה' : 'ללא כתובת');
@@ -113,11 +132,12 @@ ${setupNotice()}
   <div class="stat">${icon('car')}<b>${clients.length}</b><span>לקוחות</span></div>
   <div class="stat ${online.length < clients.length ? 'warn' : ''}">${icon('check')}<b>${online.filter((s) => !s.data.suspended).length}</b><span>אתרים פעילים</span></div>
   <div class="stat">${icon('users')}<b>${sum('users')}</b><span>משתמשים בכל האתרים</span></div>
-  <div class="stat ${sum('pendingUsers') + sum('pendingBookings') ? 'hot' : ''}">${icon('clock')}<b>${sum('pendingUsers') + sum('pendingBookings')}</b><span>ממתינים לאישור המנהלים</span></div>
+  ${waitingBox(clients, statuses, 'pendingBookings', 'clock', 'בקשות הזמנה ממתינות לאישור', '/admin/bookings?status=pending')}
+  ${waitingBox(clients, statuses, 'pendingUsers', 'userplus', 'הרשמות ורישיונות ממתינים לבדיקה', '/admin/users?status=pending')}
 </div>
 <section class="card">
 ${clients.length ? html`<table class="table">
-<thead><tr><th>לקוח</th><th>מצב</th><th>משתמשים</th><th>ממתינים לאישור</th><th>הזמנות קרובות</th><th>מנהל/ת</th><th></th></tr></thead>
+<thead><tr><th>לקוח</th><th>מצב</th><th>משתמשים</th><th>בקשות ממתינות</th><th>הרשמות ממתינות</th><th>הזמנות קרובות</th><th>מנהל/ת</th><th></th></tr></thead>
 <tbody>${clients.map((c, i) => {
     const st = statuses[i];
     const d = statusData(st);
@@ -126,7 +146,8 @@ ${clients.length ? html`<table class="table">
     ${c.url ? html`<br><a class="muted small" href="${c.url}" target="_blank" rel="noopener" dir="ltr">${c.url.replace(/^https?:\/\//, '')}</a>` : ''}</td>
   <td data-label="מצב">${stateBadge(c, st)} ${st.online ? versionLabel(d) : ''}</td>
   <td data-label="משתמשים">${d ? d.counts.users : '—'}</td>
-  <td data-label="ממתינים לאישור">${d ? d.counts.pendingUsers + d.counts.pendingBookings : '—'}</td>
+  <td data-label="בקשות ממתינות">${d ? waitingCount(c, st, d.counts.pendingBookings, '/admin/bookings?status=pending') : '—'}</td>
+  <td data-label="הרשמות ממתינות">${d ? waitingCount(c, st, d.counts.pendingUsers, '/admin/users?status=pending') : '—'}</td>
   <td data-label="הזמנות קרובות">${d ? d.counts.upcomingBookings : '—'}</td>
   <td data-label="מנהל/ת"><span dir="ltr">${c.manager_email || '—'}</span></td>
   <td><a class="btn btn-light btn-sm" href="${backTo(c)}">ניהול</a>
@@ -405,16 +426,18 @@ ${st.online && isMainAdmin(req.user) ? html`<section class="card" id="users">
   // site (the page's form-action policy). A link from another site only asks first, so it cannot be used to slip
   // someone into a client's site unnoticed.
   app.get('/master/clients/:slug/login', requireAdmin, withClient(async (req, res, c) => {
+    // ?next=/admin/…: which page of the client's admin area to open after signing in (only pages under /admin).
+    const next = /^\/admin(\/|\?|$)/.test(String(req.query.next || '')) && !/[\r\n\\]/.test(req.query.next) ? req.query.next : '';
     if (req.get('sec-fetch-site') === 'cross-site') {
       return res.page('כניסה לאתר הלקוח', html`<div class="narrow"><section class="card">
-        <h1>כניסה לאתר של ${c.name}</h1><p><a class="btn btn-primary" href="${backTo(c, '/login')}">כניסה כמנהל</a></p></section></div>`);
+        <h1>כניסה לאתר של ${c.name}</h1><p><a class="btn btn-primary" href="${loginTo(c, next)}">כניסה כמנהל</a></p></section></div>`);
     }
     try {
       const r = await master.call(c, 'POST', '/api/manage/login-link', {
         email: req.user.email, first_name: req.user.first_name, last_name: req.user.last_name, by: req.user.email,
       });
       audit(req.user.id, 'master.client_login', null, null, c.slug);
-      res.set('Cache-Control', 'no-store').redirect(302, c.url + r.path);
+      res.set('Cache-Control', 'no-store').redirect(302, c.url + r.path + (next ? `&next=${encodeURIComponent(next)}` : ''));
     } catch (err) {
       if (!(err instanceof master.InstanceError)) throw err;
       res.flash('error', `הכניסה לאתר נכשלה: ${err.message}`);

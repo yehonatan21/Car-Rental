@@ -15,235 +15,6 @@ fs.mkdirSync(config.uploadsDir, { recursive: true });
 // Timestamps are always written by the app (time.stamp()); the DEFAULTs below are only a fallback.
 const db = openDatabase();
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  id_number TEXT NOT NULL UNIQUE,
-  phone TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-  password_hash TEXT,
-  role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin')),
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending','active','license_update','blocked','rejected')),
-  license_file TEXT,
-  license_expiry TEXT,
-  license_verified INTEGER NOT NULL DEFAULT 0,
-  pending_license_file TEXT,
-  pending_license_expiry TEXT,
-  license_warned_for TEXT,
-  privacy_accepted_at TEXT,
-  totp_secret TEXT,
-  totp_enabled INTEGER NOT NULL DEFAULT 0,
-  admin_note TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-  token_hash TEXT PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  csrf TEXT NOT NULL,
-  needs_2fa INTEGER NOT NULL DEFAULT 0,
-  expires_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS login_codes (
-  id INTEGER PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  code_hash TEXT NOT NULL,
-  expires_at INTEGER NOT NULL,
-  attempts INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS policies (
-  version INTEGER PRIMARY KEY,
-  content TEXT NOT NULL,
-  requires_reaccept INTEGER NOT NULL DEFAULT 0,
-  created_by INTEGER REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-);
-
-CREATE TABLE IF NOT EXISTS policy_acceptances (
-  id INTEGER PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  policy_version INTEGER NOT NULL REFERENCES policies(version),
-  accepted_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-  ip TEXT
-);
-
-CREATE TABLE IF NOT EXISTS vehicles (
-  id INTEGER PRIMARY KEY,
-  plate TEXT NOT NULL,
-  make TEXT,
-  model TEXT,
-  status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available','service','disabled')),
-  insurance_renewal TEXT,
-  registration_renewal TEXT,
-  next_service TEXT,
-  notes TEXT,
-  instructions TEXT
-);
-
-CREATE TABLE IF NOT EXISTS bookings (
-  id INTEGER PRIMARY KEY,
-  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
-  user_id INTEGER REFERENCES users(id),
-  kind TEXT NOT NULL DEFAULT 'booking' CHECK (kind IN ('booking','block')),
-  start_at TEXT NOT NULL,
-  end_at TEXT NOT NULL,
-  purpose TEXT,
-  notes TEXT,
-  block_reason TEXT,
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending','approved','rejected','cancelled','completed')),
-  created_by INTEGER REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-  pickup_reminded INTEGER NOT NULL DEFAULT 0,
-  return_reminded INTEGER NOT NULL DEFAULT 0,
-  pending_alerted INTEGER NOT NULL DEFAULT 0,
-  CHECK (end_at > start_at)
-);
-CREATE INDEX IF NOT EXISTS bookings_range ON bookings(vehicle_id, start_at, end_at);
-
-CREATE TABLE IF NOT EXISTS booking_history (
-  id INTEGER PRIMARY KEY,
-  booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
-  from_status TEXT,
-  to_status TEXT NOT NULL,
-  actor_id INTEGER REFERENCES users(id),
-  note TEXT,
-  at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-);
-
-CREATE TABLE IF NOT EXISTS audit_log (
-  id INTEGER PRIMARY KEY,
-  actor_id INTEGER REFERENCES users(id),
-  action TEXT NOT NULL,
-  target_type TEXT,
-  target_id INTEGER,
-  details TEXT,
-  at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-);
-
-CREATE TABLE IF NOT EXISTS oauth_states (
-  state TEXT PRIMARY KEY,
-  verifier TEXT NOT NULL,
-  nonce TEXT NOT NULL,
-  next TEXT,
-  expires_at INTEGER NOT NULL
-);
-
--- A Google identity that has no account yet, waiting for the registration form to be completed.
-CREATE TABLE IF NOT EXISTS google_signups (
-  token_hash TEXT PRIMARY KEY,
-  sub TEXT NOT NULL,
-  email TEXT NOT NULL,
-  first_name TEXT,
-  last_name TEXT,
-  expires_at INTEGER NOT NULL
-);
-
--- "Forgot password" links: only a hash of the token is stored; single use, short expiry.
-CREATE TABLE IF NOT EXISTS password_resets (
-  token_hash TEXT PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  expires_at INTEGER NOT NULL
-);
-
--- A registration form that failed validation keeps its uploaded license and password here, so the person
--- does not have to provide them again. Referenced by a random token in the form (only its hash is stored).
-CREATE TABLE IF NOT EXISTS registration_drafts (
-  token_hash TEXT PRIMARY KEY,
-  license_file TEXT,
-  license_name TEXT,
-  password_hash TEXT,
-  expires_at INTEGER NOT NULL
-);
-
--- Uploaded files (license images) when they are stored in the database, split into chunks
--- (hosted databases limit the size of a single value).
-CREATE TABLE IF NOT EXISTS files (
-  name TEXT NOT NULL,
-  seq INTEGER NOT NULL,
-  data BLOB NOT NULL,
-  PRIMARY KEY (name, seq)
-);
-
-CREATE TABLE IF NOT EXISTS settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-
--- Vehicle papers (vehicle license, insurance policies…). The file is kept like license images: in DATA_DIR, or in
--- the files table when the database is hosted. visible_to_drivers: active users may open it (to show it on the road).
-CREATE TABLE IF NOT EXISTS vehicle_documents (
-  id INTEGER PRIMARY KEY,
-  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
-  kind TEXT NOT NULL CHECK (kind IN ('registration','insurance_mandatory','insurance_comprehensive','other')),
-  title TEXT,
-  file TEXT NOT NULL,
-  original_name TEXT,
-  expires_at TEXT,
-  visible_to_drivers INTEGER NOT NULL DEFAULT 0,
-  uploaded_by INTEGER REFERENCES users(id),
-  uploaded_at TEXT NOT NULL
-);
-
--- The client's name, look and contact details as set by its admin (brand.js); missing keys fall back to the
--- instance's environment variables.
-CREATE TABLE IF NOT EXISTS branding (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-
--- Failed-attempt counters (sign-in, codes, resets…), shared by every server instance (SEC-002).
-CREATE TABLE IF NOT EXISTS throttle (
-  key TEXT PRIMARY KEY,
-  count INTEGER NOT NULL,
-  window_start INTEGER NOT NULL
-);
-
--- One-time sign-in links from the master console (routes/manage.js): only a hash of the token; 2 minutes, single use.
-CREATE TABLE IF NOT EXISTS sso_tokens (
-  token_hash TEXT PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  expires_at INTEGER NOT NULL
-);
-
--- Facts about the database itself: a random id and creation time written once, when it is first set up. If the id
--- shown on the settings page changes after a new deployment, that deployment uses a different (or new) database.
-CREATE TABLE IF NOT EXISTS app_meta (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-`);
-
-// Columns added after the first release (existing databases are upgraded in place). On Vercel several instances can
-// start at the same moment on a new database, so everything below must also work when another one got there first.
-function addColumn(table, column, type) {
-  if (db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) return;
-  try {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
-  } catch (err) {
-    if (!/duplicate column/i.test(err.message)) throw err;
-  }
-}
-addColumn('users', 'google_sub', 'TEXT');
-// When the owner proved they receive mail at this address (used an e-mailed link or code, or Google). An account
-// without it may have been registered by someone else with that address (SEC-003).
-addColumn('users', 'email_verified_at', 'TEXT');
-// A link counts as proof of the address only when it was really e-mailed, not shown on screen to an admin (SEC-003).
-addColumn('password_resets', 'delivered', 'INTEGER NOT NULL DEFAULT 0');
-// Accounts already linked to Google had their address proven by Google.
-db.prepare('UPDATE users SET email_verified_at = ? WHERE email_verified_at IS NULL AND google_sub IS NOT NULL').run(new Date().toISOString());
-// Two-step verification was removed: forget stored authenticator secrets and sessions that were waiting for a code.
-// (The columns stay, so older databases keep working.)
-db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE totp_enabled != 0 OR totp_secret IS NOT NULL').run();
-db.prepare('DELETE FROM sessions WHERE needs_2fa != 0').run();
-db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
-
 const DEFAULT_SETTINGS = {
   buffer_minutes: '0',            // זמן התארגנות בין הזמנות
   cancel_hours_before: '24',      // עד כמה שעות לפני ההתחלה משתמש יכול לבטל הזמנה מאושרת
@@ -256,13 +27,257 @@ const DEFAULT_SETTINGS = {
   auto_approve: '0',              // 1 = a request nothing stands in the way of is approved at once (no admin needed)
 };
 
-const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertSetting.run(k, v);
+// The setup below (tables, columns added later, defaults, one-off cleanups) is only needed when this file changed
+// since the database was last set up: its fingerprint is kept in app_meta. Each statement is a round trip to the
+// database, so on a hosted database a cold start that ran all of them waited noticeably before the first page.
+const SCHEMA_VERSION = require('node:crypto').createHash('sha1').update(fs.readFileSync(__filename)).digest('hex').slice(0, 16);
+let meta = null; // app_meta (database id, creation time, schema version): written once, never changed afterwards
+function readMeta() {
+  try { return Object.fromEntries(db.prepare('SELECT key, value FROM app_meta').all().map((r) => [r.key, r.value])); } catch { return null; } // no table yet
+}
+meta = readMeta();
+const schemaIsCurrent = meta?.schema_version === SCHEMA_VERSION;
 
-// First start only. One statement each, so two instances starting together cannot both insert.
-db.prepare("INSERT INTO vehicles (plate, make, model) SELECT '00-000-00', 'יצרן', 'דגם' WHERE NOT EXISTS (SELECT 1 FROM vehicles)").run();
-db.prepare('INSERT OR IGNORE INTO policies (version, content, created_at) SELECT 1, ?, ? WHERE NOT EXISTS (SELECT 1 FROM policies)')
-  .run(fs.readFileSync(path.join(__dirname, 'default-policy.md'), 'utf8'), time.stamp());
+if (!schemaIsCurrent) {
+  db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    id_number TEXT NOT NULL UNIQUE,
+    phone TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT,
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin')),
+    status TEXT NOT NULL DEFAULT 'pending'
+      CHECK (status IN ('pending','active','license_update','blocked','rejected')),
+    license_file TEXT,
+    license_expiry TEXT,
+    license_verified INTEGER NOT NULL DEFAULT 0,
+    pending_license_file TEXT,
+    pending_license_expiry TEXT,
+    license_warned_for TEXT,
+    privacy_accepted_at TEXT,
+    totp_secret TEXT,
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    admin_note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    csrf TEXT NOT NULL,
+    needs_2fa INTEGER NOT NULL DEFAULT 0,
+    expires_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS login_codes (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS policies (
+    version INTEGER PRIMARY KEY,
+    content TEXT NOT NULL,
+    requires_reaccept INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS policy_acceptances (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    policy_version INTEGER NOT NULL REFERENCES policies(version),
+    accepted_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    ip TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS vehicles (
+    id INTEGER PRIMARY KEY,
+    plate TEXT NOT NULL,
+    make TEXT,
+    model TEXT,
+    status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available','service','disabled')),
+    insurance_renewal TEXT,
+    registration_renewal TEXT,
+    next_service TEXT,
+    notes TEXT,
+    instructions TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS bookings (
+    id INTEGER PRIMARY KEY,
+    vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+    user_id INTEGER REFERENCES users(id),
+    kind TEXT NOT NULL DEFAULT 'booking' CHECK (kind IN ('booking','block')),
+    start_at TEXT NOT NULL,
+    end_at TEXT NOT NULL,
+    purpose TEXT,
+    notes TEXT,
+    block_reason TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
+      CHECK (status IN ('pending','approved','rejected','cancelled','completed')),
+    created_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    pickup_reminded INTEGER NOT NULL DEFAULT 0,
+    return_reminded INTEGER NOT NULL DEFAULT 0,
+    pending_alerted INTEGER NOT NULL DEFAULT 0,
+    CHECK (end_at > start_at)
+  );
+  CREATE INDEX IF NOT EXISTS bookings_range ON bookings(vehicle_id, start_at, end_at);
+
+  CREATE TABLE IF NOT EXISTS booking_history (
+    id INTEGER PRIMARY KEY,
+    booking_id INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    actor_id INTEGER REFERENCES users(id),
+    note TEXT,
+    at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY,
+    actor_id INTEGER REFERENCES users(id),
+    action TEXT NOT NULL,
+    target_type TEXT,
+    target_id INTEGER,
+    details TEXT,
+    at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  );
+
+  CREATE TABLE IF NOT EXISTS oauth_states (
+    state TEXT PRIMARY KEY,
+    verifier TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    next TEXT,
+    expires_at INTEGER NOT NULL
+  );
+
+  -- A Google identity that has no account yet, waiting for the registration form to be completed.
+  CREATE TABLE IF NOT EXISTS google_signups (
+    token_hash TEXT PRIMARY KEY,
+    sub TEXT NOT NULL,
+    email TEXT NOT NULL,
+    first_name TEXT,
+    last_name TEXT,
+    expires_at INTEGER NOT NULL
+  );
+
+  -- "Forgot password" links: only a hash of the token is stored; single use, short expiry.
+  CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL
+  );
+
+  -- A registration form that failed validation keeps its uploaded license and password here, so the person
+  -- does not have to provide them again. Referenced by a random token in the form (only its hash is stored).
+  CREATE TABLE IF NOT EXISTS registration_drafts (
+    token_hash TEXT PRIMARY KEY,
+    license_file TEXT,
+    license_name TEXT,
+    password_hash TEXT,
+    expires_at INTEGER NOT NULL
+  );
+
+  -- Uploaded files (license images) when they are stored in the database, split into chunks
+  -- (hosted databases limit the size of a single value).
+  CREATE TABLE IF NOT EXISTS files (
+    name TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    data BLOB NOT NULL,
+    PRIMARY KEY (name, seq)
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  -- Vehicle papers (vehicle license, insurance policies…). The file is kept like license images: in DATA_DIR, or in
+  -- the files table when the database is hosted. visible_to_drivers: active users may open it (to show it on the road).
+  CREATE TABLE IF NOT EXISTS vehicle_documents (
+    id INTEGER PRIMARY KEY,
+    vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+    kind TEXT NOT NULL CHECK (kind IN ('registration','insurance_mandatory','insurance_comprehensive','other')),
+    title TEXT,
+    file TEXT NOT NULL,
+    original_name TEXT,
+    expires_at TEXT,
+    visible_to_drivers INTEGER NOT NULL DEFAULT 0,
+    uploaded_by INTEGER REFERENCES users(id),
+    uploaded_at TEXT NOT NULL
+  );
+
+  -- The client's name, look and contact details as set by its admin (brand.js); missing keys fall back to the
+  -- instance's environment variables.
+  CREATE TABLE IF NOT EXISTS branding (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  -- Failed-attempt counters (sign-in, codes, resets…), shared by every server instance (SEC-002).
+  CREATE TABLE IF NOT EXISTS throttle (
+    key TEXT PRIMARY KEY,
+    count INTEGER NOT NULL,
+    window_start INTEGER NOT NULL
+  );
+
+  -- One-time sign-in links from the master console (routes/manage.js): only a hash of the token; 2 minutes, single use.
+  CREATE TABLE IF NOT EXISTS sso_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL
+  );
+
+  -- Facts about the database itself: a random id and creation time written once, when it is first set up. If the id
+  -- shown on the settings page changes after a new deployment, that deployment uses a different (or new) database.
+  CREATE TABLE IF NOT EXISTS app_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `);
+
+  // Columns added after the first release (existing databases are upgraded in place). On Vercel several instances can
+  // start at the same moment on a new database, so everything below must also work when another one got there first.
+  function addColumn(table, column, type) {
+    if (db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) return;
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    } catch (err) {
+      if (!/duplicate column/i.test(err.message)) throw err;
+    }
+  }
+  addColumn('users', 'google_sub', 'TEXT');
+  // When the owner proved they receive mail at this address (used an e-mailed link or code, or Google). An account
+  // without it may have been registered by someone else with that address (SEC-003).
+  addColumn('users', 'email_verified_at', 'TEXT');
+  // A link counts as proof of the address only when it was really e-mailed, not shown on screen to an admin (SEC-003).
+  addColumn('password_resets', 'delivered', 'INTEGER NOT NULL DEFAULT 0');
+  // Accounts already linked to Google had their address proven by Google.
+  db.prepare('UPDATE users SET email_verified_at = ? WHERE email_verified_at IS NULL AND google_sub IS NOT NULL').run(new Date().toISOString());
+  // Two-step verification was removed: forget stored authenticator secrets and sessions that were waiting for a code.
+  // (The columns stay, so older databases keep working.)
+  db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE totp_enabled != 0 OR totp_secret IS NOT NULL').run();
+  db.prepare('DELETE FROM sessions WHERE needs_2fa != 0').run();
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
+
+
+
+  const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+  for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertSetting.run(k, v);
+
+  // First start only. One statement each, so two instances starting together cannot both insert.
+  db.prepare("INSERT INTO vehicles (plate, make, model) SELECT '00-000-00', 'יצרן', 'דגם' WHERE NOT EXISTS (SELECT 1 FROM vehicles)").run();
+  db.prepare('INSERT OR IGNORE INTO policies (version, content, created_at) SELECT 1, ?, ? WHERE NOT EXISTS (SELECT 1 FROM policies)')
+    .run(fs.readFileSync(path.join(__dirname, 'default-policy.md'), 'utf8'), time.stamp());
+}
 
 function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
@@ -313,8 +328,12 @@ function defaultVehicle() {
   return db.prepare('SELECT * FROM vehicles ORDER BY id LIMIT 1').get();
 }
 
-db.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('db_id', require('node:crypto').randomBytes(4).toString('hex'));
-db.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('created_at', time.stamp());
+if (!schemaIsCurrent) {
+  db.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('db_id', require('node:crypto').randomBytes(4).toString('hex'));
+  db.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('created_at', time.stamp());
+  db.prepare('INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('schema_version', SCHEMA_VERSION);
+  meta = readMeta();
+}
 
 /**
  * The Vercel Turso integration can create a database per deployment, named "dpl-<deployment id>-vercel-icfg-…":
@@ -324,7 +343,7 @@ const isPerDeploymentHost = (host) => Boolean(host && /^dpl-[a-z0-9]+-vercel-icf
 
 /** Where the data lives, for /healthz, the settings page and the startup log. No secrets. */
 function storageInfo() {
-  const meta = Object.fromEntries(db.prepare('SELECT key, value FROM app_meta').all().map((r) => [r.key, r.value]));
+  if (!meta?.db_id) meta = readMeta() || {};
   // Any file on Vercel is temporary (wiped with each new version, and separate for every server instance).
   const kind = db.remote ? 'hosted' : config.onVercel ? 'temporary' : 'file';
   const host = db.remote ? new URL(config.database.url).host : null;

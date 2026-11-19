@@ -51,6 +51,23 @@ function loadSession(req) {
   return s;
 }
 
+/**
+ * The login cookie's session and its user in one query (each query is a round trip to a hosted database).
+ * state: 'none' (no cookie), 'ok', 'no-user' (account gone), 'expired', 'unknown' (not in this database).
+ */
+function loadSessionAndUser(req) {
+  const token = req.cookies[COOKIE];
+  if (!token) return { state: 'none', session: null, user: null };
+  const hash = sha256(token);
+  const row = db.prepare(`SELECT s.user_id AS s_user_id, s.csrf AS s_csrf, s.needs_2fa AS s_needs_2fa, s.expires_at AS s_expires_at, u.*
+    FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).get(hash);
+  if (!row) return { state: 'unknown', session: null, user: null };
+  if (row.s_expires_at < Date.now()) return { state: 'expired', session: null, user: null };
+  const session = { token_hash: hash, user_id: row.s_user_id, csrf: row.s_csrf, needs_2fa: row.s_needs_2fa, expires_at: row.s_expires_at };
+  const user = Object.fromEntries(Object.entries(row).filter(([k]) => !k.startsWith('s_')));
+  return user.id == null ? { state: 'no-user', session, user: null } : { state: 'ok', session, user };
+}
+
 // --- Minimal cookie parsing (avoids an extra dependency) ---
 function parseCookies(header) {
   const out = {};
@@ -173,7 +190,7 @@ const resetThrottle = (key) => db.prepare('DELETE FROM throttle WHERE key = ?').
 const purgeThrottle = () => db.prepare('DELETE FROM throttle WHERE window_start < ?').run(Date.now() - 86400000);
 
 module.exports = {
-  hashPassword, verifyPassword, createSession, destroySession, destroyAllSessions, loadSession,
+  hashPassword, verifyPassword, createSession, destroySession, destroyAllSessions, loadSession, loadSessionAndUser,
   parseCookies, createLoginCode, consumeLoginCode, throttled, release, resetThrottle, purgeThrottle,
   markEmailVerified, markResetDelivered, distrustUnverified, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
 };

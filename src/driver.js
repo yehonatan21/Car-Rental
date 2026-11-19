@@ -13,6 +13,7 @@
 //   - numbers are sent as REAL; SQLite compares 1.0 = 1, so lookups still match;
 //   - PRAGMAs for local files (journal_mode, busy_timeout) are rejected by the server.
 const config = require('./config');
+const { track } = require('./timing'); // per-request database time (Server-Timing)
 
 /** SQLite has no booleans and the drivers disagree on undefined; normalize before binding. */
 function normalize(params) {
@@ -33,14 +34,14 @@ function cleanRow(row) {
 function wrapLibsql(conn) {
   return {
     remote: true,
-    exec: (sql) => conn.exec(sql),
+    exec: (sql) => track(() => conn.exec(sql)),
     prepare(sql) {
       const stmt = conn.prepare(sql);
       return {
-        get: (...p) => cleanRow(stmt.get(normalize(p))),
-        all: (...p) => stmt.all(normalize(p)).map(cleanRow),
+        get: (...p) => track(() => cleanRow(stmt.get(normalize(p)))),
+        all: (...p) => track(() => stmt.all(normalize(p)).map(cleanRow)),
         run: (...p) => {
-          const r = stmt.run(normalize(p));
+          const r = track(() => stmt.run(normalize(p)));
           return { changes: r.changes, lastInsertRowid: Number(r.lastInsertRowid) };
         },
       };
@@ -51,14 +52,14 @@ function wrapLibsql(conn) {
 function wrapNodeSqlite(conn) {
   return {
     remote: false,
-    exec: (sql) => conn.exec(sql),
+    exec: (sql) => track(() => conn.exec(sql)),
     prepare(sql) {
       const stmt = conn.prepare(sql);
       return {
-        get: (...p) => stmt.get(...normalize(p)),
-        all: (...p) => stmt.all(...normalize(p)),
+        get: (...p) => track(() => stmt.get(...normalize(p))),
+        all: (...p) => track(() => stmt.all(...normalize(p))),
         run: (...p) => {
-          const r = stmt.run(...normalize(p));
+          const r = track(() => stmt.run(...normalize(p)));
           return { changes: Number(r.changes), lastInsertRowid: Number(r.lastInsertRowid) };
         },
       };

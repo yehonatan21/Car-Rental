@@ -28,6 +28,8 @@ const app = express();
 app.set('trust proxy', 1); // in production HTTPS is terminated by the reverse proxy, which sets X-Forwarded-Proto
 app.disable('x-powered-by');
 
+app.use(require('./timing').middleware); // Server-Timing header + a log line for slow requests
+
 // HTTPS only: redirect plain-HTTP requests that reach the app behind a proxy in production.
 app.use((req, res, next) => {
   if (!config.forceHttps || req.secure || req.path === '/healthz') return next();
@@ -92,10 +94,8 @@ app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 // Session, user and flash message loading.
 app.use((req, res, next) => {
   req.cookies = auth.parseCookies(req.headers.cookie);
-  const session = auth.loadSession(req);
-  const user = session && db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id);
-  req.sessionState = !req.cookies[auth.COOKIE] ? 'none' : user ? 'ok' : session ? 'no-user'
-    : db.prepare('SELECT 1 FROM sessions WHERE token_hash = ?').get(auth.sha256(req.cookies[auth.COOKIE])) ? 'expired' : 'unknown';
+  const { state, session, user } = auth.loadSessionAndUser(req);
+  req.sessionState = state;
   if (req.cookies[auth.COOKIE] && !user) {
     // Rare (after logging out elsewhere or a long absence): logged, so a login that is lost unexpectedly can be traced.
     console.warn(`[session] login cookie not recognised (${req.sessionState}) on ${req.method} ${req.path}; `

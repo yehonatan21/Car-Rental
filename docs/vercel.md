@@ -39,8 +39,10 @@ finds those variables too. The deployment's **Logs** show which one it uses: `[d
      `TURSO_AUTH_TOKEN` to the project's environment variables by itself.
    - **Or manually:** sign up at [turso.tech](https://turso.tech), create a database, copy its URL
      (`libsql://<name>-<org>.turso.io`), and create a token. Then add both as environment variables (step 3).
-   - Pick a database region close to the Vercel function region (**Settings → Functions → Region**), e.g. Frankfurt
-     for both. Every page makes several database queries, so a short distance keeps it fast.
+   - Pick a database region close to the Vercel function region. `vercel.json` runs the functions in Frankfurt
+     (`"regions": ["fra1"]`), next to Turso's `aws-eu-central-1`. Every page makes several database queries one after
+     another, so the distance counts many times: with the functions in Washington (Vercel's default, `iad1`) each page
+     waited 1–2 seconds longer.
 3. **Settings → Environment Variables**, then add:
 
    | Name | Value | Why |

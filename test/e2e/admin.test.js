@@ -577,11 +577,11 @@ test('delete a user: account, bookings and license photos go; actions they did s
   const page = (await admin.get(`/admin/users/${u.id}`)).text;
   assert.match(page, /id="delete"[\s\S]*יש לו\/ה 1 הזמנות עתידיות פתוחות/);
 
-  let r = await admin.post(`/admin/users/${u.id}/delete`, {}, `/admin/users/${u.id}`);
+  await admin.post(`/admin/users/${u.id}/delete`, {}, `/admin/users/${u.id}`);
   assert.match(admin.flash().text, /יש לסמן את תיבת האישור/);
   assert.ok(getUser(u.id), 'not without the checkbox');
 
-  r = await admin.post(`/admin/users/${u.id}/delete`, { confirm: '1' }, `/admin/users/${u.id}`);
+  const r = await admin.post(`/admin/users/${u.id}/delete`, { confirm: '1' }, `/admin/users/${u.id}`);
   assert.equal(r.location, '/admin/users');
   assert.match(admin.flash().text, /נמחק, יחד עם 1 הזמנות/);
   assert.equal(getUser(u.id), undefined);

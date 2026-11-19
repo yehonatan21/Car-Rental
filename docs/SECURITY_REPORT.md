@@ -1,0 +1,81 @@
+# Security report
+
+*Reviewed 19/11/2026 on commit `8d0c3c6`: all four live sites and the console, the source code, the Vercel projects and
+the GitHub workflows. Earlier pass: [archive/analysis/car-rental/SECURITY_FINDINGS.md](archive/analysis/car-rental/SECURITY_FINDINGS.md) (SEC-001 to SEC-015).*
+
+**How it was checked**
+- **Code review:** every route and its guard (85 routes), sign-in, sessions, codes, password links, Google sign-in,
+  the console's management API, uploads, file serving, HTML and e-mail escaping, SQL, redirects, logging.
+- **Attack tests against a local copy:** a regular user calling manager pages and actions, cancelling someone else's
+  booking, posting without a token or from another site, script in names, redirects to other sites, a disguised
+  upload, a 100,000-character name, sessions after logout and after a password change, sign-in timing.
+- **Live sites:** security headers, exposed files, `/healthz`, the management API and cron without a key, Vercel's
+  deployment protection and how secrets are stored.
+- **Dependencies:** `npm audit`, production and development.
+
+## Summary
+
+| Severity | Open |
+|---|---|
+| Critical | 0 |
+| High | 0 |
+| Medium | 2 |
+| Low | 9 |
+
+No way was found for an outsider or a regular user to read other people's data, act as a manager, or take over an
+account. The two medium findings are about what happens **if a manager's password or a hosting key leaks**: there is
+no second factor for managers, and the database keys never expire and are copied to many places.
+
+## What held up (tested)
+
+| Area | Result |
+|---|---|
+| Manager pages and actions as a regular user | All refused (403), including "block", "make admin" and the license photo |
+| Another user's booking | Cancel refused; the calendar shows others only "תפוס" (taken), never names |
+| Forged requests (CSRF) | Refused from another site (403), and without the session token |
+| Script injection (XSS) | Names like `<script>` and `"><img onerror>` are escaped on every manager page and in e-mails. A strict CSP (`script-src 'self'`, no inline scripts) is a second barrier |
+| SQL injection | Every query uses parameters. The few built queries use fixed table/column lists |
+| Redirects after sign-in | Only to the site's own pages (`//evil.example` and `/\evil.example` are ignored) |
+| Sessions | 256-bit random token, stored only as a hash; `HttpOnly`, `SameSite=Lax`, `Secure` on HTTPS. Logout and a password change end the session on the server (old cookie → 401) |
+| Passwords | scrypt with a random salt, compared in constant time; now off the main thread |
+| Sign-in limits | Per address and per account, kept in the database (shared by all server instances) |
+| Codes and password links | Codes: 6 digits, 10 minutes, 5 wrong tries. Links: 256-bit, 1 hour, single use. Only hashes are stored |
+| Google sign-in | PKCE, state and nonce; issuer, audience, expiry and verified e-mail checked; the relay forwards only to known client sites |
+| Uploads | Only JPG/PNG/WEBP/HEIC/PDF, checked by the file's first bytes (an HTML page renamed `.png` is deleted); random names; licenses served only to managers with `no-store`, every view logged |
+| Console ↔ sites | A 32+ character key per site, compared in constant time; the console only calls public HTTPS addresses |
+| Live headers (all 4 sites) | CSP, HSTS (1 year), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` |
+| Exposed files | `/package.json`, `/.env`, `/src/…`, `/api/index.js` → 404. `/healthz` says only `ok`. Management API and cron without a key → 401 |
+| Old deployments | Vercel Authentication protects every deployment address except the public one, so old code is not reachable |
+| Dependencies | `npm audit`: **0 vulnerabilities** (production and development) |
+| Earlier findings | SEC-001 to SEC-008 and SEC-011 to SEC-014 stay fixed. SEC-010 is moot: the Docker image and SSH deployment were removed |
+
+## Findings
+
+| ID | Severity | Finding | Effect | Recommendation |
+|---|---|---|---|---|
+| S-01 | **Medium** | **Secrets spread and never expire** (SEC-009, still open). Each site's Turso key is full-access and `expiration=never`; the console's SMTP password is copied into every site; on `car-rental` some secrets (`SMTP_PASS`, `SMTP_USER`, `SMTP_HOST`…) are stored as "encrypted", which team members can read in the Vercel dashboard, not "sensitive"; `ADMIN_PASSWORD` stays in the `car-rental` and console projects after first use | One leaked key gives the whole database of a site, for ever | Mark every secret "sensitive"; delete `ADMIN_PASSWORD` once the admin exists; rotate the Turso keys with an expiry (e.g. 1 year) and a reminder; give each site its own SMTP account or app password |
+| S-02 | **Medium** | **No second factor for managers or the console.** A manager sees ID numbers, phones and license photos of every user; a console admin controls every site. Both are protected by a password (or an e-mailed code, or Google) only | A phished or reused password exposes all personal data | Require Google sign-in or an e-mailed code in addition to the password for managers and console admins (the 2FA removed earlier, in a simpler form) |
+| S-03 | Low | **Who is registered can be found out.** Registration says "this e-mail already has an account" and "this ID number belongs to another account"; a password sign-in for a real account takes ~35 ms, for an unknown one ~3 ms | Confirms that a person (or an ID number) is a member; limited to 20 registrations an hour per address | Same message for both on registration ("check your details or sign in"); run a dummy password check for unknown addresses |
+| S-04 | Low | **Weak passwords are accepted:** 8 characters minimum, no check against common passwords | `Password1` is allowed. Guessing is slowed by the per-account limit (10 per 15 minutes) | Refuse the ~10,000 most common passwords and passwords containing the e-mail or name |
+| S-05 | Low | **No per-account limit on e-mailed codes and reset links**, only per network address (5 per 15 minutes) | From many addresses: a flood of e-mails to one person, and more code guesses (5 per 3 codes requested) | Also limit per account, e.g. 5 codes and 3 reset links an hour |
+| S-06 | Low | **No length limits on text fields** (name, notes, purpose): a 100,000-character first name was accepted | Pages and e-mails to managers become huge; storage use | Limit names to 60 characters, notes and purpose to 1,000 |
+| S-07 | Low | **The privacy page understates what the console sees.** `docs/privacy.md` says the console sees only counts and managers; its main admin can also list every user's name, e-mail and phone, and search by ID number | The privacy statement is inaccurate | Correct the document, or hide phone and ID-number search from the console |
+| S-08 | Low | **Sessions last 14 days regardless of activity**, also for managers | A forgotten session on a shared computer stays signed in | Managers: end the session after 8 hours without activity; everyone: 14 days without activity rather than fixed |
+| S-09 | Low | **Some data is kept with no end date:** the action log, and pending accounts that nobody approved or rejected (with their license photo) | More personal data than needed | Pending accounts: remind managers after 14 days, delete after 90; action log: keep 2 years |
+| S-10 | Low | **Security headers could be tighter:** the CSP has no `base-uri`; no `Permissions-Policy`; HSTS without `includeSubDomains` (not needed on `vercel.app`, needed on a custom domain) | Defence in depth only | Add `base-uri 'none'; object-src 'none'` and `Permissions-Policy: camera=(), microphone=(), geolocation=()` |
+| S-11 | Low | **CI supply chain** (SEC-015, partly open): GitHub actions pinned by tag, not commit; the CI downloads a pre-release `sqld` | Only CI is affected, not the live sites | Pin the actions by commit SHA (Dependabot can update them) |
+
+**Information (no change needed now)**
+- License PDFs open in the browser (`inline`) on the site's own address. Browsers show PDFs in an isolated viewer, and
+  the CSP still applies.
+- All managers of a site have equal rights, so any manager can remove another. That is by design; an "owner" role
+  would be a product decision.
+- Backups rely on Turso's point-in-time history; the restore procedure (`docs/restore.md`) is still not written.
+
+## Suggested order
+
+1. **S-01** (an hour, mostly in Vercel and Turso): mark secrets sensitive, delete `ADMIN_PASSWORD`, rotate the Turso keys.
+2. **S-02** second factor for managers and the console.
+3. **S-03, S-04, S-05, S-06** in one small release (validation and limits; no visible change except messages).
+4. **S-07, S-09** privacy: correct the document and add the retention jobs.
+5. **S-08, S-10, S-11** hardening.

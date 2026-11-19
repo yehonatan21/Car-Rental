@@ -202,3 +202,95 @@ test('approval when the mail server rejects the login: booking approved, admin t
     config.smtp = smtpConfig();
   }
 });
+
+// ---------- The outbox: failed e-mails are retried, reminders go out once ----------
+const jobs = require('../../src/jobs');
+const outbox = (where = '1') => db.prepare(`SELECT * FROM mail_outbox WHERE ${where} ORDER BY id`).all();
+function approvedBooking(email, hoursFromNow) {
+  const u = createUser({ email });
+  const start = new Date(Date.now() + hoursFromNow * 3600000);
+  const local = (d) => require('../../src/time').toLocal(d);
+  const id = db.prepare("INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, status, kind) VALUES (1, ?, ?, ?, 'approved', 'booking')")
+    .run(u.id, local(start), local(new Date(start.getTime() + 2 * 3600000))).lastInsertRowid;
+  return { u, id };
+}
+
+test('a reminder that fails waits in the outbox and goes out when the mail server works again', async () => {
+  const { id } = approvedBooking('retry-me@test.org', 3);
+  config.smtp = smtpConfig('wrong-password');
+  try {
+    await jobs.runJobs({ by: 'cron' });
+  } finally {
+    config.smtp = smtpConfig();
+  }
+  const [row] = outbox(`key = 'pickup:${id}:' || (SELECT start_at FROM bookings WHERE id = ${id})`);
+  assert.equal(row.status, 'pending', 'kept for a retry, not lost');
+  assert.equal(row.attempts, 1);
+  assert.match(row.last_error, /535|Authentication|Invalid login/i);
+  assert.equal(db.prepare('SELECT pickup_reminded FROM bookings WHERE id = ?').get(id).pickup_reminded, 1);
+
+  const before = received.length;
+  await jobs.runJobs({ by: 'cron' });
+  assert.equal(received.length, before, 'not before its retry time');
+  db.prepare('UPDATE mail_outbox SET next_attempt_at = 0 WHERE id = ?').run(row.id);
+  const r = await jobs.runJobs({ by: 'cron' });
+  assert.ok(received.slice(before).some((m) => m.to.includes('retry-me@test.org')), 'sent on the retry');
+  assert.ok(r.mail_sent >= 1);
+  const after = outbox(`id = ${row.id}`)[0];
+  assert.equal(after.status, 'sent');
+  assert.equal(after.message, '{}', 'the content is not kept once sent');
+  assert.equal(jobs.lastRun().by, 'cron');
+});
+
+test('the same reminder is sent once, even when asked twice', async () => {
+  const { id } = approvedBooking('once@test.org', 3);
+  const b = { ...db.prepare('SELECT b.*, u.first_name, u.email FROM bookings b JOIN users u ON u.id = b.user_id WHERE b.id = ?').get(id), plate: '1', make: '', model: '' };
+  const before = received.length;
+  assert.equal(await mail.pickupReminder(b), true);
+  assert.equal(await mail.pickupReminder(b), true);
+  assert.equal(received.slice(before).filter((m) => m.to.includes('once@test.org')).length, 1);
+});
+
+test('a login code is never stored for a retry; a message gives up after 6 attempts and can be retried by hand', async () => {
+  config.smtp = smtpConfig('wrong-password');
+  try {
+    await mail.loginCode({ email: 'code@test.org', first_name: 'x' }, '123456');
+    assert.equal(outbox("recipients LIKE '%code@test.org%'").length, 0, 'codes expire: nothing kept');
+    await mail.userApproved({ email: 'approved@test.org', first_name: 'x' });
+    const [m] = outbox("recipients LIKE '%approved@test.org%'");
+    assert.equal(m.status, 'pending');
+    for (let i = 0; i < 6; i++) {
+      db.prepare('UPDATE mail_outbox SET next_attempt_at = 0 WHERE id = ?').run(m.id);
+      await mail.drainOutbox();
+    }
+    const done = outbox(`id = ${m.id}`)[0];
+    assert.equal(done.status, 'failed');
+    assert.equal(done.attempts, 6);
+  } finally {
+    config.smtp = smtpConfig();
+  }
+  // Settings → health shows it; "retry now" sends it.
+  const admin = new Client(srv.base);
+  createUser({ email: 'outbox-admin@test.org', role: 'admin' });
+  await admin.login('outbox-admin@test.org');
+  assert.match((await admin.get('/admin/settings?tab=health')).text, /id="jobs"[\s\S]*approved@test.org[\s\S]*שליחה חוזרת עכשיו/);
+  const before = received.length;
+  await admin.post('/admin/settings/outbox-retry', {}, '/admin/settings?tab=health');
+  assert.ok(received.slice(before).some((m) => m.to.includes('approved@test.org')));
+  assert.equal(outbox("recipients LIKE '%approved@test.org%'")[0].status, 'sent');
+});
+
+test('/internal/cron: only with the secret; answers with what it did', async () => {
+  process.env.CRON_SECRET = 'c'.repeat(32);
+  try {
+    assert.equal((await fetch(srv.base + '/internal/cron', { headers: { authorization: 'Bearer wrong' } })).status, 401);
+    const r = await fetch(srv.base + '/internal/cron', { headers: { authorization: `Bearer ${'c'.repeat(32)}` } });
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.equal(body.status, 'ok');
+    assert.equal(typeof body.reminders, 'number');
+    assert.equal(body.sites, undefined, 'a client site runs only its own jobs');
+  } finally {
+    delete process.env.CRON_SECRET;
+  }
+});

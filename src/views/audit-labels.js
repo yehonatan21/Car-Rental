@@ -11,6 +11,7 @@ const LABELS = {
   'booking.reject': 'דחיית בקשת הזמנה',
   'license.view': 'צפייה ברישיון נהיגה',
   'mail.failed': 'שליחת מייל נכשלה',
+  'mail.retry': 'שליחה חוזרת של מיילים שנכשלו',
   'manage.admin_create': 'מנהל נוסף ממרכז הניהול',
   'manage.admin_invite': 'הזמנת מנהל ממרכז הניהול',
   'manage.admin_promote': 'משתמש הפך למנהל ממרכז הניהול',

@@ -11,7 +11,7 @@ const { db, storageInfo } = require('./db');
 const auth = require('./auth');
 const { layout, html, uploadLimitLabel } = require('./views/html');
 const { BookingError } = require('./bookings');
-const { startJobs, runJobs } = require('./jobs');
+const { startJobs, runJobs, lastRun } = require('./jobs');
 const { listenHttps, lanAddresses } = require('./tls');
 const redirectGuard = require('./redirect-guard');
 
@@ -65,25 +65,42 @@ app.get('/healthz', (req, res) => {
   });
 });
 
-// Scheduled jobs (reminders, license expiry, closing finished bookings). A normal server runs them on a timer
-// (start() → startJobs). Serverless platforms only run code during requests, so there they run:
-//   - from Vercel Cron, which calls /internal/cron with "Authorization: Bearer $CRON_SECRET" (see vercel.json), and
-//   - at most every 15 minutes while the site is being used.
+// Scheduled jobs (reminders, license expiry, closing finished bookings, retrying failed e-mails). A normal server runs
+// them on a timer (start() → startJobs). On Vercel code only runs during requests, so there:
+//   - a GitHub Actions schedule calls the console's /internal/cron every 10 minutes
+//     (.github/workflows/jobs.yml), and the console runs the jobs of every client site (master.runAllJobs);
+//   - Vercel Cron also calls /internal/cron once a day (vercel.json), as a backup;
+//   - a visit runs them only when no scheduled run happened for 30 minutes (the schedule is broken).
+const sameSecret = (a, b) => {
+  const x = Buffer.from(String(a)); const y = Buffer.from(String(b));
+  return x.length === y.length && require('node:crypto').timingSafeEqual(x, y);
+};
 app.get('/internal/cron', async (req, res) => {
   const secret = process.env.CRON_SECRET;
-  if (!secret || req.get('authorization') !== `Bearer ${secret}`) return res.status(401).json({ error: 'unauthorized' });
-  await runJobs();
-  res.json({ status: 'ok' });
+  if (!secret || !sameSecret(req.get('authorization') || '', `Bearer ${secret}`)) return res.status(401).json({ error: 'unauthorized' });
+  const own = await runJobs({ by: 'cron' });
+  const sites = config.master || config.masterConsole ? await require('./master').runAllJobs() : undefined;
+  if (sites) console.log(`[jobs] cron: ${sites.filter((s) => s.ok).length}/${sites.length} sites ran their jobs`);
+  res.json({ status: 'ok', ...own, sites });
 });
 // A client's site suspended from the master console shows only a notice (routes/manage.js).
 app.use(require('./routes/manage').suspendedGate);
 
 if (config.onVercel) {
-  let lastJobsRun = 0;
+  let lastCheck = 0;
   app.use(async (req, res, next) => {
-    if (Date.now() - lastJobsRun > 15 * 60000) {
-      lastJobsRun = Date.now();
-      await runJobs().catch((err) => console.error('[jobs]', err));
+    if (Date.now() - lastCheck > 15 * 60000) { // at most one look every 15 minutes per server instance
+      lastCheck = Date.now();
+      try {
+        const last = lastRun();
+        const age = last ? Date.now() - new Date(last.at.replace(' ', 'T')).getTime() : Infinity;
+        if (age > 30 * 60000) {
+          console.warn(`[jobs] no scheduled run for ${last ? Math.round(age / 60000) + ' minutes' : 'ever'}: running them on this visit`);
+          await runJobs({ by: 'visit' });
+        }
+      } catch (err) {
+        console.error('[jobs]', err);
+      }
     }
     next();
   });

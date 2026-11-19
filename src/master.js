@@ -290,6 +290,23 @@ async function shareMail(client) {
 }
 
 /**
+ * The console's scheduled run: asks every listed site to run its jobs (reminders, alerts, failed e-mails), all at once,
+ * each with its own time limit, so one slow or broken site doesn't hold up the others. Returns one line per site.
+ */
+async function runAllJobs() {
+  const clients = list().filter((c) => c.url);
+  return Promise.all(clients.map(async (c) => {
+    try {
+      const r = await call(c, 'POST', '/api/manage/run-jobs', {}, { timeoutMs: 20000 });
+      return { slug: c.slug, ok: true, reminders: r.reminders, mail_sent: r.mail_sent, mail_waiting: r.mail_waiting, mail_failed: r.mail_failed };
+    } catch (err) {
+      console.warn(`[jobs] ${c.slug}: ${err.message}`);
+      return { slug: c.slug, ok: false, error: err.message };
+    }
+  }));
+}
+
+/**
  * Removes a client from the list; with `resources`, also deletes its Vercel project and its Turso database (all its
  * data). What was deleted is forgotten at once, so a failure halfway can simply be retried.
  */
@@ -324,6 +341,6 @@ async function checkConnections() {
 
 module.exports = {
   manageToken, masterSecret, providers, clientRepo, clientBranch, list, get, add, update, remove, normalizeUrl,
-  call, statusOf, statusAll, discoverUrl, createClient, redeploy, installToken, shareMail, deleteClient, checkConnections,
+  call, statusOf, statusAll, discoverUrl, createClient, redeploy, installToken, shareMail, runAllJobs, deleteClient, checkConnections,
   sharedMailVars, sharedGoogleVars, InstanceError, INSTANCE_ERRORS,
 };

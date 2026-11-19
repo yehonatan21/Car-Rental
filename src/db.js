@@ -236,6 +236,30 @@ if (!schemaIsCurrent) {
     expires_at INTEGER NOT NULL
   );
 
+  -- E-mails waiting to be (re)sent: a message whose sending failed, retried with growing delays (mail.js), and the
+  -- reminders' idempotency keys, so a reminder is sent once even when two job runs overlap. Messages with a one-time
+  -- code or a password link are never stored here (they expire, and the person can ask for a new one).
+  CREATE TABLE IF NOT EXISTS mail_outbox (
+    id INTEGER PRIMARY KEY,
+    key TEXT UNIQUE,
+    recipients TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    message TEXT NOT NULL,             -- JSON: html, text, attachments
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sending','sent','failed')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    sent_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS mail_outbox_due ON mail_outbox(status, next_attempt_at);
+
+  -- When the scheduled jobs last ran, and from where (cron / visit / timer), for the health page and the fallback.
+  CREATE TABLE IF NOT EXISTS job_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
   -- Facts about the database itself: a random id and creation time written once, when it is first set up. If the id
   -- shown on the settings page changes after a new deployment, that deployment uses a different (or new) database.
   CREATE TABLE IF NOT EXISTS app_meta (

@@ -191,6 +191,29 @@ const SETTINGS_TABS = [
   ['general', 'כללי', 'users'], ['bookings', 'הזמנות ותזכורות', 'calendar'], ['integrations', 'מיילים והתחברות', 'file'], ['health', 'תקינות המערכת', 'shield'],
 ];
 
+/** Settings → system health: when reminders last ran, and the e-mails that wait or failed (with "retry now"). */
+function jobsCard(req) {
+  const last = require('../jobs').lastRun();
+  const box = mail.outboxStatus();
+  const ago = last ? Math.round((Date.now() - new Date(last.at.replace(' ', 'T')).getTime()) / 60000) : null;
+  const BY = { cron: 'הפעלה מתוזמנת', visit: 'כניסה לאתר (התזמון לא פעל)', timer: 'שרת מקומי' };
+  return html`<section class="card" id="jobs">
+  <h2 class="section-title">${icon('clock')} תזכורות ומיילים</h2>
+  <dl class="dl">
+    <dt>הרצה אחרונה</dt><dd>${last ? html`${time.fmt(last.at.replace(' ', 'T'))} (לפני ${ago < 1 ? 'פחות מדקה' : `${ago} דקות`}) · ${BY[last.by] || last.by}
+      ${ago > 30 ? badge('blocked', 'מאחר') : badge('active', 'תקין')}` : html`${badge('pending', 'עדיין לא')} התזכורות טרם רצו`}</dd>
+    <dt>מיילים ממתינים לשליחה</dt><dd>${box.waiting ? html`${box.waiting} · יישלחו שוב אוטומטית` : 'אין'}</dd>
+    <dt>מיילים שנכשלו</dt><dd>${box.failed.length || 'אין'}</dd>
+  </dl>
+  <p class="muted small">תזכורות, התראות ומיילים שנכשלו נשלחים בהרצה מתוזמנת כל 10 דקות. מייל שנכשל נשלח שוב אחרי 1, 5, 15, 60 ו־180 דקות, ואחר כך מופיע כאן.
+    מיילים עם קוד התחברות או קישור לבחירת סיסמה לא נשמרים לשליחה חוזרת: מבקשים חדש.</p>
+  ${box.failed.length ? html`<table class="table"><thead><tr><th>נושא</th><th>אל</th><th>ניסיונות</th><th>השגיאה האחרונה</th></tr></thead><tbody>
+    ${box.failed.map((m) => html`<tr><td data-label="נושא">${m.subject}</td><td data-label="אל"><span dir="ltr">${JSON.parse(m.recipients).join(', ')}</span></td>
+      <td data-label="ניסיונות">${m.attempts}</td><td data-label="השגיאה האחרונה"><small>${m.last_error}</small></td></tr>`)}</tbody></table>
+    ${postForm(req, '/admin/settings/outbox-retry', html`<button class="btn btn-primary">שליחה חוזרת עכשיו</button>`)}` : ''}
+</section>`;
+}
+
 /** Settings page: which version runs and where the data is kept, so "is my data saved between versions?" is visible. */
 function systemCard() {
   const s = storageInfo();
@@ -1018,7 +1041,7 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
   ${tabPanel('general', tab, brandingCard(req))}
   ${tabPanel('bookings', tab, bookingRulesCard(req))}
   ${tabPanel('integrations', tab, html`${emailStatusCard(req)}${googleStatusCard(req)}`)}
-  ${tabPanel('health', tab, html`${systemCard()}${auditCard()}`)}
+  ${tabPanel('health', tab, html`${jobsCard(req)}${systemCard()}${auditCard()}`)}
 </div>`);
   });
 
@@ -1053,6 +1076,14 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
     audit(req.user.id, 'settings.branding', null, null, Object.keys(values).filter((k) => values[k]).join(', '));
     res.flash('success', 'פרטי הארגון נשמרו');
     res.redirect('/admin/settings?tab=general');
+  });
+
+  app.post('/admin/settings/outbox-retry', requireAdmin, async (req, res) => {
+    const n = mail.retryFailed();
+    const r = await mail.drainOutbox();
+    audit(req.user.id, 'mail.retry', null, null, `${n} → ${r.sent} נשלחו`);
+    res.flash(r.sent || !n ? 'success' : 'warning', !n ? 'אין מיילים שנכשלו.' : r.sent === n ? `${n} המיילים נשלחו.` : `נשלחו ${r.sent} מתוך ${n}. השאר ממתינים לניסיון הבא.`);
+    res.redirect(303, '/admin/settings?tab=health#jobs');
   });
 
   app.post('/admin/settings/test-email', requireAdmin, async (req, res) => {

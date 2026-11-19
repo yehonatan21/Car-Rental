@@ -335,6 +335,23 @@ test('a site that does not answer does not break the list', async () => {
   assert.match((await boss.get('/master/clients/gone')).text, /לא ניתן להתחבר לאתר/);
 });
 
+test('the scheduled run: the console runs every site\'s jobs, and names a site that did not answer', async () => {
+  process.env.CRON_SECRET = 's'.repeat(32);
+  try {
+    const r = await fetch(srv.base + '/internal/cron', { headers: { authorization: `Bearer ${'s'.repeat(32)}` } });
+    assert.equal(r.status, 200);
+    const { sites } = await r.json();
+    const ok = sites.find((x) => x.slug === 'bne-adam');
+    assert.equal(ok.ok, true, 'a site with the right key ran its jobs');
+    assert.equal(typeof ok.reminders, 'number');
+    const gone = sites.find((x) => x.slug === 'gone');
+    assert.equal(gone.ok, false, 'a site that does not answer is reported, and does not stop the others');
+    assert.ok(gone.error);
+  } finally {
+    delete process.env.CRON_SECRET;
+  }
+});
+
 test('removing a client: only after typing its id; fully (Vercel project + database) or just from the list', async () => {
   await boss.post('/master/clients/bne-adam/delete', { mode: 'all', confirm: 'wrong' }, '/master/clients/bne-adam/delete');
   assert.match(boss.flash().text, /דבר לא נמחק/);

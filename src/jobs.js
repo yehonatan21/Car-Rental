@@ -15,28 +15,39 @@ const withUser = `SELECT b.*, u.first_name, u.last_name, u.email, v.plate, v.mak
  */
 const claim = (sql, id) => db.prepare(sql).run(id).changes === 1;
 
-async function runJobs() {
+/** When the jobs last ran and from where ('cron', 'visit', 'timer'): for the settings page and the visit fallback. */
+function lastRun() {
+  const rows = Object.fromEntries(db.prepare("SELECT key, value FROM job_state WHERE key IN ('last_run', 'last_run_by', 'last_run_ms')").all().map((r) => [r.key, r.value]));
+  return rows.last_run ? { at: rows.last_run, by: rows.last_run_by, ms: Number(rows.last_run_ms) || null } : null;
+}
+
+/** Runs everything that is due. `by` says what started it. Returns what it did, for the cron's answer and the logs. */
+async function runJobs({ by = 'timer' } = {}) {
+  const started = Date.now();
+  const summary = { reminders: 0, alerts: 0 };
   const s = getSettings();
   const now = time.now();
+  // First what failed before, so a waiting reminder isn't overtaken by newer ones.
+  const before = await mail.drainOutbox();
   bookings.completeFinished();
   try { require('./auth').purgeThrottle(); } catch (err) { console.error('[jobs] purging old attempt counters failed:', err.message); }
 
   const pickups = db.prepare(`${withUser} WHERE b.status = 'approved' AND b.kind = 'booking' AND b.pickup_reminded = 0
     AND b.start_at > ? AND b.start_at <= ?`).all(now, time.addMinutes(now, s.pickup_reminder_hours * 60));
   for (const b of pickups) {
-    if (claim('UPDATE bookings SET pickup_reminded = 1 WHERE id = ? AND pickup_reminded = 0', b.id)) await mail.pickupReminder(b);
+    if (claim('UPDATE bookings SET pickup_reminded = 1 WHERE id = ? AND pickup_reminded = 0', b.id)) { await mail.pickupReminder(b); summary.reminders += 1; }
   }
 
   const returns = db.prepare(`${withUser} WHERE b.status = 'approved' AND b.kind = 'booking' AND b.return_reminded = 0
     AND b.start_at <= ? AND b.end_at > ? AND b.end_at <= ?`).all(now, now, time.addMinutes(now, s.return_reminder_hours * 60));
   for (const b of returns) {
-    if (claim('UPDATE bookings SET return_reminded = 1 WHERE id = ? AND return_reminded = 0', b.id)) await mail.returnReminder(b);
+    if (claim('UPDATE bookings SET return_reminded = 1 WHERE id = ? AND return_reminded = 0', b.id)) { await mail.returnReminder(b); summary.reminders += 1; }
   }
 
   const staleBefore = time.addMinutes(now, -s.pending_alert_hours * 60).replace('T', ' ');
   const stale = db.prepare(`${withUser} WHERE b.status = 'pending' AND b.pending_alerted = 0 AND b.created_at <= ?`).all(staleBefore)
     .filter((b) => claim('UPDATE bookings SET pending_alerted = 1 WHERE id = ? AND pending_alerted = 0', b.id));
-  if (stale.length) await mail.pendingTooLong(stale);
+  if (stale.length) { await mail.pendingTooLong(stale); summary.alerts += 1; }
 
   const today = time.today();
   const expired = db.prepare("SELECT * FROM users WHERE status = 'active' AND license_expiry < ?").all(today)
@@ -60,12 +71,20 @@ async function runJobs() {
   db.prepare('DELETE FROM password_resets WHERE expires_at < ?').run(Date.now());
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   db.prepare('DELETE FROM login_codes WHERE expires_at < ?').run(Date.now());
+
+  const after = await mail.drainOutbox(); // anything that failed just now and is already due (none, normally)
+  const ms = Date.now() - started;
+  const set = db.prepare('INSERT INTO job_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+  set.run('last_run', time.stamp());
+  set.run('last_run_by', by);
+  set.run('last_run_ms', String(ms));
+  return { ...summary, mail_sent: before.sent + after.sent, mail_failed: before.failed + after.failed, mail_waiting: after.waiting, ms };
 }
 
 function startJobs(intervalMs = 5 * 60000) {
-  const tick = () => runJobs().catch((err) => console.error('[jobs]', err));
+  const tick = () => runJobs({ by: 'timer' }).catch((err) => console.error('[jobs]', err));
   tick();
   return setInterval(tick, intervalMs);
 }
 
-module.exports = { runJobs, startJobs };
+module.exports = { runJobs, startJobs, lastRun };

@@ -41,31 +41,115 @@ function wrap(title, paragraphs, link) {
 const state = { lastError: null, lastSentAt: null, verified: null };
 const startedAt = new Date();
 
-/** Sends (or, without SMTP, saves to data/outbox). Resolves to true on success, false on failure; never throws. */
-async function send(to, subject, paragraphs, link, { attachments } = {}) {
+// ---------- The outbox: e-mails that failed are retried, and reminders are sent once ----------
+/** Minutes to wait before each retry; after the last one the message is "failed" (shown on the settings page). */
+const RETRY_MINUTES = [1, 5, 15, 60, 180];
+const MAX_ATTEMPTS = RETRY_MINUTES.length + 1;
+
+/** Delivers one composed message (or, without SMTP, saves it to data/outbox). Throws on failure. */
+async function deliver(recipients, subject, { html, text, attachments }) {
+  const from = { name: brand().mailFromName, address: config.mailFrom }; // inboxes show the name, not the bare address
+  const info = await getTransport().sendMail({ from, to: recipients.join(', '), subject, html, text, attachments });
+  if (!config.smtp) {
+    fs.mkdirSync(config.outboxDir, { recursive: true });
+    const file = path.join(config.outboxDir, `${Date.now()}-${Math.random().toString(36).slice(2, 7)}.eml`);
+    fs.writeFileSync(file, info.message);
+    console.log(`[mail] ${subject} → ${recipients.join(', ')} (saved to ${path.basename(file)})`);
+  }
+  state.lastSentAt = new Date();
+}
+
+function noteFailure(recipients, subject, err) {
+  console.error(`[mail] FAILED to send "${subject}" to ${recipients.join(', ')}: ${err.message}`);
+  state.lastError = { at: new Date(), message: err.message };
+  try {
+    audit(null, 'mail.failed', null, null, `${subject} → ${recipients.join(', ')}: ${err.message}`.slice(0, 500));
+  } catch { /* the database may be the problem; the console line above is enough */ }
+}
+
+/**
+ * Sends (or, without SMTP, saves to data/outbox). Resolves to true on success, false on failure; never throws.
+ * opts.key: an idempotency key (e.g. "pickup:12"): a message with a key already in the outbox is not sent again.
+ * opts.retry (default true): when sending fails, the message waits in the outbox and is retried by the jobs. Messages
+ * with a one-time code or a password link pass retry: false: they are never stored, and expire anyway.
+ */
+async function send(to, subject, paragraphs, link, { attachments, key, retry = true } = {}) {
   const recipients = [].concat(to).filter(Boolean);
   if (!recipients.length) return true;
-  const html = wrap(subject, paragraphs, link);
-  const text = paragraphs.map((p) => p.replace(/<[^>]+>/g, '')).join('\n\n') + (link ? `\n\n${config.baseUrl}${link.href}` : '');
-  try {
-    const from = { name: brand().mailFromName, address: config.mailFrom }; // inboxes show the name, not the bare address
-    const info = await getTransport().sendMail({ from, to: recipients.join(', '), subject, html, text, attachments });
-    if (!config.smtp) {
-      fs.mkdirSync(config.outboxDir, { recursive: true });
-      const file = path.join(config.outboxDir, `${Date.now()}-${Math.random().toString(36).slice(2, 7)}.eml`);
-      fs.writeFileSync(file, info.message);
-      console.log(`[mail] ${subject} → ${recipients.join(', ')} (saved to ${path.basename(file)})`);
+  const message = {
+    html: wrap(subject, paragraphs, link),
+    text: paragraphs.map((p) => p.replace(/<[^>]+>/g, '')).join('\n\n') + (link ? `\n\n${config.baseUrl}${link.href}` : ''),
+    attachments,
+  };
+  const keep = (status, err) => {
+    if (!config.smtp || (!key && (!retry || status === 'sent'))) return; // nothing to remember
+    try {
+      db.prepare(`INSERT INTO mail_outbox (key, recipients, subject, message, status, attempts, next_attempt_at, last_error, created_at, sent_at)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?) ON CONFLICT(key) DO NOTHING`).run(key ?? null, JSON.stringify(recipients), subject,
+        status === 'sent' || !retry ? '{}' : JSON.stringify(message), status, Date.now() + RETRY_MINUTES[0] * 60000,
+        err ? String(err.message).slice(0, 500) : null, time.stamp(), status === 'sent' ? time.stamp() : null);
+    } catch (e) {
+      console.error('[mail] could not record the message in the outbox:', e.message);
     }
-    state.lastSentAt = new Date();
+  };
+  if (key && config.smtp && db.prepare('SELECT 1 FROM mail_outbox WHERE key = ?').get(key)) return true; // already sent or queued
+  try {
+    await deliver(recipients, subject, message);
+    keep('sent');
     return true;
   } catch (err) {
-    console.error(`[mail] FAILED to send "${subject}" to ${recipients.join(', ')}: ${err.message}`);
-    state.lastError = { at: new Date(), message: err.message };
-    try {
-      audit(null, 'mail.failed', null, null, `${subject} → ${recipients.join(', ')}: ${err.message}`.slice(0, 500));
-    } catch { /* the database may be the problem; the console line above is enough */ }
+    noteFailure(recipients, subject, err);
+    keep(retry ? 'pending' : 'failed', err);
     return false;
   }
+}
+
+/**
+ * Sends the outbox messages that are due (the jobs call it). Several instances may run it at once: a message is
+ * taken by the run whose UPDATE changed it. A run that died while sending leaves "sending"; after 10 minutes it is due
+ * again. Returns { sent, failed, waiting }.
+ */
+async function drainOutbox({ limit = 25 } = {}) {
+  if (!config.smtp) return { sent: 0, failed: 0, waiting: 0 };
+  const now = Date.now();
+  db.prepare("UPDATE mail_outbox SET status = 'pending' WHERE status = 'sending' AND next_attempt_at < ?").run(now - 10 * 60000);
+  const due = db.prepare("SELECT * FROM mail_outbox WHERE status = 'pending' AND next_attempt_at <= ? ORDER BY next_attempt_at LIMIT ?").all(now, limit);
+  let sent = 0;
+  let failed = 0;
+  for (const m of due) {
+    if (db.prepare("UPDATE mail_outbox SET status = 'sending', next_attempt_at = ? WHERE id = ? AND status = 'pending'").run(now, m.id).changes !== 1) continue;
+    const recipients = JSON.parse(m.recipients);
+    try {
+      await deliver(recipients, m.subject, JSON.parse(m.message));
+      db.prepare("UPDATE mail_outbox SET status = 'sent', sent_at = ?, message = '{}', last_error = NULL WHERE id = ?").run(time.stamp(), m.id);
+      sent += 1;
+    } catch (err) {
+      noteFailure(recipients, m.subject, err);
+      const attempts = m.attempts + 1;
+      const done = attempts >= MAX_ATTEMPTS;
+      db.prepare('UPDATE mail_outbox SET status = ?, attempts = ?, next_attempt_at = ?, last_error = ? WHERE id = ?')
+        .run(done ? 'failed' : 'pending', attempts, Date.now() + (RETRY_MINUTES[attempts - 1] || 0) * 60000, String(err.message).slice(0, 500), m.id);
+      if (done) failed += 1;
+    }
+  }
+  // Keep the outbox small: sent ones (their keys) for 60 days, failed ones for 90.
+  db.prepare("DELETE FROM mail_outbox WHERE (status = 'sent' AND sent_at < ?) OR (status = 'failed' AND created_at < ?)")
+    .run(time.stamp(new Date(now - 60 * 86400000)), time.stamp(new Date(now - 90 * 86400000)));
+  return { sent, failed, waiting: db.prepare("SELECT COUNT(*) AS n FROM mail_outbox WHERE status IN ('pending','sending')").get().n };
+}
+
+/** For the settings page: how many wait, the failed ones, and when the jobs last ran. */
+function outboxStatus() {
+  const n = (sql) => db.prepare(sql).get().n;
+  return {
+    waiting: n("SELECT COUNT(*) AS n FROM mail_outbox WHERE status IN ('pending','sending')"),
+    failed: db.prepare("SELECT id, recipients, subject, attempts, last_error, created_at FROM mail_outbox WHERE status = 'failed' AND message != '{}' ORDER BY id DESC LIMIT 20").all(),
+  };
+}
+
+/** "Retry now": failed messages (still holding their content) go back to the queue, due at once. */
+function retryFailed() {
+  return db.prepare("UPDATE mail_outbox SET status = 'pending', attempts = 0, next_attempt_at = 0 WHERE status = 'failed' AND message != '{}'").run().changes;
 }
 
 /** Checks the SMTP login once at startup, so configuration problems show up in the server window. */
@@ -178,16 +262,19 @@ module.exports = {
   canDeliver,
   adminEmails,
   bookingIcs,
+  drainOutbox,
+  outboxStatus,
+  retryFailed,
   verifyTransport,
   status,
-  test: (to) => send(to, 'בדיקת שליחת מייל', ['זהו מייל בדיקה ממערכת הזמנת הרכב. אם קיבלת אותו, שליחת המיילים עובדת.']),
+  test: (to) => send(to, 'בדיקת שליחת מייל', ['זהו מייל בדיקה ממערכת הזמנת הרכב. אם קיבלת אותו, שליחת המיילים עובדת.'], null, { retry: false }),
   loginCode: (u, code) => {
     // Without a mail server nobody would ever see the code; in development print it for the operator.
     if (!config.smtp && !config.production) console.log(`\n  >>> Login code for ${u.email}: ${code}  (valid 10 minutes)\n`);
     return send(u.email, `קוד התחברות: ${code}`, [
       `קוד ההתחברות שלך: <b style="font-size:20px;letter-spacing:3px">${esc(code)}</b>`, 'הקוד תקף ל־10 דקות.',
       'אם לא ביקשת להתחבר, אפשר להתעלם מהודעה זו.',
-    ]);
+    ], null, { retry: false });
   },
   passwordReset: (u, token) => {
     const href = `/password/reset?token=${encodeURIComponent(token)}`;
@@ -195,7 +282,7 @@ module.exports = {
     return send(u.email, 'איפוס סיסמה', [
       `שלום ${esc(u.first_name)},`, 'התקבלה בקשה לאיפוס הסיסמה שלך. הקישור תקף לשעה ולשימוש אחד בלבד.',
       'אם לא ביקשת לאפס את הסיסמה, אפשר להתעלם מהודעה זו: הסיסמה הנוכחית לא תשתנה.',
-    ], { href, label: 'בחירת סיסמה חדשה' });
+    ], { href, label: 'בחירת סיסמה חדשה' }, { retry: false });
   },
   /** An admin created the account: link to choose a password (valid 7 days). */
   invitation: (u, token, invitedBy) => {
@@ -205,7 +292,7 @@ module.exports = {
       `שלום ${esc(u.first_name)},`, `${esc(invitedBy)} פתח/ה עבורך חשבון במערכת הזמנת הרכב של ${esc(brand().name)}.`,
       'כדי להתחבר, בחרו סיסמה בקישור הבא. הקישור תקף ל־7 ימים ולשימוש אחד.',
       `שם המשתמש שלך הוא כתובת הדואר האלקטרוני הזו: <b dir="ltr">${esc(u.email)}</b>.`,
-    ], { href, label: 'בחירת סיסמה' });
+    ], { href, label: 'בחירת סיסמה' }, { retry: false }); // a password link: never stored in the outbox
   },
   /** A client's manager, invited from the master console: with a link to choose a password, or (an account that has
    * one already) to sign in. */
@@ -216,7 +303,7 @@ module.exports = {
       `שלום ${esc(u.first_name)},`, `${esc(invitedBy)} הזמין/ה אותך לנהל את מערכת הזמנת הרכב של ${esc(brand().name)}: אישור משתמשים והזמנות, הרכב, הנהלים וההגדרות.`,
       token ? 'כדי להתחבר, בחרו סיסמה בקישור הבא. הקישור תקף ל־7 ימים ולשימוש אחד.' : 'החשבון הקיים שלך קיבל הרשאות ניהול. אפשר להתחבר כרגיל.',
       `שם המשתמש שלך הוא כתובת הדואר האלקטרוני הזו: <b dir="ltr">${esc(u.email)}</b>.`,
-    ], { href, label: token ? 'בחירת סיסמה' : 'כניסה למערכת' });
+    ], { href, label: token ? 'בחירת סיסמה' : 'כניסה למערכת' }, { retry: !token }); // with a password link: never stored
   },
   /** An admin set a new password for the account (the password itself is never e-mailed). */
   passwordSetByAdmin: (u) => send(u.email, 'נקבעה לחשבון שלך סיסמה חדשה', [
@@ -305,12 +392,13 @@ module.exports = {
       `ההזמנה של ${esc(fullName(b))} בוטלה${byAdmin ? ' על ידי מנהל' : ' על ידי המשתמש'}.`, range(b),
     ], { href: `/admin/bookings/${b.id}`, label: 'לפרטי ההזמנה' }),
   ]),
+  // Reminders carry a key: sent once per booking (and time), even if two job runs overlap or one is retried.
   pickupReminder: (b) => send(b.email, 'תזכורת: איסוף הרכב מתקרב', [
     `שלום ${esc(b.first_name)},`, 'תזכורת להזמנת הרכב שלך:', vehicleLine(b), range(b),
-  ], { href: '/me/bookings', label: 'להזמנות שלי' }),
+  ], { href: '/me/bookings', label: 'להזמנות שלי' }, { key: `pickup:${b.id}:${b.start_at}` }),
   returnReminder: (b) => send(b.email, 'תזכורת: מועד החזרת הרכב מתקרב', [
     `שלום ${esc(b.first_name)},`, `יש להחזיר את הרכב עד <b>${esc(time.fmtLong(b.end_at))}</b>.`,
-  ]),
+  ], null, { key: `return:${b.id}:${b.end_at}` }),
   pendingTooLong: (list) => send(adminEmails(), 'בקשות הזמנה ממתינות זמן רב', [
     'הבקשות הבאות ממתינות לאישור זמן רב:',
     list.map((b) => `${esc(fullName(b))} – ${esc(time.fmt(b.start_at))}`).join('<br>'),

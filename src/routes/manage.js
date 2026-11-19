@@ -255,6 +255,11 @@ module.exports = ({ app }) => {
     res.json({ path: `/manage/sso?token=${encodeURIComponent(token)}`, expiresInSeconds: SSO_TTL_MS / 1000 });
   });
 
+  // The console's scheduled run calls this on every site: reminders, alerts, retrying failed e-mails.
+  app.post('/api/manage/run-jobs', requireToken, async (req, res) => {
+    res.json({ ok: true, ...(await require('../jobs').runJobs({ by: 'cron' })) });
+  });
+
   app.get('/manage/sso', (req, res) => {
     const hash = auth.sha256(String(req.query.token || ''));
     const row = enabled() && db.prepare('SELECT * FROM sso_tokens WHERE token_hash = ?').get(hash);

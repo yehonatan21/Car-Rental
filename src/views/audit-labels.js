@@ -50,6 +50,7 @@ const LABELS = {
   'user.delete': 'משתמש נמחק',
   'user.google_link': 'חיבור חשבון Google',
   'user.license_approve': 'אישור רישיון חדש',
+  'user.license_deleted': 'צילום הרישיון נמחק (מדיניות שמירה)',
   'user.license_expired': 'רישיון פג תוקף',
   'user.license_reject': 'דחיית רישיון חדש',
   'user.license_upload': 'הועלה רישיון חדש',

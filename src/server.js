@@ -33,7 +33,8 @@ app.use(require('./timing').middleware); // Server-Timing header + a log line fo
 // HTTPS only: redirect plain-HTTP requests that reach the app behind a proxy in production.
 app.use((req, res, next) => {
   if (!config.forceHttps || req.secure || req.path === '/healthz') return next();
-  res.redirect(301, `https://${req.get('host')}${req.originalUrl}`);
+  // To the configured address when there is one, not to whatever Host the request named (SEC-011).
+  res.redirect(301, `https://${process.env.BASE_URL ? new URL(config.baseUrl).host : req.get('host')}${req.originalUrl}`);
 });
 
 app.use((req, res, next) => {
@@ -54,8 +55,19 @@ app.get('/favicon.ico', (req, res) => res.redirect(301, '/static/favicon.svg'));
 // Liveness/readiness probe for Docker, CI smoke tests and the hosting platform.
 // Also says which code version is running and where the data is kept (no secrets), e.g. to check after a new
 // deployment that it still uses the same database (storage.id unchanged).
+/** Compares two secrets in constant time (SEC-012). */
+const sameSecret = (a, b) => {
+  const x = Buffer.from(String(a)); const y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+};
+
 app.get('/healthz', (req, res) => {
   db.prepare('SELECT 1').get();
+  // In production the details (version, where the data lives) only with the cron secret; anyone else gets "ok" (SEC-014).
+  const secret = process.env.CRON_SECRET;
+  if (config.production && !(secret && sameSecret(req.get('authorization') || '', `Bearer ${secret}`))) {
+    return res.set('Cache-Control', 'no-store').json({ status: 'ok' });
+  }
   const s = storageInfo();
   res.set('Cache-Control', 'no-store').json({
     status: 'ok', env: process.env.APP_ENV || process.env.NODE_ENV || 'development',
@@ -71,10 +83,6 @@ app.get('/healthz', (req, res) => {
 //     (.github/workflows/jobs.yml), and the console runs the jobs of every client site (master.runAllJobs);
 //   - Vercel Cron also calls /internal/cron once a day (vercel.json), as a backup;
 //   - a visit runs them only when no scheduled run happened for 30 minutes (the schedule is broken).
-const sameSecret = (a, b) => {
-  const x = Buffer.from(String(a)); const y = Buffer.from(String(b));
-  return x.length === y.length && require('node:crypto').timingSafeEqual(x, y);
-};
 app.get('/internal/cron', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || !sameSecret(req.get('authorization') || '', `Bearer ${secret}`)) return res.status(401).json({ error: 'unauthorized' });
@@ -166,11 +174,24 @@ function sameSiteReferer(req) {
   }
 }
 
+/**
+ * A request another site made the browser send: its Origin is not ours (as this request sees it, or the configured
+ * public URL, since a tunnel or proxy may rewrite Host). Browsers send Origin with every POST; without one, the
+ * Fetch Metadata header still says when it came from another site.
+ */
+function foreignRequest(req) {
+  const origin = req.get('origin');
+  if (origin) return origin !== `${req.protocol}://${req.get('host')}` && origin !== PUBLIC_ORIGIN;
+  return req.get('sec-fetch-site') === 'cross-site';
+}
+const discardUpload = (req) => { if (req.file) fs.rmSync(req.file.path, { force: true }); };
+
 // CSRF: every POST must come from our own origin; logged-in POSTs must also carry the session token.
 function verifyCsrf(req, res, next) {
-  const origin = req.get('origin');
-  // Our own origin as this request sees it, or the configured public URL (a tunnel/proxy may rewrite Host).
-  if (origin && origin !== `${req.protocol}://${req.get('host')}` && origin !== PUBLIC_ORIGIN) return res.status(403).send('Forbidden');
+  if (foreignRequest(req)) {
+    discardUpload(req);
+    return res.status(403).send('Forbidden');
+  }
   if (req.session && !PUBLIC_POSTS.has(req.path)) {
     const token = String(req.body?._csrf || '');
     const ok = token.length === req.session.csrf.length &&
@@ -178,17 +199,26 @@ function verifyCsrf(req, res, next) {
     if (!ok) {
       // A form from an older page: the person signed in again (another tab, after a new deployment) or the page came
       // back from the browser history. Nothing is done; the page is reloaded with a fresh token and a short message.
-      if (req.file) fs.rmSync(req.file.path, { force: true });
+      discardUpload(req);
       res.flash('warning', 'הדף היה ישן (למשל אחרי התחברות מחדש בלשונית אחרת), ולכן הפעולה לא בוצעה. הדף רוענן – נסו שוב.');
       return res.redirect(303, sameSiteReferer(req) || '/');
     }
   }
   next();
 }
+// The forms that upload a file (multipart): they check the token after the upload is parsed (licenseUpload & co.
+// below). A multipart request to any other address is refused: it used to skip the token check (SEC-004).
+const UPLOAD_POSTS = [/^\/register$/, /^\/me\/license$/, /^\/admin\/users\/new$/, /^\/admin\/settings\/branding$/,
+  /^\/admin\/vehicle\/documents$/, /^\/master\/clients\/[^/]+\/branding$/];
 app.use((req, res, next) => {
-  if (req.method !== 'POST' || req.is('multipart/form-data')) return next(); // multipart routes verify after parsing
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   // The management API is called by the master console's server with a token, never by a browser with cookies.
   if (req.path.startsWith('/api/manage/')) return next();
+  if (req.is('multipart/form-data')) {
+    if (foreignRequest(req)) return res.status(403).send('Forbidden'); // before anything is written to disk
+    if (!UPLOAD_POSTS.some((re) => re.test(req.path))) return res.status(415).send('Unsupported Media Type');
+    return next();
+  }
   verifyCsrf(req, res, next);
 });
 
@@ -202,9 +232,34 @@ const upload = multer({
   limits: { fileSize: config.uploadMaxBytes, files: 1 },
   fileFilter: (req, file, cb) => cb(null, Boolean(ALLOWED[file.mimetype])),
 });
-const licenseUpload = [upload.single('license'), verifyCsrf];
-const documentUpload = [upload.single('document'), verifyCsrf];
-const logoUpload = [upload.single('logo'), verifyCsrf];
+/**
+ * The file really is what it says (SEC-008): its first bytes match its declared type. A renamed program or page is
+ * deleted at once and the form is shown again with a message.
+ */
+const SIGNATURES = {
+  'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  'image/png': (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  'image/webp': (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP',
+  'image/heic': (b) => b.subarray(4, 8).toString('latin1') === 'ftyp',
+  'application/pdf': (b) => b.subarray(0, 5).toString('latin1') === '%PDF-',
+};
+function checkUploadType(req, res, next) {
+  if (!req.file) return next();
+  let head = Buffer.alloc(0);
+  try {
+    const fd = fs.openSync(req.file.path, 'r');
+    head = Buffer.alloc(12);
+    fs.readSync(fd, head, 0, 12, 0);
+    fs.closeSync(fd);
+  } catch { /* unreadable: refused below */ }
+  if (SIGNATURES[req.file.mimetype]?.(head)) return next();
+  discardUpload(req);
+  res.flash('error', 'הקובץ אינו תמונה או PDF תקינים. בחרו צילום (JPG/PNG) או קובץ PDF.');
+  return res.redirect(303, sameSiteReferer(req) || '/');
+}
+const licenseUpload = [upload.single('license'), checkUploadType, verifyCsrf];
+const documentUpload = [upload.single('document'), checkUploadType, verifyCsrf];
+const logoUpload = [upload.single('logo'), checkUploadType, verifyCsrf];
 
 const requireLogin = (req, res, next) => {
   if (req.user) return next();
@@ -253,7 +308,7 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     res.flash('error', err.code === 'LIMIT_FILE_SIZE' ? `הקובץ גדול מדי (עד ${uploadLimitLabel()})` : 'שגיאה בהעלאת הקובץ');
-    return res.redirect(req.get('referer') || '/');
+    return res.redirect(sameSiteReferer(req) || '/'); // only back to our own pages (SEC-011)
   }
   console.error(err);
   res.status(500).page('שגיאה', html`<h1>אירעה שגיאה</h1><p>נסו שוב מאוחר יותר.</p>`);

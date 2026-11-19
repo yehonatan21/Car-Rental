@@ -284,6 +284,11 @@ if (!schemaIsCurrent) {
   addColumn('users', 'email_verified_at', 'TEXT');
   // A link counts as proof of the address only when it was really e-mailed, not shown on screen to an admin (SEC-003).
   addColumn('password_resets', 'delivered', 'INTEGER NOT NULL DEFAULT 0');
+  // When a registration was rejected: its license photo is deleted 30 days later (docs/privacy.md). Existing rejected
+  // accounts get the time of their rejection from the action log, else their last change.
+  addColumn('users', 'rejected_at', 'TEXT');
+  db.prepare(`UPDATE users SET rejected_at = COALESCE((SELECT MAX(a.at) FROM audit_log a WHERE a.action = 'user.reject' AND a.target_type = 'user'
+    AND a.target_id = users.id), updated_at) WHERE status = 'rejected' AND rejected_at IS NULL`).run();
   // Accounts already linked to Google had their address proven by Google.
   db.prepare('UPDATE users SET email_verified_at = ? WHERE email_verified_at IS NULL AND google_sub IS NOT NULL').run(new Date().toISOString());
   // Two-step verification was removed: forget stored authenticator secrets and sessions that were waiting for a code.

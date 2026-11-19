@@ -660,7 +660,7 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
   });
 
   userAction('reject', async (u, req, note) => {
-    db.prepare("UPDATE users SET status = 'rejected' WHERE id = ?").run(u.id);
+    db.prepare("UPDATE users SET status = 'rejected', rejected_at = ? WHERE id = ?").run(time.stamp(), u.id);
     audit(req.user.id, 'user.reject', 'user', u.id, note);
     await mail.userRejected(u, note);
     return 'ההרשמה נדחתה';

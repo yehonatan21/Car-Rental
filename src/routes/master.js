@@ -307,7 +307,9 @@ ${st.online ? '' : html`<div class="card alert">
   ${tokenProblem ? html`<p>כדי לנהל את האתר מכאן, צריך להגדיר בו את מפתח הניהול:</p>
     <ol>
       <li>ב־Vercel ← הפרויקט${project ? html` <b dir="ltr">${project}</b>` : ''} ← Settings ← Environment Variables, הוסיפו משתנה בשם
-        <code>MANAGE_TOKEN</code> (Sensitive, Production) עם הערך:<br><code class="select-all" dir="ltr">${master.manageToken(c.slug)}</code></li>
+        <code>MANAGE_TOKEN</code> (Sensitive, Production) עם הערך:<br>${isMainAdmin(req.user)
+    ? html`<code class="select-all" dir="ltr">${master.manageToken(c.slug)}</code>`
+    : html`<span class="muted">(הערך מוצג רק למנהל/ת הראשי/ת של מרכז הניהול. אפשר להשתמש בכפתור "להגדיר אוטומטית" למטה.)</span>`}</li>
       <li>Deployments ← Redeploy, ואחרי כדקה רעננו את הדף.</li>
     </ol>
     ${project && p.vercel ? postForm(req, backTo(c, '/install-token'), html`<button class="btn btn-primary btn-sm">${icon('wrench', 16)} להגדיר אוטומטית ולבנות מחדש</button>`, 'class="inline"') : ''}` : ''}

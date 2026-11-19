@@ -98,11 +98,47 @@ function normalizeUrl(input) {
   try {
     const u = new URL(v);
     const local = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
-    if (u.protocol !== 'https:' && !(local && u.protocol === 'http:')) return null;
-    if (!u.hostname.includes('.') && !local) return null;
+    // The console sends each client's management token to this address, so it must be a public site (SEC-007):
+    // https, a real domain name, no IP address and no internal name. Local test addresses only outside production.
+    if (local) return !config.production && ['http:', 'https:'].includes(u.protocol) ? u.origin : null;
+    if (u.protocol !== 'https:') return null;
+    if (!u.hostname.includes('.') || isIpHost(u.hostname) || /\.(local|internal|localhost|lan|home|corp|intranet)$/i.test(u.hostname)) return null;
+    if (u.port && u.port !== '443') return null;
     return u.origin;
   } catch {
     return null;
+  }
+}
+
+const isIpHost = (host) => require('node:net').isIP(host.replace(/^\[|\]$/g, '')) !== 0;
+
+/** A private, loopback, link-local or otherwise non-public address (v4, or v6 incl. v4-mapped). */
+function isPrivateAddress(ip) {
+  const v4 = ip.replace(/^::ffff:/i, '');
+  if (require('node:net').isIPv4(v4)) {
+    const [a, b] = v4.split('.').map(Number);
+    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+  }
+  const v6 = ip.toLowerCase();
+  return v6 === '::1' || v6 === '::' || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('fe80');
+}
+
+/**
+ * Before a token goes out: the client's host must resolve only to public addresses (a public name pointing at an
+ * internal address would otherwise still reach inside). Skipped outside production for local test sites.
+ */
+async function assertPublicDestination(url) {
+  if (!config.production) return;
+  const { hostname } = new URL(url);
+  let addresses;
+  try {
+    addresses = await require('node:dns').promises.lookup(hostname, { all: true, verbatim: true });
+  } catch {
+    throw new InstanceError('unreachable', 'לא ניתן למצוא את כתובת האתר (DNS).');
+  }
+  if (!addresses.length || addresses.some((a) => isPrivateAddress(a.address))) {
+    throw new InstanceError('unsafe_url', 'כתובת האתר מפנה לרשת פנימית, ולכן מפתח הניהול לא נשלח אליה.');
   }
 }
 
@@ -124,6 +160,8 @@ const INSTANCE_ERRORS = {
 /** Calls the client's management API; resolves with its JSON, or throws InstanceError with a Hebrew message. */
 async function call(client, method, path, body, { timeoutMs = 8000 } = {}) {
   if (!client.url) throw new InstanceError('no_url', INSTANCE_ERRORS.no_url);
+  if (normalizeUrl(client.url) !== client.url) throw new InstanceError('unsafe_url', 'כתובת האתר אינה כתובת ציבורית תקינה (https), ולכן מפתח הניהול לא נשלח אליה.');
+  await assertPublicDestination(client.url);
   let res;
   try {
     res = await fetchImpl(client.url + path, {

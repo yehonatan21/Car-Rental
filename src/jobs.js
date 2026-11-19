@@ -63,6 +63,15 @@ async function runJobs({ by = 'timer' } = {}) {
     if (claimed) await mail.licenseExpiring(u);
   }
 
+  // Rejected registrations: their license photos are deleted 30 days after the rejection (docs/privacy.md).
+  const cutoff = time.stamp(new Date(Date.now() - 30 * 86400000));
+  for (const u of db.prepare(`SELECT id, license_file, pending_license_file FROM users WHERE status = 'rejected' AND rejected_at < ?
+    AND (license_file IS NOT NULL OR pending_license_file IS NOT NULL)`).all(cutoff)) {
+    if (!claim("UPDATE users SET license_file = NULL, pending_license_file = NULL WHERE id = ? AND status = 'rejected'", u.id)) continue;
+    for (const f of [u.license_file, u.pending_license_file]) if (f) storage.remove(f);
+    audit(null, 'user.license_deleted', 'user', u.id, '30 ימים אחרי דחיית ההרשמה');
+  }
+
   // Abandoned registration attempts: delete the kept license image too.
   for (const d of db.prepare('SELECT * FROM registration_drafts WHERE expires_at < ?').all(Date.now())) {
     storage.remove(d.license_file);

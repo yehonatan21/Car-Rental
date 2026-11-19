@@ -146,10 +146,9 @@ function relayAllowed(origin) {
   if (!origin || origin === new URL(config.baseUrl).origin) return false;
   if (cleanList(process.env.GOOGLE_RELAY_ALLOWED).includes(origin)) return true;
   if (!(config.master || config.masterConsole)) return false;
-  const host = new URL(origin).hostname;
-  // The address the console saved for the client, or its Vercel project's own <project>.vercel.app address.
-  return Boolean(db.prepare(`SELECT 1 FROM master_clients WHERE url = ?
-    OR (vercel_project IS NOT NULL AND ? = vercel_project || '.vercel.app')`).get(origin, host));
+  // Only the exact address the console saved for the client. A guessed "<project>.vercel.app" is not proof that the
+  // address is the client's (SEC-006).
+  return Boolean(db.prepare('SELECT 1 FROM master_clients WHERE url = ?').get(origin));
 }
 
 /** Keeps a Google profile that has no account yet; the token goes in a cookie for the registration form. */

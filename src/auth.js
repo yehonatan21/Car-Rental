@@ -73,7 +73,9 @@ function parseCookies(header) {
   const out = {};
   for (const part of (header || '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    // A malformed value (e.g. "%E0") is skipped instead of failing every request with a 500 (SEC-013).
+    try { out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); } catch { /* ignore it */ }
   }
   return out;
 }

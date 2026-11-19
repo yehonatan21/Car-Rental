@@ -400,6 +400,13 @@ module.exports = ({ app, licenseUpload }) => {
   });
 
   app.post('/register', licenseUpload, async (req, res) => {
+    // Anyone can post this form, with a file: at most 20 attempts an hour from one address (SEC-008). Each attempt
+    // counts, so the file of a refused one is deleted before anything is kept.
+    if (auth.throttled('register:' + req.ip, 20, 3600000)) {
+      storage.discard(req.file);
+      return res.status(429).page('הרשמה', html`<div class="narrow card"><h1>יותר מדי ניסיונות הרשמה</h1>
+        <p>נשלחו מהרשת הזו יותר מדי טפסי הרשמה בשעה האחרונה. נסו שוב בעוד שעה, או פנו למנהל האתר.</p></div>`);
+    }
     const b = req.body;
     const gs = google.pendingSignup(req.cookies[GOOGLE_SIGNUP_COOKIE]);
     if (gs) b.email = gs.email; // the address Google verified, not whatever was posted

@@ -34,7 +34,7 @@ Gmail allows about 500 emails a day, which is plenty for one shared car.
 
    - **Locally**: in the `.env` file in the project root (it is git-ignored), then restart with `npm start`.
    - **On Vercel**: Project → Settings → Environment Variables. Add each variable for the environments you use (Production and/or Preview), then **Redeploy** (Deployments → ⋯ → Redeploy). Variables only apply to new deployments.
-   - **Other hosts / Docker**: the host's private environment settings, then restart.
+   - **Locally**: the `.env` file, then restart.
 
    Never commit the password. `BASE_URL` must be the application's real address so the links in the emails work. The Gmail app password may be pasted with or without spaces. Other providers give you their own host, port, user and password; port 465 uses TLS, 587 uses STARTTLS (set `SMTP_SECURE=true|false` to override).
 4. Sign in as an admin and open **Settings → Email delivery** (`/admin/settings`):

@@ -8,7 +8,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
 const storage = require('../storage');
-const { html, markdown, postForm, actionButton, decisionButtons, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { html, raw, markdown, postForm, actionButton, decisionButtons, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 const documents = require('./documents');
 const { actionLabel } = require('../views/audit-labels');
@@ -1135,6 +1135,66 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
     audit(req.user.id, 'settings.update', null, null, JSON.stringify(req.body, [...Object.keys(SETTING_LABELS), 'auto_approve']));
     res.flash('success', 'ההגדרות נשמרו');
     res.redirect('/admin/settings?tab=bookings');
+  });
+
+  // ---------- Reports ----------
+  app.get('/admin/reports', requireAdmin, (req, res) => {
+    const PERIODS = [['30', '30 הימים האחרונים'], ['90', '3 חודשים'], ['365', 'שנה']];
+    const days = PERIODS.some(([k]) => k === req.query.period) ? Number(req.query.period) : 30;
+    const custom = time.isValidDate(req.query.from) && time.isValidDate(req.query.to) && req.query.from <= req.query.to;
+    const to = custom ? req.query.to : time.today();
+    const from = custom ? req.query.from : time.addDays(to, -(days - 1));
+    const r = require('../reports').usageReport(defaultVehicle().id, from, to);
+    const maxWeekday = Math.max(...r.weekday.map((w) => w.avgHours), 0.1);
+    const maxHour = Math.max(...r.hourOfDay, 0.1);
+    const bar = (value, max, label) => html`<div class="bar-row"><span class="bar-label">${label}</span>
+      <span class="bar">${value > 0 ? raw(`<i style="width:${Math.max(2, (value / max) * 100).toFixed(1)}%"></i>`) : ''}</span><b>${value}</b></div>`;
+    const hoursLabel = (h) => (h == null ? '—' : h < 1 ? `${Math.max(1, Math.round(h * 60))} דק׳` : `${h} ש׳`);
+    const stat = (n, label, sub) => html`<div class="stat"><b>${n}</b><span>${label}${sub ? html`<small>${sub}</small>` : ''}</span></div>`;
+    res.page('דוחות', html`
+${pageHead('דוחות', { iconName: 'chart', sub: `${time.fmt(from)}–${time.fmt(to)}${r.pastDays < r.days ? ` · ${r.pastDays} ימים עד היום` : ''}` })}
+<form class="filters" method="get">
+  ${PERIODS.map(([k, l]) => html`<a class="btn btn-sm ${!custom && Number(k) === days ? 'btn-primary' : 'btn-light'}" href="?period=${k}">${l}</a>`)}
+  <label class="inline-label">מ־<input type="date" name="from" value="${custom ? from : ''}"></label>
+  <label class="inline-label">עד<input type="date" name="to" value="${custom ? to : ''}"></label>
+  <button class="btn btn-light btn-sm">הצגה</button>
+</form>
+<div class="stats report-stats">
+  ${stat(`${r.utilizationPct}%`, 'ניצולת הרכב', `${r.bookedHours} שעות מתוך ${r.pastDays * 24}`)}
+  ${stat(r.bookings, 'הזמנות', r.averageHours ? `ממוצע ${r.averageHours} שעות` : '')}
+  ${stat(r.idleDays, 'ימים בלי שימוש', `מתוך ${r.pastDays}`)}
+  ${stat(hoursLabel(r.answerMedianHours), 'זמן מענה לבקשה (חציון)', r.answerMaxHours == null ? '' : `הארוך ביותר: ${hoursLabel(r.answerMaxHours)}`)}
+</div>
+<div class="grid2">
+  <section class="card">
+    <h2 class="section-title">${icon('calendar')} שעות שימוש ממוצעות לפי יום</h2>
+    <div class="bars">${r.weekday.map((w) => bar(w.avgHours, maxWeekday, w.day))}</div>
+  </section>
+  <section class="card">
+    <h2 class="section-title">${icon('clock')} מתי הרכב בשימוש (שעות לפי שעה ביום)</h2>
+    <div class="bars bars-hours">${r.hourOfDay.map((h, i) => (i >= 6 && i <= 23 ? bar(h, maxHour, `${String(i).padStart(2, '0')}:00`) : ''))}</div>
+  </section>
+</div>
+<div class="grid2">
+  <section class="card">
+    <h2 class="section-title">${icon('list')} בקשות בתקופה</h2>
+    <dl class="dl">
+      <dt>בקשות שהוגשו</dt><dd>${r.requests}</dd>
+      <dt>אושרו אוטומטית</dt><dd>${r.autoApproved}</dd>
+      <dt>נדחו</dt><dd>${r.rejected}</dd>
+      <dt>בוטלו</dt><dd>${r.cancelled}</dd>
+      <dt>עדיין ממתינות</dt><dd>${r.stillWaiting ? html`<a href="/admin/bookings?status=pending">${r.stillWaiting}</a>` : 0}</dd>
+      <dt>הזמנות קדימה בתקופה</dt><dd>${r.aheadBookings}</dd>
+      <dt>הרכב חסום (טיפול, תחזוקה)</dt><dd>${r.blockedHours} שעות</dd>
+    </dl>
+  </section>
+  <section class="card">
+    <h2 class="section-title">${icon('users')} המשתמשים הפעילים ביותר</h2>
+    ${r.topUsers.length ? html`<div class="bars">${r.topUsers.map((u) => bar(u.hours, r.topUsers[0].hours, html`<a href="/admin/users/${u.id}">${u.name}</a>`))}</div>
+      <p class="muted small">שעות שימוש בתקופה.</p>` : html`<p class="empty">${icon('users', 28)}<span>אין שימוש בתקופה.</span></p>`}
+  </section>
+</div>
+<p class="muted small">הזמנות שהסתיימו או אושרו נספרות עד היום; ניצולת = שעות שימוש מתוך כל שעות התקופה. זמן מענה: מהגשת הבקשה עד שאושרה או נדחתה.</p>`);
   });
 
   app.get('/admin/audit', requireAdmin, (req, res) => {

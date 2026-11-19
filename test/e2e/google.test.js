@@ -139,8 +139,7 @@ test('the pre-filled registration needs the Google cookie; it cannot be reused b
 });
 
 test('Google sign-in goes straight in for an admin (no second step any more)', async () => {
-  const a = createUser({ role: 'admin', email: 'totp-admin@test.org' });
-  db.prepare("UPDATE users SET totp_secret = 'JBSWY3DPEHPK3PXP', totp_enabled = 1 WHERE id = ?").run(a.id);
+  createUser({ role: 'admin', email: 'totp-admin@test.org' });
   const c = client();
   const r = await googleLogin(c, { email: 'totp-admin@test.org' });
   assert.equal(r.location, '/admin');

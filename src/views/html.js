@@ -97,6 +97,7 @@ const ICON_PATHS = {
   wrench: '<path d="M14.5 6.5a4 4 0 0 0 5 5L12 19a2.1 2.1 0 0 1-3-3z"/><path d="M14.5 6.5l3-3a4 4 0 0 0-5 5"/>',
   arrow: '<path d="M15 6l-6 6 6 6"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
 };
@@ -113,8 +114,8 @@ function navLinks(user) {
   if (!user) return [['/login', 'התחברות', 'login'], ['/register', 'הרשמה', 'userplus'], ['/policy', 'נהלי השאלה', 'file']];
   if (user.role === 'admin') {
     return [['/admin', 'לוח בקרה', 'dashboard'], ['/admin/bookings', 'הזמנות', 'list'], ['/calendar', 'יומן', 'calendar'],
-      ['/admin/users', 'משתמשים', 'users'], ['/admin/vehicle', 'רכב', 'car'], ['/admin/policies', 'נהלים', 'file'],
-      ['/admin/settings', 'הגדרות', 'settings'],
+      ['/admin/users', 'משתמשים', 'users'], ['/admin/vehicle', 'רכב', 'car'], ['/admin/reports', 'דוחות', 'chart'],
+      ['/admin/policies', 'נהלים', 'file'], ['/admin/settings', 'הגדרות', 'settings'],
       // The console inside this site (MASTER_CONSOLE): for the main admin only.
       ...(config.masterConsole && user.email === require('../bootstrap').mainAdminEmail() ? [['/master', 'מרכז ניהול', 'shield']] : []),
       ['/me', 'אזור אישי', 'user']];

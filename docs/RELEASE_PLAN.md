@@ -83,7 +83,7 @@ registrations are deleted after 30 days · D4 Vercel only · D5 (pickup/return) 
    - SEC-014: `/healthz` shows only `ok` unless the request has the cron secret.
 6. **Personal data:** write down how ID numbers and license photos are stored, viewed (already logged) and deleted. Add the D3 clean-up to the jobs.
 
-**Done when:** every SEC item is marked fixed in `analysis/car-rental/SECURITY_FINDINGS.md` and has a test; `/modernize-harden` finds no Medium item open.
+**Done when:** every SEC item is marked fixed in `docs/archive/analysis/car-rental/SECURITY_FINDINGS.md` and has a test; `/modernize-harden` finds no Medium item open.
 
 ## R3: v1.3 Booking rules that match reality *(P1)*: **done 19/11/2026**
 
@@ -120,11 +120,13 @@ registrations are deleted after 30 days · D4 Vercel only · D5 (pickup/return) 
    - Only if the database time is a real share of p95 latency: move to `@libsql/client` (async), keeping `BEGIN IMMEDIATE` for approvals.
    - This is the largest and riskiest refactor, so it's done only with evidence.
 
-## R6: v2.2 Simplify and report *(P2)*
+## R6: v2.2 Simplify and report *(P2)*: **done 19/11/2026**, except the column drop (below)
 
 1. **D4:** if Vercel only, remove the Docker image, SSH deployment, `Dockerfile*`, `docker-compose*`, `Caddyfile` and `deploy.sh` from CI and the docs.
-2. **Docs:** a short README (what it is, how to start, links); the details in `docs/`; `analysis/` moved to `docs/archive/` once its open items are in this plan.
-3. **Leftovers:** drop the 2FA columns with a numbered migration (SQLite ≥ 3.35 `DROP COLUMN`), after R5.1.
+2. **Docs:** a short README (what it is, how to start, links); the details in `docs/`; `analysis/` moved to `docs/archive/` (done) once its open items are in this plan.
+3. **Leftovers:** the 2FA columns are no longer read or written, and new databases don't have them. **Next release:**
+   drop them from existing databases (`ALTER TABLE … DROP COLUMN`, guarded by `PRAGMA table_info`). It's a separate
+   release so that a still-running older instance never meets a missing column during a deploy.
 4. **Reports for managers** (the useful part of the removed agent, safely): an "דוחות" (reports) page with utilization, booked hours, idle days, busiest times, approval turnaround, cancellations, late returns (after R4) and the car's downtime. Fixed queries only, with no personal data in exports.
 
 ## Operations (alongside R1 and R2)

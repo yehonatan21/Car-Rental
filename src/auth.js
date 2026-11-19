@@ -26,8 +26,8 @@ function createSession(res, userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   const csrf = crypto.randomBytes(24).toString('base64url');
   const expires = Date.now() + config.sessionDays * 86400000;
-  db.prepare('INSERT INTO sessions (token_hash, user_id, csrf, needs_2fa, expires_at) VALUES (?, ?, ?, ?, ?)')
-    .run(sha256(token), userId, csrf, 0, expires);
+  db.prepare('INSERT INTO sessions (token_hash, user_id, csrf, expires_at) VALUES (?, ?, ?, ?)')
+    .run(sha256(token), userId, csrf, expires);
   res.cookie(COOKIE, token, {
     httpOnly: true, sameSite: 'lax', secure: res.req.secure, expires: new Date(expires), path: '/',
   });
@@ -59,11 +59,11 @@ function loadSessionAndUser(req) {
   const token = req.cookies[COOKIE];
   if (!token) return { state: 'none', session: null, user: null };
   const hash = sha256(token);
-  const row = db.prepare(`SELECT s.user_id AS s_user_id, s.csrf AS s_csrf, s.needs_2fa AS s_needs_2fa, s.expires_at AS s_expires_at, u.*
+  const row = db.prepare(`SELECT s.user_id AS s_user_id, s.csrf AS s_csrf, s.expires_at AS s_expires_at, u.*
     FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).get(hash);
   if (!row) return { state: 'unknown', session: null, user: null };
   if (row.s_expires_at < Date.now()) return { state: 'expired', session: null, user: null };
-  const session = { token_hash: hash, user_id: row.s_user_id, csrf: row.s_csrf, needs_2fa: row.s_needs_2fa, expires_at: row.s_expires_at };
+  const session = { token_hash: hash, user_id: row.s_user_id, csrf: row.s_csrf, expires_at: row.s_expires_at };
   const user = Object.fromEntries(Object.entries(row).filter(([k]) => !k.startsWith('s_')));
   return user.id == null ? { state: 'no-user', session, user: null } : { state: 'ok', session, user };
 }

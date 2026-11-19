@@ -1,5 +1,5 @@
 'use strict';
-// Production: TLS is terminated by the reverse proxy (Caddy), which forwards X-Forwarded-Proto.
+// Production: TLS is terminated in front of the app (Vercel), which forwards X-Forwarded-Proto.
 process.env.NODE_ENV = 'production';
 delete process.env.HTTPS;
 const { createUser, startServer } = require('../helpers');
@@ -41,7 +41,7 @@ test('plain HTTP requests are redirected to https', async () => {
   assert.equal(r.headers.location, 'https://car.example.org/login?x=1');
 });
 
-test('the health check stays reachable over plain HTTP for Docker/platform probes', async () => {
+test('the health check stays reachable over plain HTTP for platform probes', async () => {
   assert.equal((await get('/healthz')).status, 200);
 });
 

@@ -254,8 +254,7 @@ test('policy versions are listed with acceptance counts', async () => {
 });
 
 test('two-step verification is gone: no setup, and an account that had it on signs in directly', async () => {
-  const a2 = createUser({ role: 'admin', email: 'twofa@adm.test' });
-  db.prepare("UPDATE users SET totp_secret = 'JBSWY3DPEHPK3PXP', totp_enabled = 1 WHERE id = ?").run(a2.id);
+  createUser({ role: 'admin', email: 'twofa@adm.test' }); // its old 2FA columns are no longer read (or created)
   const c = client();
   const r = await c.post('/login', { email: 'twofa@adm.test', password: 'Password1' });
   assert.equal(r.location, '/admin', 'no second step');
@@ -607,4 +606,25 @@ test('action log: Hebrew action names and the people by name', async () => {
   const page = (await admin.get('/admin/audit')).text;
   assert.match(page, /<span title="user.block">חסימת משתמש<\/span>/);
   assert.match(page, new RegExp(`<a href="/admin/users/${u.id}">לוג בדיקה</a>`));
+});
+
+test('reports: use, idle days, answer time and the busiest users over a period', async () => {
+  const u = createUser({ email: 'report@adm.test', first_name: 'דוח', last_name: 'בדיקה' });
+  const day = time.addDays(time.today(), -3);
+  const id = db.prepare(`INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, status, kind, created_by, created_at)
+    VALUES (1, ?, ?, ?, 'completed', 'booking', ?, ?)`).run(u.id, `${day}T08:00`, `${day}T14:00`, u.id, `${time.addDays(day, -1)} 10:00:00`).lastInsertRowid;
+  db.prepare("INSERT INTO booking_history (booking_id, from_status, to_status, at) VALUES (?, 'pending', 'approved', ?)").run(id, `${time.addDays(day, -1)} 12:00:00`);
+  const r = require('../../src/reports').usageReport(1, time.addDays(time.today(), -6), time.today());
+  assert.ok(r.bookedHours >= 6);
+  assert.ok(r.utilizationPct > 0);
+  assert.ok(r.idleDays < 7);
+  assert.equal(r.weekday[time.parse(day).getDay()].avgHours >= 6, true);
+  assert.ok(r.topUsers.some((t) => t.name === 'דוח בדיקה' && t.hours === 6));
+  assert.ok(r.answerMedianHours !== null);
+  const page = await admin.get('/admin/reports?period=30');
+  assert.equal(page.status, 200);
+  assert.match(page.text, /ניצולת הרכב/);
+  assert.match(page.text, /דוח בדיקה/);
+  assert.doesNotMatch(page.text, /\d{9}/, 'no ID numbers on the page');
+  assert.equal((await client().get('/admin/reports')).status, 401, 'managers only');
 });

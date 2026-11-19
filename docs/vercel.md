@@ -92,8 +92,7 @@ single push rebuilds every client's site. Two settings in this repository do thi
 - `vercel.json` → `ignoreCommand` runs `scripts/vercel-ignore-build.js`, which skips the build of any other branch. Every deployment of `main` is built (a redeploy to apply new
   variables must never be skipped).
 
-To try a change before production, run it locally (`npm run dev`), or use the Docker development image that CI publishes
-for `dev` (`ghcr.io/<owner>/car-rental:dev`, see docs/dev-environment.md). To get Vercel previews back, remove those two
+To try a change before production, run it locally (`npm run dev`). To get Vercel previews back, remove those two
 settings.
 
 ## Limits on Vercel

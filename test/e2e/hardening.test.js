@@ -1,5 +1,5 @@
 'use strict';
-// Security hardening (analysis/car-rental/SECURITY_FINDINGS.md): each test replays the attack and shows it is blocked.
+// Security hardening (docs/archive/analysis/car-rental/SECURITY_FINDINGS.md): each test replays the attack and shows it is blocked.
 process.env.MASTER_CONSOLE = 'true';
 process.env.ADMIN_EMAIL = 'owner@hard.test';
 process.env.ADMIN_PASSWORD = 'OwnerPass1';

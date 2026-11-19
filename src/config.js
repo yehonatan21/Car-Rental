@@ -19,7 +19,7 @@ const vercelUrl = process.env.VERCEL_ENV === 'preview'
   ? process.env.VERCEL_BRANCH_URL || process.env.VERCEL_URL
   : process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
 const port = Number(process.env.PORT || 3000);
-// Serve TLS from Node itself? Default: yes in development, no in production (a TLS proxy such as Caddy sits in front).
+// Serve TLS from Node itself? Default: yes in development, no in production (Vercel terminates HTTPS in front).
 const httpsEnabled = process.env.HTTPS ? process.env.HTTPS === 'true' : !production;
 
 function smtpConfig() {

@@ -58,8 +58,6 @@ if (!schemaIsCurrent) {
     pending_license_expiry TEXT,
     license_warned_for TEXT,
     privacy_accepted_at TEXT,
-    totp_secret TEXT,
-    totp_enabled INTEGER NOT NULL DEFAULT 0,
     admin_note TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
@@ -69,7 +67,6 @@ if (!schemaIsCurrent) {
     token_hash TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     csrf TEXT NOT NULL,
-    needs_2fa INTEGER NOT NULL DEFAULT 0,
     expires_at INTEGER NOT NULL
   );
 
@@ -291,10 +288,9 @@ if (!schemaIsCurrent) {
     AND a.target_id = users.id), updated_at) WHERE status = 'rejected' AND rejected_at IS NULL`).run();
   // Accounts already linked to Google had their address proven by Google.
   db.prepare('UPDATE users SET email_verified_at = ? WHERE email_verified_at IS NULL AND google_sub IS NOT NULL').run(new Date().toISOString());
-  // Two-step verification was removed: forget stored authenticator secrets and sessions that were waiting for a code.
-  // (The columns stay, so older databases keep working.)
-  db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE totp_enabled != 0 OR totp_secret IS NOT NULL').run();
-  db.prepare('DELETE FROM sessions WHERE needs_2fa != 0').run();
+  // Two-step verification was removed long ago. Its columns (users.totp_secret, users.totp_enabled,
+  // sessions.needs_2fa) are no longer read or written, and new databases don't have them; existing ones still do
+  // until the next release drops them (a running older instance must not meet a missing column mid-deploy).
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
 
 

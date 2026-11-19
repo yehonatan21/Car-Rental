@@ -52,7 +52,7 @@ app.use('/static', express.static(path.join(__dirname, '..', 'public'), { maxAge
 // Browsers ask for /favicon.ico on their own (e.g. when showing a PDF); the tab icon is an SVG.
 app.get('/favicon.ico', (req, res) => res.redirect(301, '/static/favicon.svg'));
 
-// Liveness/readiness probe for Docker, CI smoke tests and the hosting platform.
+// Liveness probe for the hosting platform, CI and the console.
 // Also says which code version is running and where the data is kept (no secrets), e.g. to check after a new
 // deployment that it still uses the same database (storage.id unchanged).
 /** Compares two secrets in constant time (SEC-012). */

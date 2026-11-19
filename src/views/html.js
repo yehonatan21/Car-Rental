@@ -114,7 +114,7 @@ function navLinks(user) {
   if (!user) return [['/login', 'התחברות', 'login'], ['/register', 'הרשמה', 'userplus'], ['/policy', 'נהלי השאלה', 'file']];
   if (user.role === 'admin') {
     return [['/admin', 'לוח בקרה', 'dashboard'], ['/admin/bookings', 'הזמנות', 'list'], ['/calendar', 'יומן', 'calendar'],
-      ['/admin/users', 'משתמשים', 'users'], ['/admin/vehicle', 'רכב', 'car'], ['/admin/reports', 'דוחות', 'chart'],
+      ['/admin/users', 'משתמשים', 'users'], ['/admin/vehicle', 'רכב', 'car'],
       ['/admin/policies', 'נהלים', 'file'], ['/admin/settings', 'הגדרות', 'settings'],
       // The console inside this site (MASTER_CONSOLE): for the main admin only.
       ...(config.masterConsole && user.email === require('../bootstrap').mainAdminEmail() ? [['/master', 'מרכז ניהול', 'shield']] : []),

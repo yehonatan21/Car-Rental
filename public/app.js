@@ -413,6 +413,8 @@ if (tablist) {
     return el ? panels.find((p) => p === el || p.contains(el)) : null;
   };
   const show = (panel, focus) => {
+    // A panel the server fills only when asked (Settings → Reports): load it.
+    if (panel.hasAttribute('data-load')) { location.href = `?tab=${encodeURIComponent(panel.id)}`; return; }
     for (const p of panels) p.hidden = p !== panel;
     for (const t of tabs) {
       const on = t.dataset.tab === panel.id;

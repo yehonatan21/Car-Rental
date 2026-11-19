@@ -1,5 +1,5 @@
 'use strict';
-// Reports for a site's managers (/admin/reports): how much the car is used, when, how fast requests are answered,
+// Reports for a site's managers (Settings → Reports, /admin/settings?tab=reports): how much the car is used, when, how fast requests are answered,
 // cancellations and downtime, over a period. Fixed queries only: no free-form SQL and no personal data beyond names.
 const { db } = require('./db');
 const time = require('./time');

@@ -203,7 +203,8 @@ const auditCard = () => html`<section class="card" id="audit">
 </section>`;
 
 const SETTINGS_TABS = [
-  ['general', 'כללי', 'users'], ['bookings', 'הזמנות ותזכורות', 'calendar'], ['integrations', 'מיילים והתחברות', 'file'], ['health', 'תקינות המערכת', 'shield'],
+  ['general', 'כללי', 'users'], ['bookings', 'הזמנות ותזכורות', 'calendar'], ['integrations', 'מיילים והתחברות', 'file'],
+  ['reports', 'דוחות', 'chart'], ['health', 'תקינות המערכת', 'shield'],
 ];
 
 /** Settings → system health: when reminders last ran, and the e-mails that wait or failed (with "retry now"). */
@@ -1092,14 +1093,24 @@ ${pageHead('נהלי השאלת הרכב', { iconName: 'shield', sub: `גרסה 
   app.get('/admin/settings', requireAdmin, (req, res) => {
     const tab = activeTab(req, SETTINGS_TABS);
     res.page('הגדרות', html`
-${pageHead('הגדרות', { iconName: 'settings', sub: 'פרטי הארגון, כללי ההזמנה והתזכורות, מיילים והתחברות, ותקינות המערכת.' })}
+${pageHead('הגדרות', { iconName: 'settings', sub: 'פרטי הארגון, כללי ההזמנה והתזכורות, מיילים והתחברות, דוחות ותקינות המערכת.' })}
 ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
 <div class="tab-panels">
   ${tabPanel('general', tab, brandingCard(req))}
   ${tabPanel('bookings', tab, bookingRulesCard(req))}
   ${tabPanel('integrations', tab, html`${emailStatusCard(req)}${googleStatusCard(req)}`)}
+  ${tab === 'reports' ? tabPanel('reports', tab, reportsPanel(req))
+    // Computed only when opened: the tab then loads ?tab=reports (data-load, see app.js), the others stay quick.
+    : html`<div class="tab-panel" id="reports" role="tabpanel" data-load hidden></div>`}
   ${tabPanel('health', tab, html`${jobsCard(req)}${systemCard()}${auditCard()}`)}
 </div>`);
+  });
+
+  // The reports used to be a page of their own; old links and bookmarks open the tab.
+  app.get('/admin/reports', requireAdmin, (req, res) => {
+    const q = new URLSearchParams(Object.entries(req.query).filter(([k, v]) => ['period', 'from', 'to'].includes(k) && typeof v === 'string'));
+    q.set('tab', 'reports');
+    res.redirect(301, `/admin/settings?${q}`);
   });
 
   app.post('/admin/settings/branding', requireAdmin, logoUpload, (req, res) => {
@@ -1170,7 +1181,8 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
   });
 
   // ---------- Reports ----------
-  app.get('/admin/reports', requireAdmin, (req, res) => {
+  /** Settings → Reports: the car's use, when, how fast requests are answered, for a chosen period. */
+  function reportsPanel(req) {
     const PERIODS = [['30', '30 הימים האחרונים'], ['90', '3 חודשים'], ['365', 'שנה']];
     const days = PERIODS.some(([k]) => k === req.query.period) ? Number(req.query.period) : 30;
     const custom = time.isValidDate(req.query.from) && time.isValidDate(req.query.to) && req.query.from <= req.query.to;
@@ -1183,10 +1195,11 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
       <span class="bar">${value > 0 ? raw(`<i style="width:${Math.max(2, (value / max) * 100).toFixed(1)}%"></i>`) : ''}</span><b>${value}</b></div>`;
     const hoursLabel = (h) => (h == null ? '—' : h < 1 ? `${Math.max(1, Math.round(h * 60))} דק׳` : `${h} ש׳`);
     const stat = (n, label, sub) => html`<div class="stat"><b>${n}</b><span>${label}${sub ? html`<small>${sub}</small>` : ''}</span></div>`;
-    res.page('דוחות', html`
-${pageHead('דוחות', { iconName: 'chart', sub: `${time.fmt(from)}–${time.fmt(to)}${r.pastDays < r.days ? ` · ${r.pastDays} ימים עד היום` : ''}` })}
-<form class="filters" method="get">
-  ${PERIODS.map(([k, l]) => html`<a class="btn btn-sm ${!custom && Number(k) === days ? 'btn-primary' : 'btn-light'}" href="?period=${k}">${l}</a>`)}
+    return html`
+<p class="muted">התקופה: ${time.fmt(from)}–${time.fmt(to)}${r.pastDays < r.days ? ` · ${r.pastDays} ימים עד היום` : ''}</p>
+<form class="filters" method="get" action="/admin/settings">
+  <input type="hidden" name="tab" value="reports">
+  ${PERIODS.map(([k, l]) => html`<a class="btn btn-sm ${!custom && Number(k) === days ? 'btn-primary' : 'btn-light'}" href="?tab=reports&period=${k}">${l}</a>`)}
   <label class="inline-label">מ־<input type="date" name="from" value="${custom ? from : ''}"></label>
   <label class="inline-label">עד<input type="date" name="to" value="${custom ? to : ''}"></label>
   <button class="btn btn-light btn-sm">הצגה</button>
@@ -1226,8 +1239,8 @@ ${pageHead('דוחות', { iconName: 'chart', sub: `${time.fmt(from)}–${time.f
       <p class="muted small">שעות שימוש בתקופה.</p>` : html`<p class="empty">${icon('users', 28)}<span>אין שימוש בתקופה.</span></p>`}
   </section>
 </div>
-<p class="muted small">הזמנות שהסתיימו או אושרו נספרות עד היום; ניצולת = שעות שימוש מתוך כל שעות התקופה. זמן מענה: מהגשת הבקשה עד שאושרה או נדחתה.</p>`);
-  });
+<p class="muted small">הזמנות שהסתיימו או אושרו נספרות עד היום; ניצולת = שעות שימוש מתוך כל שעות התקופה. זמן מענה: מהגשת הבקשה עד שאושרה או נדחתה.</p>`;
+  }
 
   app.get('/admin/audit', requireAdmin, (req, res) => {
     // Who did it, and who or what it was about, by name (the account may have been deleted since: then by number).

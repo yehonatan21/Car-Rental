@@ -290,12 +290,12 @@ test('code login page: development hint when no mail server, resend button', asy
   assert.equal(bad.status, 400);
 });
 
-test('settings are organised in tabs: general, bookings and reminders, e-mail and sign-in, system health', async () => {
+test('settings are organised in tabs: general, bookings and reminders, e-mail and sign-in, reports, system health', async () => {
   const page = (await admin.get('/admin/settings')).text;
   const tabs = [...page.matchAll(/<a href="\?tab=(\w+)" role="tab" data-tab="\1"[^>]*aria-selected="(\w+)"[^>]*>[\s\S]*?<span>([^<]+)<\/span><\/a>/g)]
     .map((m) => [m[1], m[3], m[2]]);
   assert.deepEqual(tabs, [['general', 'כללי', 'true'], ['bookings', 'הזמנות ותזכורות', 'false'], ['integrations', 'מיילים והתחברות', 'false'],
-    ['health', 'תקינות המערכת', 'false']]);
+    ['reports', 'דוחות', 'false'], ['health', 'תקינות המערכת', 'false']]);
   // Each tab's panel holds its own sections.
   const panel = (text, id) => new RegExp(`<div class="tab-panel" id="${id}" role="tabpanel" ?(hidden)?>([\\s\\S]*?)</div>\\s*(<div class="tab-panel"|</div>\\s*</main>)`).exec(text);
   assert.match(panel(page, 'general')[2], /id="branding"[\s\S]*name="org_name"[\s\S]*name="brand_color"/);
@@ -621,10 +621,18 @@ test('reports: use, idle days, answer time and the busiest users over a period',
   assert.equal(r.weekday[time.parse(day).getDay()].avgHours >= 6, true);
   assert.ok(r.topUsers.some((t) => t.name === 'דוח בדיקה' && t.hours === 6));
   assert.ok(r.answerMedianHours !== null);
-  const page = await admin.get('/admin/reports?period=30');
+  // Settings → Reports (the old address leads there, keeping the period).
+  const old = await admin.get('/admin/reports?period=90');
+  assert.equal(old.status, 301);
+  assert.equal(old.location, '/admin/settings?period=90&tab=reports');
+  const page = await admin.get('/admin/settings?tab=reports&period=30');
   assert.equal(page.status, 200);
   assert.match(page.text, /ניצולת הרכב/);
   assert.match(page.text, /דוח בדיקה/);
+  assert.match(page.text, /<form class="filters" method="get" action="\/admin\/settings">\s*<input type="hidden" name="tab" value="reports">/);
   assert.doesNotMatch(page.text, /\d{9}/, 'no ID numbers on the page');
-  assert.equal((await client().get('/admin/reports')).status, 401, 'managers only');
+  const other = (await admin.get('/admin/settings')).text;
+  assert.match(other, /<div class="tab-panel" id="reports" role="tabpanel" data-load hidden><\/div>/, 'not computed for the other tabs');
+  assert.doesNotMatch(other, /href="\/admin\/reports"/, 'no longer in the menu');
+  assert.equal((await client().get('/admin/settings?tab=reports')).status, 401, 'managers only');
 });

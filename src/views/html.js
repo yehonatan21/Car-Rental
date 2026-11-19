@@ -246,6 +246,22 @@ const decisionButtons = (req, b, back, { note = false, size = 'btn-sm' } = {}) =
     <button class="btn btn-light btn-danger-text ${size}" data-confirm="לדחות את הבקשה? המשתמש/ת יקבל/תקבל הודעה.">${icon('x', 16)} דחייה</button>`, 'class="inline"')}
 </div>`;
 
+/** A form error about particular fields, by their name attribute: fieldError(['first_name', 'last_name'], 'יש למלא…'). */
+const fieldError = (fields, text) => ({ fields: [].concat(fields), text });
+
+/**
+ * The errors at the top of a form: an alert that app.js focuses, so screen readers read it. An error made with
+ * fieldError() names its fields: app.js marks them aria-invalid and points them (aria-describedby) at the message.
+ * Takes a list, or one error (a string or a fieldError).
+ */
+function errorSummary(errors) {
+  const list = [].concat(errors || []).filter(Boolean);
+  if (!list.length) return '';
+  const item = (e, i) => (e && e.fields ? html`<li id="form-error-${i}" data-fields="${e.fields.join(' ')}">${e.text}</li>` : html`<li>${e}</li>`);
+  return html`<div class="flash flash-error" role="alert" tabindex="-1" data-error-summary>${list.length === 1
+    ? html`<ul class="plain">${item(list[0], 0)}</ul>` : html`<ul>${list.map(item)}</ul>`}</div>`;
+}
+
 function field(label, input, hint) {
   return html`<label class="field"><span>${label}</span>${input}${hint ? html`<small>${hint}</small>` : ''}</label>`;
 }
@@ -261,6 +277,6 @@ const fileInput = (name, { required = true } = {}) =>
 const licenseInput = (opts) => fileInput('license', opts);
 
 module.exports = {
-  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, decisionButtons, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, asset, newPasswordPage, USER_STATUS, VEHICLE_STATUS,
+  html, raw, escape, markdown, layout, csrfField, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, badge, icon, pageHead, pageTabs, tabPanel, activeTab, asset, newPasswordPage, USER_STATUS, VEHICLE_STATUS,
   licenseInput, fileInput, uploadLimitLabel,
 };

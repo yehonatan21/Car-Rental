@@ -6,7 +6,7 @@ const time = require('../time');
 const bookings = require('../bookings');
 const storage = require('../storage');
 const { renderCalendar, windowFor } = require('../views/calendar');
-const { html, markdown, postForm, actionButton, decisionButtons, field, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
+const { html, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
 const { normalizePhone, validPhone, safeNext } = require('./public');
 
 const STATUS_HELP = {
@@ -264,7 +264,7 @@ ${isAdmin ? entries.filter((e) => e.dialog).map((e) => bookingDialog(req, e, req
     return html`
 <div class="narrow">
   ${pageHead('בקשת הזמנה חדשה', { iconName: 'plus', sub: 'בוחרים מתי לאסוף ומתי להחזיר, והבקשה נשלחת לאישור המנהל.' })}
-  ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
+  ${errorSummary(error)}
   ${postForm(req, '/bookings/new', html`
     <h2 class="section-title">${icon('clock')} מתי?</h2>
     <div class="grid2">
@@ -312,7 +312,7 @@ ${isAdmin ? entries.filter((e) => e.dialog).map((e) => bookingDialog(req, e, req
       start: String(req.body.start || ''), end: String(req.body.end || ''),
       purpose: String(req.body.purpose || '').trim().slice(0, 200), notes: String(req.body.notes || '').trim().slice(0, 1000),
     };
-    if (req.body.accept_rules !== '1') return res.status(400).page('הזמנה חדשה', newBookingPage(req, { error: 'יש לאשר את נהלי השימוש', v }));
+    if (req.body.accept_rules !== '1') return res.status(400).page('הזמנה חדשה', newBookingPage(req, { error: fieldError('accept_rules', 'יש לאשר את נהלי השימוש'), v }));
     try {
       let b = bookings.createRequest(req.user, { vehicleId: defaultVehicle().id, ...v });
       const approved = bookings.autoApprove(b);
@@ -329,7 +329,7 @@ ${isAdmin ? entries.filter((e) => e.dialog).map((e) => bookingDialog(req, e, req
 </div>`);
     } catch (err) {
       if (!(err instanceof bookings.BookingError)) throw err;
-      res.status(400).page('הזמנה חדשה', newBookingPage(req, { error: err.message, v }));
+      res.status(400).page('הזמנה חדשה', newBookingPage(req, { error: fieldError(['start', 'end'], err.message), v }));
     }
   });
 

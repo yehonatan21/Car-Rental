@@ -5,7 +5,7 @@ const auth = require('../auth');
 const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
-const { html, raw, markdown, postForm, field, icon, pageHead, licenseInput, uploadLimitLabel } = require('../views/html');
+const { html, raw, markdown, postForm, field, fieldError, errorSummary, icon, pageHead, licenseInput, uploadLimitLabel } = require('../views/html');
 const google = require('../google');
 const { brand } = require('../brand');
 const storage = require('../storage');
@@ -54,7 +54,7 @@ function loginPage(req, { error, email = '', next = req.query.next || req.body?.
 <div class="narrow">
   <div class="auth-head"><span class="brand-mark">${icon('car', 30)}</span><h1>התחברות</h1>
     <p class="muted">${config.master ? 'כניסה למרכז הניהול של אתרי הלקוחות.' : 'ברוכים השבים! התחברו כדי לבדוק זמינות ולהזמין את הרכב.'}</p></div>
-  ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
+  ${errorSummary(error)}
   ${googleOption(req, '/auth/google' + (safeNext(next) ? '?next=' + encodeURIComponent(next) : ''), 'התחברות עם Google', '/login')}
   ${google.enabled() ? html`<p class="divider"><span>או</span></p>` : ''}
   ${postForm(req, '/login', html`
@@ -111,7 +111,7 @@ function registerPage(req, { errors = [], v = {}, draft = null } = {}) {
   return html`
 <div class="narrow-wide">
 ${pageHead('הרשמה למערכת', { iconName: 'userplus', sub: 'לאחר ההרשמה המנהל יבדוק את הפרטים ואת רישיון הנהיגה. לא ניתן להזמין את הרכב עד לאישור.' })}
-${errors.length ? html`<div class="flash flash-error" role="alert" tabindex="-1" data-error-summary><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+${errorSummary(errors)}
 <p class="muted small">שדות המסומנים בכוכבית (*) הם שדות חובה.</p>
 ${gs ? html`<div class="flash flash-success">מתחברים עם חשבון Google <b>${gs.email}</b>. נשאר להשלים את הפרטים ולהעלות רישיון נהיגה.</div>`
     : googleOption(req, '/auth/google', 'הרשמה מהירה עם Google', '/register',
@@ -190,7 +190,7 @@ function forgotPage(req, { email = '', error } = {}) {
   return html`
 <div class="narrow">
   <h1>שכחתי סיסמה</h1>
-  ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
+  ${errorSummary(error)}
   ${!mail.canDeliver() ? html`<div class="flash flash-warning">באתר הזה לא הוגדרה שליחת מיילים, ולכן לא ניתן לשלוח קישור לאיפוס. לאיפוס הסיסמה פנו למנהל המערכת.</div>` : ''}
   ${postForm(req, '/password/forgot', html`
     <p>נשלח לכתובת הדואר האלקטרוני שלך קישור לבחירת סיסמה חדשה.</p>
@@ -204,7 +204,7 @@ function resetPage(req, { token, error } = {}) {
   return html`
 <div class="narrow">
   <h1>בחירת סיסמה חדשה</h1>
-  ${error ? html`<div class="flash flash-error">${error}</div>` : ''}
+  ${errorSummary(error)}
   ${postForm(req, '/password/reset', html`
     <input type="hidden" name="token" value="${token}">
     ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password" autofocus>`, 'לפחות 8 תווים')}
@@ -259,7 +259,7 @@ module.exports = ({ app, licenseUpload }) => {
       return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי ניסיונות. נסו שוב בעוד מספר דקות, או התחברו עם קוד במייל.', email }));
     }
     if (!user || !auth.verifyPassword(String(req.body.password || ''), user.password_hash)) {
-      return res.status(401).page('התחברות', loginPage(req, { error: 'דואר אלקטרוני או סיסמה שגויים', email }));
+      return res.status(401).page('התחברות', loginPage(req, { error: fieldError(['email', 'password'], 'דואר אלקטרוני או סיסמה שגויים'), email }));
     }
     auth.release(ipKey);
     finishLogin(req, res, user);
@@ -273,7 +273,7 @@ module.exports = ({ app, licenseUpload }) => {
     if (auth.throttled('code:' + req.ip, 5)) {
       return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי בקשות. נסו שוב בעוד מספר דקות.', email }));
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).page('התחברות', loginPage(req, { error: 'כתובת הדואר האלקטרוני אינה תקינה', email }));
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).page('התחברות', loginPage(req, { error: fieldError('email', 'כתובת הדואר האלקטרוני אינה תקינה'), email }));
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     // Same response whether or not the address exists, to avoid revealing registered e-mails.
     const sent = user ? await mail.loginCode(user, auth.createLoginCode(user.id)) : true;
@@ -435,18 +435,18 @@ module.exports = ({ app, licenseUpload }) => {
     }
     let passwordHash = draft?.password_hash || null;
     const password = String(b.password || '');
-    if (password && password.length < 8) errors.push('הסיסמה חייבת להכיל לפחות 8 תווים');
+    if (password && password.length < 8) errors.push(fieldError('password', 'הסיסמה חייבת להכיל לפחות 8 תווים'));
     else if (password) passwordHash = auth.hashPassword(password);
 
-    if (!v.first_name || !v.last_name) errors.push('יש למלא שם פרטי ושם משפחה');
-    if (!validIsraeliId(v.id_number)) errors.push('מספר תעודת הזהות אינו תקין');
-    if (!validPhone(v.phone)) errors.push('מספר הטלפון הנייד אינו תקין');
-    if (!validEmail(v.email)) errors.push('כתובת הדואר האלקטרוני אינה תקינה');
-    if (!licenseFile) errors.push('יש להעלות צילום רישיון נהיגה (תמונה או PDF)');
-    if (!time.isValidDate(v.license_expiry) || v.license_expiry < time.today()) errors.push('יש להזין תאריך תוקף רישיון עתידי');
-    if (!v.accept_policy) errors.push('יש לאשר את נהלי השאלת הרכב');
-    if (!v.accept_privacy) errors.push('יש לאשר את מדיניות הפרטיות');
-    if (Number(b.policy_version) !== currentPolicy().version) errors.push('הנהלים עודכנו בזמן ההרשמה. יש לקרוא ולאשר אותם מחדש');
+    if (!v.first_name || !v.last_name) errors.push(fieldError(['first_name', 'last_name'], 'יש למלא שם פרטי ושם משפחה'));
+    if (!validIsraeliId(v.id_number)) errors.push(fieldError('id_number', 'מספר תעודת הזהות אינו תקין'));
+    if (!validPhone(v.phone)) errors.push(fieldError('phone', 'מספר הטלפון הנייד אינו תקין'));
+    if (!validEmail(v.email)) errors.push(fieldError('email', 'כתובת הדואר האלקטרוני אינה תקינה'));
+    if (!licenseFile) errors.push(fieldError('license', 'יש להעלות צילום רישיון נהיגה (תמונה או PDF)'));
+    if (!time.isValidDate(v.license_expiry) || v.license_expiry < time.today()) errors.push(fieldError('license_expiry', 'יש להזין תאריך תוקף רישיון עתידי'));
+    if (!v.accept_policy) errors.push(fieldError('accept_policy', 'יש לאשר את נהלי השאלת הרכב'));
+    if (!v.accept_privacy) errors.push(fieldError('accept_privacy', 'יש לאשר את מדיניות הפרטיות'));
+    if (Number(b.policy_version) !== currentPolicy().version) errors.push(fieldError('accept_policy', 'הנהלים עודכנו בזמן ההרשמה. יש לקרוא ולאשר אותם מחדש'));
     // Two separate messages: "this e-mail already has an account" (sign in instead) is a different problem from
     // "this ID number belongs to another account".
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(v.email)) errors.push('כבר קיים חשבון עם כתובת הדואר האלקטרוני הזו. אפשר להתחבר אליו במקום להירשם.');
@@ -527,9 +527,9 @@ module.exports = ({ app, licenseUpload }) => {
     const password = String(req.body.password || '');
     if (auth.throttled('reset-set:' + req.ip, 10)) return res.status(429).page('איפוס סיסמה', invalidResetPage());
     if (!auth.checkPasswordReset(token)) return res.status(400).page('איפוס סיסמה', invalidResetPage());
-    if (password.length < 8) return res.status(400).page('איפוס סיסמה', resetPage(req, { token, error: 'הסיסמה חייבת להכיל לפחות 8 תווים' }));
+    if (password.length < 8) return res.status(400).page('איפוס סיסמה', resetPage(req, { token, error: fieldError('password', 'הסיסמה חייבת להכיל לפחות 8 תווים') }));
     if (password !== String(req.body.confirm || '')) {
-      return res.status(400).page('איפוס סיסמה', resetPage(req, { token, error: 'הסיסמאות אינן זהות' }));
+      return res.status(400).page('איפוס סיסמה', resetPage(req, { token, error: fieldError('confirm', 'הסיסמאות אינן זהות') }));
     }
     const userId = auth.resetPassword(token, password);
     if (!userId) return res.status(400).page('איפוס סיסמה', invalidResetPage());

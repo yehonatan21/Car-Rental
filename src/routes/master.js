@@ -12,7 +12,7 @@ const storage = require('../storage');
 const provision = require('../provision');
 const master = require('../master');
 const { DEFAULT_COLOR, brand } = require('../brand');
-const { html, raw, postForm, field, badge, icon, pageHead, pageTabs, activeTab, newPasswordPage: passwordPage } = require('../views/html');
+const { html, raw, postForm, field, fieldError, errorSummary, badge, icon, pageHead, pageTabs, activeTab, newPasswordPage: passwordPage } = require('../views/html');
 const { validEmail } = require('./public');
 const { emailStatusCard, googleStatusCard } = require('./admin');
 const { mainAdminEmail } = require('../bootstrap');
@@ -171,7 +171,7 @@ ${clients.length ? html`<table class="table">
   ${pageHead('לקוח חדש', { iconName: 'plus', sub: 'נוצרים אתר ומסד נתונים חדשים, נפרדים לגמרי מכל לקוח אחר.' })}
   ${ready ? '' : html`<div class="flash flash-warning">${icon('alert', 18)} כדי ליצור אתר מכאן צריך קודם לחבר את Turso ו־Vercel.
     <a href="/master/settings">להגדרת החיבורים</a>. אפשר גם <a href="/master/clients/import">להוסיף אתר שכבר קיים</a>.</div>`}
-  ${errors.length ? html`<div class="flash flash-error" role="alert" tabindex="-1" data-error-summary><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+  ${errorSummary(errors)}
   ${postForm(req, '/master/clients/new', html`
     ${field('שם הלקוח', html`<input name="name" value="${v.name || ''}" maxlength="60" required>`, 'מופיע בראש האתר, בכותרות ובמיילים. הלקוח יוכל לשנות אותו.')}
     ${field('מזהה קצר באנגלית', html`<input name="slug" value="${v.slug || ''}" pattern="[a-z0-9][a-z0-9\\-]{0,30}" maxlength="32" dir="ltr" required placeholder="bne-adam">`,
@@ -212,12 +212,12 @@ ${clients.length ? html`<table class="table">
       shared_mail: b.shared_mail === '1', shared_google: b.shared_google === '1',
     };
     const errors = [];
-    if (!v.name) errors.push('יש למלא את שם הלקוח');
-    if (!provision.validSlug(v.slug)) errors.push('המזהה הקצר: אותיות קטנות באנגלית, ספרות ומקף (עד 32 תווים, לא בהתחלה או בסוף)');
-    else if (master.get(v.slug)) errors.push('כבר יש לקוח עם המזהה הזה');
-    if (!validEmail(v.manager_email)) errors.push('כתובת הדואר האלקטרוני של המנהל/ת אינה תקינה');
-    if (v.contact_email && !validEmail(v.contact_email)) errors.push('כתובת המייל ליצירת קשר אינה תקינה');
-    if (v.color && !/^#[0-9a-f]{6}$/.test(v.color)) errors.push('הצבע אינו תקין');
+    if (!v.name) errors.push(fieldError('name', 'יש למלא את שם הלקוח'));
+    if (!provision.validSlug(v.slug)) errors.push(fieldError('slug', 'המזהה הקצר: אותיות קטנות באנגלית, ספרות ומקף (עד 32 תווים, לא בהתחלה או בסוף)'));
+    else if (master.get(v.slug)) errors.push(fieldError('slug', 'כבר יש לקוח עם המזהה הזה'));
+    if (!validEmail(v.manager_email)) errors.push(fieldError('manager_email', 'כתובת הדואר האלקטרוני של המנהל/ת אינה תקינה'));
+    if (v.contact_email && !validEmail(v.contact_email)) errors.push(fieldError('contact_email', 'כתובת המייל ליצירת קשר אינה תקינה'));
+    if (v.color && !/^#[0-9a-f]{6}$/.test(v.color)) errors.push(fieldError('color', 'הצבע אינו תקין'));
     if (errors.length) return res.status(400).page('לקוח חדש', newClientPage(req, { errors, v }));
     let result;
     try {
@@ -242,7 +242,7 @@ ${clients.length ? html`<table class="table">
     return html`
 <div class="narrow">
   ${pageHead('הוספת אתר קיים', { iconName: 'login', sub: 'אתר הזמנת רכב שכבר פועל (למשל האתר הראשון), כדי לנהל אותו מכאן.' })}
-  ${errors.length ? html`<div class="flash flash-error" role="alert" tabindex="-1" data-error-summary><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+  ${errorSummary(errors)}
   ${postForm(req, '/master/clients/import', html`
     ${field('שם הלקוח', html`<input name="name" value="${v.name || ''}" maxlength="60" required>`)}
     ${field('מזהה קצר באנגלית', html`<input name="slug" value="${v.slug || ''}" pattern="[a-z0-9][a-z0-9\\-]{0,30}" maxlength="32" dir="ltr" required>`,
@@ -267,14 +267,14 @@ ${clients.length ? html`<table class="table">
     };
     const errors = [];
     const url = master.normalizeUrl(v.url);
-    if (!v.name) errors.push('יש למלא את שם הלקוח');
-    if (!provision.validSlug(v.slug)) errors.push('המזהה הקצר: אותיות קטנות באנגלית, ספרות ומקף');
-    else if (master.get(v.slug)) errors.push('כבר יש לקוח עם המזהה הזה');
-    if (!url) errors.push('כתובת האתר אינה תקינה (למשל https://car-rental-brown-kappa.vercel.app)');
-    else if (master.list().some((c) => c.url === url)) errors.push('האתר בכתובת הזו כבר ברשימה');
-    if (v.manager_email && !validEmail(v.manager_email)) errors.push('כתובת הדואר האלקטרוני של המנהל/ת אינה תקינה');
-    if (v.vercel_project && !/^[\w.-]{1,100}$/.test(v.vercel_project)) errors.push('שם הפרויקט ב־Vercel אינו תקין');
-    if (v.turso_db && !/^[\w.-]{1,100}$/.test(v.turso_db)) errors.push('שם מסד הנתונים אינו תקין');
+    if (!v.name) errors.push(fieldError('name', 'יש למלא את שם הלקוח'));
+    if (!provision.validSlug(v.slug)) errors.push(fieldError('slug', 'המזהה הקצר: אותיות קטנות באנגלית, ספרות ומקף'));
+    else if (master.get(v.slug)) errors.push(fieldError('slug', 'כבר יש לקוח עם המזהה הזה'));
+    if (!url) errors.push(fieldError('url', 'כתובת האתר אינה תקינה (למשל https://car-rental-brown-kappa.vercel.app)'));
+    else if (master.list().some((c) => c.url === url)) errors.push(fieldError('url', 'האתר בכתובת הזו כבר ברשימה'));
+    if (v.manager_email && !validEmail(v.manager_email)) errors.push(fieldError('manager_email', 'כתובת הדואר האלקטרוני של המנהל/ת אינה תקינה'));
+    if (v.vercel_project && !/^[\w.-]{1,100}$/.test(v.vercel_project)) errors.push(fieldError('vercel_project', 'שם הפרויקט ב־Vercel אינו תקין'));
+    if (v.turso_db && !/^[\w.-]{1,100}$/.test(v.turso_db)) errors.push(fieldError('turso_db', 'שם מסד הנתונים אינו תקין'));
     if (errors.length) return res.status(400).page('הוספת אתר קיים', importPage(req, { errors, v }));
     const c = master.add({ ...v, url, created_by: req.user.id });
     audit(req.user.id, 'master.client_import', null, null, `${c.slug}: ${url}`);

@@ -684,3 +684,7 @@ mark.placeholder { background: var(--warning-soft); color: var(--warning); paddi
 
 /* Required fields: a visible asterisk next to the label (the field itself is "required" for assistive technology) */
 .field:has(> input:required, > select:required, > textarea:required, .dp input:required, .file-pick input:required) > span::after { content: ' *'; color: var(--danger); }
+
+/* A field the server refused (app.js marks it after a form comes back with errors) */
+[aria-invalid="true"]:not(:focus) { border-color: var(--danger); }
+.file-pick:has([aria-invalid="true"]), .dp-field:has([aria-invalid="true"]) input:not(:focus) { border-color: var(--danger); }

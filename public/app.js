@@ -213,8 +213,29 @@ document.addEventListener('keydown', (e) => {
   if (menu) { menu.open = false; menu.querySelector('summary').focus(); }
 });
 
-// A form that came back with errors: the list of errors gets the focus, so screen readers read it at once.
-document.querySelector('[data-error-summary]')?.focus();
+// A form that came back with errors: the list of errors gets the focus, so screen readers read it at once, and the
+// fields each error is about are marked invalid and pointed at their message (WCAG 3.3.1). Correcting a field clears
+// its mark. A date field's visible part is the one marked (the named input is hidden, see enhanceDateInput).
+const summary = document.querySelector('[data-error-summary]');
+if (summary) {
+  const scope = summary.parentElement.querySelector('form') || document;
+  for (const li of summary.querySelectorAll('li[data-fields]')) {
+    for (const name of li.dataset.fields.split(' ')) {
+      for (const el of scope.querySelectorAll(`[name="${CSS.escape(name)}"]`)) {
+        const target = el.type === 'hidden' ? el.nextElementSibling?.querySelector('.dp-field input') : el;
+        if (!target) continue;
+        target.setAttribute('aria-invalid', 'true');
+        const ids = new Set((target.getAttribute('aria-describedby') || '').split(' ').filter(Boolean));
+        ids.add(li.id);
+        target.setAttribute('aria-describedby', [...ids].join(' '));
+        const clear = () => target.removeAttribute('aria-invalid');
+        target.addEventListener('input', clear, { once: true });
+        target.addEventListener('change', clear, { once: true });
+      }
+    }
+  }
+  summary.focus();
+}
 
 // ---------- Calendar ----------
 // Day / week: open the 24-hour grid at the morning (or the first booking of the shown days), not at midnight.

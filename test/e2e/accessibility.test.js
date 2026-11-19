@@ -64,3 +64,12 @@ test('a brand colour keeps 4.5:1 on white and on the page background, as a close
   }
   assert.equal(/--primary:(#[0-9a-f]{6})/.exec(paletteCss('#0b7a63'))[1], '#0b7a63', 'a colour that passes is not changed');
 });
+
+test('each form error names its fields, so the page can mark them invalid and link them to the message', async () => {
+  const r = await new Client(srv.base).post('/register', { first_name: '', phone: 'x', email: 'bad' }, '/register');
+  assert.match(r.text, /<li id="form-error-\d+" data-fields="first_name last_name">יש למלא שם פרטי ושם משפחה<\/li>/);
+  assert.match(r.text, /data-fields="phone">מספר הטלפון הנייד אינו תקין/);
+  assert.match(r.text, /data-fields="email">כתובת הדואר האלקטרוני אינה תקינה/);
+  const login = await new Client(srv.base).post('/login', { email: 'nobody@test.org', password: 'wrong-password' });
+  assert.match(login.text, /data-error-summary><ul class="plain"><li id="form-error-0" data-fields="email password">/);
+});

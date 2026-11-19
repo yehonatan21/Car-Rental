@@ -8,7 +8,7 @@ const config = require('../config');
 const bookings = require('../bookings');
 const google = require('../google');
 const storage = require('../storage');
-const { html, raw, markdown, postForm, actionButton, decisionButtons, field, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
+const { html, raw, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, badge, icon, pageHead, pageTabs, tabPanel, activeTab, newPasswordPage, licenseInput, uploadLimitLabel, USER_STATUS, VEHICLE_STATUS } = require('../views/html');
 const { validIsraeliId, normalizePhone, validPhone, validEmail } = require('./public');
 const documents = require('./documents');
 const { actionLabel } = require('../views/audit-labels');
@@ -320,7 +320,7 @@ function newUserPage(req, { errors = [], v = {} } = {}) {
 <div class="narrow-wide">
   <p><a class="back" href="/admin/users">${icon('arrow', 16)} חזרה לרשימה</a></p>
   ${pageHead('הוספת משתמש', { iconName: 'userplus', sub: 'בלי הרשמה עצמית: המשתמש יקבל במייל קישור לבחירת סיסמה.' })}
-  ${errors.length ? html`<div class="flash flash-error" role="alert" tabindex="-1" data-error-summary><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+  ${errorSummary(errors)}
   ${postForm(req, '/admin/users/new', html`
     <fieldset>
       <legend>${icon('user')} פרטים אישיים</legend>
@@ -478,20 +478,20 @@ ${users.length ? '' : html`<p class="empty">${icon('users', 28)}<span>לא נמ�
       role: b.role === 'admin' ? 'admin' : 'user', send_invite: b.send_invite === '1',
     };
     const errors = [];
-    if (!v.first_name || !v.last_name) errors.push('יש למלא שם פרטי ושם משפחה');
-    if (!validIsraeliId(v.id_number)) errors.push('מספר תעודת הזהות אינו תקין');
-    if (!validPhone(v.phone)) errors.push('מספר הטלפון הנייד אינו תקין');
-    if (!validEmail(v.email)) errors.push('כתובת הדואר האלקטרוני אינה תקינה');
-    if (v.license_expiry && (!time.isValidDate(v.license_expiry) || v.license_expiry < time.today())) errors.push('תאריך תוקף הרישיון חייב להיות עתידי');
-    if (req.file && !v.license_expiry) errors.push('עם צילום רישיון יש למלא גם את תאריך התוקף שלו');
+    if (!v.first_name || !v.last_name) errors.push(fieldError(['first_name', 'last_name'], 'יש למלא שם פרטי ושם משפחה'));
+    if (!validIsraeliId(v.id_number)) errors.push(fieldError('id_number', 'מספר תעודת הזהות אינו תקין'));
+    if (!validPhone(v.phone)) errors.push(fieldError('phone', 'מספר הטלפון הנייד אינו תקין'));
+    if (!validEmail(v.email)) errors.push(fieldError('email', 'כתובת הדואר האלקטרוני אינה תקינה'));
+    if (v.license_expiry && (!time.isValidDate(v.license_expiry) || v.license_expiry < time.today())) errors.push(fieldError('license_expiry', 'תאריך תוקף הרישיון חייב להיות עתידי'));
+    if (req.file && !v.license_expiry) errors.push(fieldError('license_expiry', 'עם צילום רישיון יש למלא גם את תאריך התוקף שלו'));
     // Two separate messages: "this e-mail already has an account" (sign in instead) is a different problem from
     // "this ID number belongs to another account".
     // The admin may see that account: link to it (users of this site only; every site has its own database).
     const existing = (u, what) => html`${what} כבר שייך/ת למשתמש/ת באתר הזה: <a href="/admin/users/${u.id}">${fullName(u)}</a> (${USER_STATUS[u.status] || u.status}). אפשר לפתוח ולעדכן את החשבון הקיים.`;
     const byEmail = db.prepare('SELECT * FROM users WHERE email = ?').get(v.email);
     const byId = !byEmail && validIsraeliId(v.id_number) && db.prepare('SELECT * FROM users WHERE id_number = ?').get(v.id_number);
-    if (byEmail) errors.push(existing(byEmail, 'כתובת הדואר האלקטרוני הזו'));
-    else if (byId) errors.push(existing(byId, 'מספר תעודת הזהות הזה'));
+    if (byEmail) errors.push(fieldError('email', existing(byEmail, 'כתובת הדואר האלקטרוני הזו')));
+    else if (byId) errors.push(fieldError('id_number', existing(byId, 'מספר תעודת הזהות הזה')));
     if (errors.length) {
       storage.discard(req.file);
       return res.status(400).page('הוספת משתמש', newUserPage(req, { errors, v }));

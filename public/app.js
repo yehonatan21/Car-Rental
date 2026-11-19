@@ -474,3 +474,58 @@ document.addEventListener('click', (e) => {
   input.value = pw;
   input.select();
 });
+
+// Passkeys (src/passkeys.js): adding one (/me/security) and proving it (signing in, confirming a sensitive action).
+// The server sends WebAuthn options as JSON; the device's answer goes back in the form's "credential" field.
+{
+  const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const unb64 = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0)).buffer;
+  const creationOptions = (o) => (window.PublicKeyCredential?.parseCreationOptionsFromJSON ? PublicKeyCredential.parseCreationOptionsFromJSON(o) : {
+    ...o, challenge: unb64(o.challenge), user: { ...o.user, id: unb64(o.user.id) },
+    excludeCredentials: (o.excludeCredentials || []).map((c) => ({ ...c, id: unb64(c.id) })),
+  });
+  const requestOptions = (o) => (window.PublicKeyCredential?.parseRequestOptionsFromJSON ? PublicKeyCredential.parseRequestOptionsFromJSON(o) : {
+    ...o, challenge: unb64(o.challenge), allowCredentials: (o.allowCredentials || []).map((c) => ({ ...c, id: unb64(c.id) })),
+  });
+  const toJSON = (cred) => {
+    if (typeof cred.toJSON === 'function') { try { return cred.toJSON(); } catch { /* older browsers: by hand below */ } }
+    const r = cred.response;
+    const response = r.attestationObject
+      ? { clientDataJSON: b64(r.clientDataJSON), attestationObject: b64(r.attestationObject), transports: r.getTransports ? r.getTransports() : [] }
+      : { clientDataJSON: b64(r.clientDataJSON), authenticatorData: b64(r.authenticatorData), signature: b64(r.signature), userHandle: r.userHandle ? b64(r.userHandle) : undefined };
+    return { id: cred.id, rawId: b64(cred.rawId), type: cred.type, response, clientExtensionResults: cred.getClientExtensionResults(), authenticatorAttachment: cred.authenticatorAttachment || undefined };
+  };
+  const MESSAGES = {
+    NotAllowedError: 'הפעולה בוטלה או שפג הזמן. נסו שוב.',
+    InvalidStateError: 'המפתח הזה כבר רשום לחשבון.',
+    NotSupportedError: 'המכשיר או הדפדפן אינם תומכים במפתחות גישה.',
+    SecurityError: 'הדפדפן חסם את הפעולה בכתובת הזו.',
+  };
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-passkey]');
+    if (!btn) return;
+    const form = btn.closest('form');
+    const error = form.querySelector('[data-passkey-error]');
+    if (!window.PublicKeyCredential) { error.textContent = MESSAGES.NotSupportedError; return; }
+    btn.disabled = true;
+    error.textContent = '';
+    try {
+      let cred;
+      if (btn.dataset.passkey === 'create') {
+        const body = new URLSearchParams({ _csrf: form.querySelector('[name=_csrf]')?.value || '' });
+        const r = await fetch(btn.dataset.optionsUrl, { method: 'POST', body, credentials: 'same-origin' });
+        if (!r.ok) throw new Error('לא ניתן להתחיל כרגע. רעננו את הדף ונסו שוב.');
+        const { token, options } = await r.json();
+        form.querySelector('[name=token]').value = token;
+        cred = await navigator.credentials.create({ publicKey: creationOptions(options) });
+      } else {
+        cred = await navigator.credentials.get({ publicKey: requestOptions(JSON.parse(btn.dataset.options)) });
+      }
+      form.querySelector('[name=credential]').value = JSON.stringify(toJSON(cred));
+      form.submit();
+    } catch (err) {
+      error.textContent = MESSAGES[err.name] || err.message || 'הפעולה נכשלה. נסו שוב.';
+      btn.disabled = false;
+    }
+  });
+}

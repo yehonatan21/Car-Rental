@@ -173,6 +173,7 @@ ${b.customColor ? html`<style>${raw(paletteCss(b.color))}</style>` : ''}
 ${config.ephemeral ? html`<div class="demo-banner" role="note">סביבת הדגמה: הנתונים (משתמשים, הזמנות וקבצים) זמניים ונמחקים מעת לעת.</div>` : ''}
 <main class="container" id="main">
   ${flash ? html`<div class="flash flash-${flash.type}" role="status">${flash.text}</div>` : ''}
+  ${user?.role === 'admin' && user.admin_level === 'viewer' && req.path.startsWith('/admin') ? html`<div class="flash flash-warning small" role="note">יש לך הרשאת צפייה בלבד: אפשר לראות הכול, אבל לא לשנות.</div>` : ''}
   ${body}
 </main>
 <footer class="page-footer"><a href="/accessibility">הצהרת נגישות</a>${config.master ? '' : html` · <a href="/policy">נהלי השאלת הרכב</a> · <a href="/privacy">מדיניות פרטיות</a>`}</footer>

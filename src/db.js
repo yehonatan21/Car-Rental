@@ -271,6 +271,28 @@ if (!schemaIsCurrent) {
   CREATE INDEX IF NOT EXISTS booking_history_booking ON booking_history(booking_id);
   CREATE INDEX IF NOT EXISTS audit_log_target ON audit_log(target_type, target_id);
   CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+
+  -- Passkeys (WebAuthn) of managers and console admins: the public key only; the private key never leaves the device.
+  CREATE TABLE IF NOT EXISTS passkeys (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    public_key TEXT NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    transports TEXT,
+    name TEXT,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS passkeys_user ON passkeys(user_id);
+  -- One-time WebAuthn challenges: adding a passkey, signing in, confirming before a sensitive action.
+  CREATE TABLE IF NOT EXISTS webauthn_challenges (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL,
+    challenge TEXT NOT NULL,
+    next TEXT,
+    expires_at INTEGER NOT NULL
+  );
   `);
 
   // Columns added after the first release (existing databases are upgraded in place). On Vercel several instances can
@@ -292,6 +314,10 @@ if (!schemaIsCurrent) {
   // When a registration was rejected: its license photo is deleted 30 days later (docs/privacy.md). Existing rejected
   // accounts get the time of their rejection from the action log, else their last change.
   addColumn('users', 'rejected_at', 'TEXT');
+  // A manager's level: 'owner' (alone may change managers and delete users), 'viewer' (read-only), or NULL (manager).
+  addColumn('users', 'admin_level', 'TEXT');
+  // When this session last proved who it is (signing in, or confirming again before a sensitive action).
+  addColumn('sessions', 'auth_at', 'INTEGER');
   db.prepare(`UPDATE users SET rejected_at = COALESCE((SELECT MAX(a.at) FROM audit_log a WHERE a.action = 'user.reject' AND a.target_type = 'user'
     AND a.target_id = users.id), updated_at) WHERE status = 'rejected' AND rejected_at IS NULL`).run();
   // Accounts already linked to Google had their address proven by Google.

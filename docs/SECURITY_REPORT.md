@@ -42,17 +42,21 @@ An external source review of `bcf35ed` (before the fixes above) listed the same 
 | A. Deleting a user left their name and e-mail in the action log | **Fixed:** deletion removes the person's name, e-mail, phone and ID number from every log entry (the entries stay, as "[נמחק]") and drops mail waiting for them; the deletion entry itself holds only the id and the booking count |
 | B. The privacy document said the console never receives phone numbers | **Fixed:** the document says what the console's main admin sees (S-07); the console can no longer search users by ID number |
 | C. "Sign in as manager" from the console was a GET link with side effects | **Fixed:** it is a form post with the session's token; the old address only shows the button |
-| D. Administrator roles are broad (no owner / read-only roles) | **Open, needs a decision:** see below |
-| An e-mailed code is not a true second factor while code-only sign-in exists | **Agreed, partly open:** the code after the password stops a stolen password, but whoever controls the manager's mailbox can still sign in (code, or reset link). A factor that does not go through e-mail (passkey or authenticator app) is needed for that; see below |
-| Restore not demonstrated | **Procedure written** ([restore.md](restore.md)); the drill is still to be run |
+| D. Administrator roles are broad (no owner / read-only roles) | **Fixed:** owner / manager / read-only on sites; main-admin-only actions on the console (below) |
+| An e-mailed code is not a true second factor while code-only sign-in exists | **Fixed with passkeys:** an account with a passkey needs it on every way in; required for console admins (below) |
+| Restore not demonstrated | **Done:** procedure in [restore.md](restore.md); drill run on 19/11/2026, a copy from an hour earlier was readable in 12 seconds and matched |
 | GitHub branch rules, secret scanning, CodeQL; SMTP domain authentication (SPF/DKIM); monitoring of privilege changes | **Open:** repository and mail-account settings, outside the code |
 
-**Decisions still needed**
-1. Passkeys (or an authenticator app) for console admins, and optionally for site managers.
-2. Roles: a site *owner* who alone can remove managers and delete users, and a read-only manager; on the console,
-   the main admin alone deleting clients (today any console admin can).
-3. Re-confirming identity (password or code) right before the most dangerous actions: deleting a client or a user,
-   setting someone's password, adding a manager.
+**Decisions taken and done (19/11/2026)**
+1. **Passkeys** (WebAuthn, `src/passkeys.js`): any manager or console admin can add one; once an account has one,
+   every way in (password, e-mailed code, Google) also needs it, so neither a stolen password nor a taken-over mailbox
+   is enough. **Required for console admins.** Recovery: a site's owner or the console's main admin removes them;
+   `PASSKEY_RESET` for the main admin.
+2. **Roles:** site *owner* / *manager* / *read-only*; only an owner adds or removes managers, changes levels, deletes
+   users, sets a manager's password or removes passkeys (a site without an owner works as before). On the console,
+   deleting a client, replacing a database key and setting passwords are the main admin's alone.
+3. **Confirming identity** (passkey, else password, else e-mailed code) before those actions when the last
+   confirmation is more than 10 minutes old.
 
 The findings as they were found:
 
@@ -113,7 +117,7 @@ no second factor for managers, and the database keys never expire and are copied
   the CSP still applies.
 - All managers of a site have equal rights, so any manager can remove another. That is by design; an "owner" role
   would be a product decision.
-- Backups rely on Turso's point-in-time history; the restore procedure is in [restore.md](restore.md) (drill not yet run).
+- Backups rely on Turso's point-in-time history; the restore procedure is in [restore.md](restore.md) (rehearsed 19/11/2026).
 
 ## Suggested order
 

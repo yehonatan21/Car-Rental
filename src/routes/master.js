@@ -12,6 +12,7 @@ const config = require('../config');
 const storage = require('../storage');
 const provision = require('../provision');
 const master = require('../master');
+const passkeys = require('../passkeys');
 const { DEFAULT_COLOR, brand } = require('../brand');
 const { html, raw, postForm, field, fieldError, errorSummary, badge, icon, pageHead, pageTabs, activeTab, newPasswordPage: passwordPage } = require('../views/html');
 const { validEmail } = require('./public');
@@ -92,7 +93,7 @@ function setupNotice() {
     <a href="/master/settings">להגדרת החיבורים</a></div>`;
 }
 
-module.exports = ({ app, requireAdmin: requireSiteAdmin, logoUpload }) => {
+module.exports = ({ app, requireAdmin: requireSiteAdmin, requireRecentAuth, logoUpload }) => {
   // "Sign in as manager" is a form post that ends on the client's site (its one-time sign-in link). Browsers apply the
   // page's CSP form-action to where a form's redirects lead too, so the console's pages allow its own clients' sites.
   app.use('/master', (req, res, next) => {
@@ -111,7 +112,14 @@ module.exports = ({ app, requireAdmin: requireSiteAdmin, logoUpload }) => {
     res.status(403).page('אין הרשאה', html`<div class="narrow"><section class="card"><h1>אין הרשאה לעמוד זה</h1>
       <p>מרכז הניהול זמין רק למנהל/ת הראשי/ת של האתר.</p></section></div>`);
   };
-  const requireAdmin = config.master ? requireSiteAdmin : [requireSiteAdmin, onlyMainAdmin];
+  // The console requires a passkey of its admins (src/passkeys.js, CONSOLE_PASSKEY): without one they are sent to add
+  // it first. Their password and e-mailed code alone never open the console.
+  const passkeyFirst = (req, res, next) => {
+    if (!passkeys.consoleRequires() || passkeys.has(req.user.id)) return next();
+    res.flash('warning', 'מרכז הניהול דורש מפתח גישה. הוסיפו מפתח גישה למכשיר שלכם, ואז המשיכו.');
+    res.redirect(req.method === 'GET' ? 302 : 303, '/me/security#passkeys');
+  };
+  const requireAdmin = config.master ? [requireSiteAdmin, passkeyFirst] : [requireSiteAdmin, onlyMainAdmin, passkeyFirst];
   // The console's own admins exist only in a dedicated console; inside a site its managers are managed as usual.
   const dedicatedOnly = (req, res, next) => (config.master ? next() : res.redirect(req.method === 'GET' ? 302 : 303, '/admin/users?role=admin'));
   const backTo = (c, hash = '') => `/master/clients/${encodeURIComponent(c.slug)}${hash}`;
@@ -125,7 +133,14 @@ module.exports = ({ app, requireAdmin: requireSiteAdmin, logoUpload }) => {
     return fn(req, res, c);
   };
   /** A console action on a client: errors from the site or the hosting services become a message on its page. */
-  const clientAction = (name, fn, ...middleware) => app.post(`/master/clients/:slug/${name}`, requireAdmin, ...middleware, withClient(async (req, res, c) => {
+  // Sensitive actions on a client: confirming identity first (requireRecentAuth); deleting a client, replacing its
+  // database key and setting its users' passwords also only by the console's main admin.
+  const mainOnly = (req, res, next) => requireMain(req, res, next); // (requireMain is defined further down)
+  const SENSITIVE_CLIENT = {
+    managers: [requireRecentAuth], 'users/:id/password': [mainOnly, requireRecentAuth],
+    'rotate-db-key': [mainOnly, requireRecentAuth], delete: [mainOnly, requireRecentAuth],
+  };
+  const clientAction = (name, fn, ...middleware) => app.post(`/master/clients/:slug/${name}`, requireAdmin, ...(SENSITIVE_CLIENT[name] || []), ...middleware, withClient(async (req, res, c) => {
     try {
       await fn(req, res, c);
     } catch (err) {
@@ -447,9 +462,9 @@ ${st.online && isMainAdmin(req.user) ? html`<section class="card" id="users">
     <button class="btn btn-primary">שמירה</button>`)}
   <div class="kv-inline">
     ${project && p.vercel ? postForm(req, backTo(c, '/redeploy'), html`<button class="btn btn-light btn-sm" data-confirm="לבנות מחדש את האתר של ${c.name} מהגרסה האחרונה?">${icon('wrench', 16)} בנייה מחדש (גרסה אחרונה)</button>`, 'class="inline"') : ''}
-    ${project && p.vercel && p.turso && d?.storage?.kind === 'hosted' ? postForm(req, backTo(c, '/rotate-db-key'), html`<button class="btn btn-light btn-sm" data-confirm="ליצור מפתח חדש למסד הנתונים של ${c.name}? המפתח הנוכחי יפסיק לעבוד מיד, והאתר לא יהיה זמין כדקה עד שייבנה מחדש עם המפתח החדש.">${icon('lock', 16)} החלפת מפתח מסד הנתונים</button>`, 'class="inline"') : ''}
+    ${project && p.vercel && p.turso && d?.storage?.kind === 'hosted' && isMainAdmin(req.user) ? postForm(req, backTo(c, '/rotate-db-key'), html`<button class="btn btn-light btn-sm" data-confirm="ליצור מפתח חדש למסד הנתונים של ${c.name}? המפתח הנוכחי יפסיק לעבוד מיד, והאתר לא יהיה זמין כדקה עד שייבנה מחדש עם המפתח החדש.">${icon('lock', 16)} החלפת מפתח מסד הנתונים</button>`, 'class="inline"') : ''}
     ${project && p.vercel && config.smtp ? postForm(req, backTo(c, '/share-mail'), html`<button class="btn btn-light btn-sm" data-confirm="להעתיק לאתר של ${c.name} את הגדרות הדואר של מרכז הניהול (SMTP), ולבנות אותו מחדש?">${icon('mail', 16)} העתקת הגדרות הדואר</button>`, 'class="inline"') : ''}
-    <a class="btn btn-light btn-sm btn-danger-text" href="${backTo(c, '/delete')}">מחיקת הלקוח…</a>
+    ${isMainAdmin(req.user) ? html`<a class="btn btn-light btn-sm btn-danger-text" href="${backTo(c, '/delete')}">מחיקת הלקוח…</a>` : ''}
   </div>
 </section>`);
   }));
@@ -537,7 +552,7 @@ ${st.online && isMainAdmin(req.user) ? html`<section class="card" id="users">
   // ---------- Users of a client site: a new password, by the main admin ----------
   const requireMain = (req, res, next) => (isMainAdmin(req.user) ? next()
     : res.status(403).page('אין הרשאה', html`<div class="narrow"><section class="card"><h1>רק המנהל/ת הראשי/ת</h1>
-      <p>הגדרת סיסמה למשתמשים אחרים שמורה למנהל/ת הראשי/ת של מרכז הניהול (<span dir="ltr">${mainAdminEmail()}</span>).</p></section></div>`));
+      <p>הפעולה הזו (מחיקת לקוח, החלפת מפתח מסד נתונים, סיסמה למשתמשים אחרים) שמורה למנהל/ת הראשי/ת של מרכז הניהול (<span dir="ltr">${mainAdminEmail()}</span>).</p></section></div>`));
 
   app.get('/master/clients/:slug/users', requireAdmin, requireMain, withClient(async (req, res, c) => {
     const q = String(req.query.q || '').trim().slice(0, 100);
@@ -700,7 +715,7 @@ ${r.users.map((u) => html`<tr>
     res.redirect(303, backTo(c, '#details'));
   });
 
-  app.get('/master/clients/:slug/delete', requireAdmin, withClient((req, res, c) => {
+  app.get('/master/clients/:slug/delete', requireAdmin, (req, res, next) => requireMain(req, res, next), withClient((req, res, c) => {
     const p = master.providers();
     res.page(`מחיקת ${c.name}`, html`
 <div class="narrow">
@@ -742,9 +757,12 @@ ${r.users.map((u) => html`<tr>
     <ul class="plain">${admins.map((a) => html`<li><b>${fullName(a)}</b> <span class="muted" dir="ltr">${a.email}</span>
       ${a.email === main ? badge('admin', 'מנהל/ת ראשי/ת (ADMIN_EMAIL)') : ''}
       ${!a.password_hash && !a.google_sub ? badge('pending', 'ללא סיסמה') : ''}
+      ${passkeys.has(a.id) ? badge('active', 'מפתח גישה') : badge('pending', 'בלי מפתח גישה')}
       ${a.id === req.user.id ? badge('active', 'את/ה') : ''}
       <div class="kv-inline">
         ${isMainAdmin(req.user) ? html`<a class="btn btn-light btn-sm" href="/master/admins/${a.id}/password">${icon('lock', 16)} סיסמה חדשה</a>` : ''}
+        ${isMainAdmin(req.user) && a.id !== req.user.id && passkeys.has(a.id) ? postForm(req, `/master/admins/${a.id}/passkeys/remove`,
+    html`<button class="btn btn-light btn-sm" data-confirm="להסיר את מפתחות הגישה של ${a.email}? (למשל אחרי שאיבד/ה את המכשיר)">הסרת מפתחות הגישה</button>`, 'class="inline"') : ''}
         ${a.id === req.user.id || a.email === main ? '' : postForm(req, `/master/admins/${a.id}/remove`,
     html`<button class="btn btn-light btn-sm" data-confirm="להסיר את ${a.email} ממנהלי המרכז?">הסרה</button>`, 'class="inline"')}
       </div></li>`)}</ul>
@@ -763,7 +781,7 @@ ${r.users.map((u) => html`<tr>
 </div>`);
   });
 
-  app.post('/master/admins', requireAdmin, dedicatedOnly, async (req, res) => {
+  app.post('/master/admins', requireAdmin, dedicatedOnly, requireRecentAuth, async (req, res) => {
     const email = String(req.body.email || '').trim().toLowerCase();
     const first = String(req.body.first_name || '').trim().slice(0, 60);
     const last = String(req.body.last_name || '').trim().slice(0, 60);
@@ -797,7 +815,17 @@ ${r.users.map((u) => html`<tr>
     res.redirect(303, '/master/admins');
   });
 
-  app.post('/master/admins/:id/remove', requireAdmin, dedicatedOnly, (req, res) => {
+  // After a lost device: the main admin removes another console admin's passkeys (they then add a new one).
+  app.post('/master/admins/:id/passkeys/remove', requireAdmin, dedicatedOnly, requireMain, requireRecentAuth, (req, res) => {
+    const a = consoleAdmin(req.params.id);
+    if (!a || a.id === req.user.id) return res.redirect(303, '/master/admins');
+    const n = passkeys.removeAll(a.id, req.user.id);
+    audit(req.user.id, 'master.admin_passkeys_remove', 'user', a.id, `${n}`);
+    res.flash('success', `הוסרו ${n} מפתחות הגישה של ${a.email}. בכניסה הבאה יתבקש/תתבקש להוסיף מפתח חדש.`);
+    res.redirect(303, '/master/admins');
+  });
+
+  app.post('/master/admins/:id/remove', requireAdmin, dedicatedOnly, requireRecentAuth, (req, res) => {
     const id = Number(req.params.id);
     const others = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active' AND id != ?").get(id).n;
     if (id === req.user.id || !others) {
@@ -830,7 +858,7 @@ ${r.users.map((u) => html`<tr>
     consolePasswordPage(req, res, a);
   });
 
-  app.post('/master/admins/:id/password', requireAdmin, dedicatedOnly, requireMain, async (req, res) => {
+  app.post('/master/admins/:id/password', requireAdmin, dedicatedOnly, requireMain, requireRecentAuth, async (req, res) => {
     const a = consoleAdmin(req.params.id);
     if (!a) return res.redirect(303, '/master/admins');
     const password = String(req.body.password || '');

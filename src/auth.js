@@ -66,9 +66,18 @@ function createSession(res, userId) {
   const csrf = crypto.randomBytes(24).toString('base64url');
   const role = db.prepare('SELECT role FROM users WHERE id = ?').get(userId)?.role;
   const expires = Date.now() + idleFor(role);
-  db.prepare('INSERT INTO sessions (token_hash, user_id, csrf, expires_at) VALUES (?, ?, ?, ?)')
-    .run(sha256(token), userId, csrf, expires);
+  db.prepare('INSERT INTO sessions (token_hash, user_id, csrf, expires_at, auth_at) VALUES (?, ?, ?, ?, ?)')
+    .run(sha256(token), userId, csrf, expires, Date.now());
   setCookie(res, token, expires);
+}
+
+// Sensitive actions (deleting a user or a client, setting someone's password, changing managers, removing passkeys)
+// need the person to have proved who they are in the last 10 minutes: signing in, or confirming again (/reauth).
+const RECENT_AUTH_MS = 10 * 60000;
+const recentlyConfirmed = (req) => Boolean(req.session?.auth_at) && Date.now() - req.session.auth_at < RECENT_AUTH_MS;
+function confirmIdentity(req) {
+  req.session.auth_at = Date.now();
+  db.prepare('UPDATE sessions SET auth_at = ? WHERE token_hash = ?').run(req.session.auth_at, req.session.token_hash);
 }
 
 /** Extends a session in use (see IDLE_MS); a manager's session never lasts longer than 8 hours of inactivity. */
@@ -114,11 +123,11 @@ function loadSessionAndUser(req) {
   const token = req.cookies[COOKIE];
   if (!token) return { state: 'none', session: null, user: null };
   const hash = sha256(token);
-  const row = db.prepare(`SELECT s.user_id AS s_user_id, s.csrf AS s_csrf, s.expires_at AS s_expires_at, u.*
+  const row = db.prepare(`SELECT s.user_id AS s_user_id, s.csrf AS s_csrf, s.expires_at AS s_expires_at, s.auth_at AS s_auth_at, u.*
     FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).get(hash);
   if (!row) return { state: 'unknown', session: null, user: null };
   if (row.s_expires_at < Date.now()) return { state: 'expired', session: null, user: null };
-  const session = { token_hash: hash, user_id: row.s_user_id, csrf: row.s_csrf, expires_at: row.s_expires_at };
+  const session = { token_hash: hash, user_id: row.s_user_id, csrf: row.s_csrf, expires_at: row.s_expires_at, auth_at: row.s_auth_at };
   const user = Object.fromEntries(Object.entries(row).filter(([k]) => !k.startsWith('s_')));
   return user.id == null ? { state: 'no-user', session, user: null } : { state: 'ok', session, user };
 }
@@ -249,7 +258,8 @@ const resetThrottle = (key) => db.prepare('DELETE FROM throttle WHERE key = ?').
 const purgeThrottle = () => db.prepare('DELETE FROM throttle WHERE window_start < ?').run(Date.now() - 86400000);
 
 module.exports = {
-  hashPassword, verifyPassword, hashPasswordAsync, verifyPasswordAsync, createSession, touchSession, IDLE_MS, destroySession, destroyAllSessions, loadSession, loadSessionAndUser,
+  hashPassword, verifyPassword, hashPasswordAsync, verifyPasswordAsync, createSession, touchSession, IDLE_MS,
+  recentlyConfirmed, confirmIdentity, RECENT_AUTH_MS, destroySession, destroyAllSessions, loadSession, loadSessionAndUser,
   parseCookies, createLoginCode, consumeLoginCode, throttled, release, resetThrottle, purgeThrottle,
   markEmailVerified, markResetDelivered, distrustUnverified, COOKIE, createPasswordReset, checkPasswordReset, resetPassword, sha256, INVITE_TTL_MS,
 };

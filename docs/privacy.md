@@ -9,6 +9,7 @@ Each client site has its own database (Turso) and its own files. Nothing is shar
 | Bookings and their history | `bookings`, `booking_history` | Managers; the person (their own); others see only "taken" | Deleted with the account |
 | Action log | `audit_log` | Managers | **2 years** (names of deleted accounts are no longer shown) |
 | Emails waiting to be resent | `mail_outbox` | Nobody in the app; managers see the subject and the address of failed ones | Content removed once sent; rows deleted after 60 days (sent) or 90 days (failed). Login codes and password links are never stored |
+| Passkeys | `passkeys` | Nobody (only the public key, a name and dates; the private key never leaves the device) | Removed by its owner, a site owner, or with the account |
 | Login sessions, codes, reset links | `sessions`, `login_codes`, `password_resets` | Nobody (only hashes are stored) | Their expiry (the jobs remove expired ones). A session ends after 14 days without a visit; a manager's after 8 hours |
 
 **Rules in the code**

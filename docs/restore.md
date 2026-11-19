@@ -4,7 +4,7 @@ Each site has its own Turso database. Turso keeps point-in-time history for the 
 can be brought back to how it was at any moment in that window. A restore always goes into a **new** database; the
 site is then pointed at it. Nothing is overwritten.
 
-**Not yet rehearsed.** The first restore drill (below) still has to be run and its time recorded here.
+**Rehearsed** on 19/11/2026 (below): a point-in-time copy was readable after 12 seconds and matched the live database.
 
 ## Restore a site
 
@@ -31,7 +31,7 @@ Example: `lapidot`, back to 08:00 UTC on 19/11/2026.
 Signing in again is needed (sessions from after the restore point are gone), and e-mails sent after that point may be
 sent again by the jobs.
 
-## Restore drill (to do, then every 6 months)
+## Restore drill (every 6 months)
 
 Restore one site into a temporary copy from an hour ago, compare the row counts of `users`, `bookings`,
 `audit_log` and `files` with the live database, record the time it took here, and delete the copy. No site is
@@ -39,4 +39,4 @@ touched.
 
 | Date | Site | Point in time | Took | Result |
 |---|---|---|---|---|
-| — | — | — | — | not run yet |
+| 19/11/2026 | lapidot | 1 hour earlier (19:26 UTC) | 12 s until readable | users, bookings, action log and files identical to the live database (6 / 6 / 46 / 6); copy deleted |

@@ -109,12 +109,32 @@ function approvalNotice(b, sent, { notifyUser = true } = {}) {
   return ['success', `ההזמנה אושרה. ${toUser}${sent.admins ? ' ועותק למנהלים' : ''}.`];
 }
 
+// ---------- Manager levels ----------
+// owner: alone may add or remove managers, change levels, delete users, set a manager's password and remove someone's
+// passkeys. manager: everything else. viewer: sees everything, changes nothing. A site with no owner yet (all sites
+// before this) keeps working as before: every manager acts as an owner until one is chosen.
+const LEVELS = { owner: 'בעלים', manager: 'מנהל', viewer: 'צפייה בלבד' };
+const levelOf = (u) => (u.role !== 'admin' ? null : LEVELS[u.admin_level] ? u.admin_level : 'manager');
+const siteHasOwner = () => Boolean(db.prepare("SELECT 1 FROM users WHERE role = 'admin' AND admin_level = 'owner' AND status = 'active'").get());
+const isOwner = (u) => u.role === 'admin' && u.status === 'active' && u.admin_level !== 'viewer'
+  && (u.admin_level === 'owner' || String(u.email).toLowerCase() === require('../bootstrap').mainAdminEmail() || !siteHasOwner());
+
+/** Only an owner (see above). */
+function requireOwner(req, res, next) {
+  if (isOwner(req.user)) return next();
+  res.flash('error', 'רק הבעלים של האתר יכולים לבצע את הפעולה הזו.');
+  res.redirect(303, req.params.id ? `/admin/users/${req.params.id}` : '/admin/users');
+}
+
 /** "Permissions" section of the user card: current role, what it allows, and the button to change it. */
 function permissionsCard(req, u, isSelf) {
   const isAdmin = u.role === 'admin';
+  const owner = isOwner(req.user);
   let action;
   if (isSelf) {
     action = html`<p class="muted">לא ניתן לשנות את ההרשאות של עצמך. מנהל אחר יכול לעשות זאת.</p>`;
+  } else if (!owner) {
+    action = html`<p class="muted">מינוי מנהלים ושינוי הרשאות: רק הבעלים של האתר.</p>`;
   } else if (isAdmin) {
     action = actionButton(req, `/admin/users/${u.id}/remove-admin`, 'הסרת הרשאת מנהל', {
       cls: 'btn-danger', confirm: `להסיר את הרשאת המנהל של ${fullName(u)}? הוא/היא יחזרו להיות משתמש/ת רגיל/ה.`,
@@ -126,12 +146,22 @@ function permissionsCard(req, u, isSelf) {
       cls: 'btn-primary', confirm: `לתת ל־${fullName(u)} הרשאות מנהל מלאות? מנהל יכול לאשר משתמשים והזמנות, לצפות ברישיונות נהיגה ולשנות הגדרות.`,
     });
   }
+  const level = levelOf(u);
+  const keys = isAdmin ? require('../passkeys').list(u.id).length : 0;
   return html`<section class="card" id="permissions">
   <h2 class="section-title">${icon('shield')} הרשאות</h2>
-  <p>תפקיד נוכחי: ${isAdmin ? badge('admin', 'מנהל מערכת') : badge('completed', 'משתמש רגיל')}</p>
-  <p class="muted small">${isAdmin
-    ? 'גישה מלאה לממשק הניהול: אישור משתמשים והזמנות, צפייה ברישיונות נהיגה, ניהול הרכב, הנהלים וההגדרות. מקבל את התראות המנהל במייל.'
-    : 'יכול להזמין את הרכב ולנהל את ההזמנות והפרטים שלו בלבד.'}</p>
+  <p>תפקיד נוכחי: ${isAdmin ? html`${badge('admin', 'מנהל מערכת')} ${badge(level === 'viewer' ? 'pending' : 'active', LEVELS[level])}` : badge('completed', 'משתמש רגיל')}</p>
+  <p class="muted small">${!isAdmin ? 'יכול להזמין את הרכב ולנהל את ההזמנות והפרטים שלו בלבד.'
+    : level === 'viewer' ? 'רואה את כל ממשק הניהול, אבל לא יכול לשנות דבר.'
+      : level === 'owner' ? 'גישה מלאה, וגם: מינוי והסרה של מנהלים, שינוי הרשאות, מחיקת משתמשים, סיסמה למנהל אחר והסרת מפתחות גישה.'
+        : 'גישה מלאה לממשק הניהול: אישור משתמשים והזמנות, צפייה ברישיונות נהיגה, ניהול הרכב, הנהלים וההגדרות. מקבל את התראות המנהל במייל.'}</p>
+  ${isAdmin && !isSelf && owner ? postForm(req, `/admin/users/${u.id}/level`, html`
+    <label class="inline-label">רמת הרשאה <select name="level">${Object.entries(LEVELS).map(([k, l]) => html`<option value="${k}" ${k === level ? 'selected' : ''}>${l}</option>`)}</select></label>
+    <button class="btn btn-light btn-sm">שמירה</button>`, 'class="inline"') : ''}
+  ${isAdmin && !siteHasOwner() ? html`<p class="muted small">לאתר עדיין אין בעלים, ולכן כל המנהלים יכולים לעשות הכול. כדאי לקבוע בעלים (רמת הרשאה ← בעלים).</p>` : ''}
+  ${isAdmin ? html`<p class="small">מפתחות גישה: ${keys ? `${keys}` : 'אין'}${keys && !isSelf && owner ? html` ${actionButton(req, `/admin/users/${u.id}/passkeys/remove`, 'הסרת מפתחות הגישה', {
+    cls: 'btn-light btn-sm', confirm: `להסיר את כל מפתחות הגישה של ${fullName(u)}? (למשל אחרי שאיבד/ה את המכשיר) הכניסה תהיה שוב בסיסמה ובקוד במייל.`,
+  })}` : ''}</p>` : ''}
   ${action}
 </section>`;
 }
@@ -366,7 +396,7 @@ function userOptions(selected) {
   return users.map((u) => html`<option value="${u.id}" ${u.id === Number(selected) ? 'selected' : ''}>${fullName(u)} (${u.email})</option>`);
 }
 
-module.exports = ({ app, requireAdmin, licenseUpload, logoUpload }) => {
+module.exports = ({ app, requireAdmin, requireRecentAuth, licenseUpload, logoUpload }) => {
   // ---------- Dashboard ----------
   app.get('/admin', requireAdmin, (req, res) => {
     const s = getSettings();
@@ -622,7 +652,7 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
 
   // Deleting an account for good: its bookings (and their history) and license photos with it; where it appears as
   // the one who did something (approved a booking, uploaded a document, the action log), that stays, without a name.
-  app.post('/admin/users/:id/delete', requireAdmin, (req, res) => {
+  app.post('/admin/users/:id/delete', requireAdmin, requireOwner, requireRecentAuth, (req, res) => {
     const u = getUser(req.params.id);
     if (!u) return res.redirect(303, '/admin/users');
     const refuse = (text) => { res.flash('error', text); res.redirect(303, `/admin/users/${u.id}#delete`); };
@@ -661,7 +691,10 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
   });
 
   const SELF_ALLOWED = new Set(['note', 'license/approve', 'license/reject', 'send-reset']);
-  const userAction = (name, handler) => app.post(`/admin/users/:id/${name}`, requireAdmin, async (req, res) => {
+  // Changing managers or someone's passkeys: owners only, and only after confirming who they are (requireRecentAuth).
+  const SENSITIVE = new Set(['make-admin', 'remove-admin', 'level', 'passkeys/remove']);
+  const userAction = (name, handler) => app.post(`/admin/users/:id/${name}`, requireAdmin,
+    ...(SENSITIVE.has(name) ? [requireOwner, requireRecentAuth] : []), async (req, res) => {
     const u = getUser(req.params.id);
     if (!u) return res.redirect(303, '/'); // the user no longer exists (old page): back to the main page
     // On your own account you may verify your own driving license, keep notes and get a reset link,
@@ -741,10 +774,23 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
 
   userAction('remove-admin', async (u, req) => {
     if (u.role !== 'admin') return { type: 'warning', text: 'המשתמש אינו מנהל' };
-    db.prepare("UPDATE users SET role = 'user', updated_at = ? WHERE id = ?").run(time.stamp(), u.id);
+    db.prepare("UPDATE users SET role = 'user', admin_level = NULL, updated_at = ? WHERE id = ?").run(time.stamp(), u.id);
     audit(req.user.id, 'user.remove_admin', 'user', u.id);
     await mail.roleChanged(u, false);
     return `הרשאת המנהל של ${fullName(u)} הוסרה`;
+  });
+
+  userAction('level', async (u, req) => {
+    if (u.role !== 'admin') return { type: 'error', text: 'רמת הרשאה קיימת רק למנהלים' };
+    const level = LEVELS[req.body.level] ? req.body.level : 'manager';
+    db.prepare('UPDATE users SET admin_level = ?, updated_at = ? WHERE id = ?').run(level === 'manager' ? null : level, time.stamp(), u.id);
+    audit(req.user.id, 'user.admin_level', 'user', u.id, level);
+    return `רמת ההרשאה של ${fullName(u)}: ${LEVELS[level]}`;
+  });
+
+  userAction('passkeys/remove', async (u, req) => {
+    const n = require('../passkeys').removeAll(u.id, req.user.id);
+    return n ? `הוסרו ${n} מפתחות גישה של ${fullName(u)}` : { type: 'warning', text: 'אין מפתחות גישה' };
   });
 
   userAction('send-reset', async (u, req) => {
@@ -779,9 +825,13 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
     if (notSelf(req, res, u)) passwordFor(req, res, u);
   });
 
-  app.post('/admin/users/:id/password', requireAdmin, async (req, res) => {
+  app.post('/admin/users/:id/password', requireAdmin, requireRecentAuth, async (req, res) => {
     const u = getUser(req.params.id);
     if (!u) return res.redirect(303, '/admin/users');
+    if (u.role === 'admin' && !isOwner(req.user)) {
+      res.flash('error', 'סיסמה למנהל אחר: רק הבעלים של האתר.');
+      return res.redirect(303, `/admin/users/${u.id}`);
+    }
     if (protectsMainAdmin(req, res, u)) return;
     if (!notSelf(req, res, u)) return;
     const password = String(req.body.password || '');

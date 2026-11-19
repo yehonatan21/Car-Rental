@@ -523,3 +523,27 @@ test('S-01: the console replaces a site\'s database key: old keys revoked, new o
   assert.deepEqual(env.map((e) => [e.key, e.type]), [['LIBSQL_AUTH_TOKEN', 'sensitive']]);
   assert.match(mine.find((x) => /auth\/tokens$/.test(x.path)).query, /expiration=53w/);
 });
+
+test('console: a passkey is required (CONSOLE_PASSKEY); deleting a client and replacing its key are the main admin\'s alone', async () => {
+  const saved = { ADMIN_EMAIL: process.env.ADMIN_EMAIL, CONSOLE_PASSKEY: process.env.CONSOLE_PASSKEY };
+  process.env.ADMIN_EMAIL = 'owner@master.test';
+  try {
+    createUser({ role: 'admin', email: 'helper@master.test' });
+    const helper = new Client(srv.base);
+    await helper.login('helper@master.test');
+    process.env.CONSOLE_PASSKEY = 'required';
+    const blocked = await helper.get('/master');
+    assert.equal(blocked.location, '/me/security#passkeys', 'no passkey: sent to add one');
+    assert.match((await helper.get('/me/security')).text, /נדרש מפתח גישה/);
+    process.env.CONSOLE_PASSKEY = 'optional';
+    assert.equal((await helper.get('/master')).status, 200);
+    const c = master.list()[0];
+    assert.equal((await helper.get(`/master/clients/${c.slug}/delete`)).status, 403);
+    const r = await helper.post(`/master/clients/${c.slug}/delete`, { mode: 'all', confirm: c.slug }, '/master');
+    assert.equal(r.status, 403);
+    assert.ok(master.get(c.slug), 'not deleted');
+    assert.doesNotMatch((await helper.get(`/master/clients/${c.slug}`)).text, /מחיקת הלקוח…|החלפת מפתח מסד הנתונים/);
+  } finally {
+    for (const [k, v] of Object.entries(saved)) if (v == null) delete process.env[k]; else process.env[k] = v;
+  }
+});

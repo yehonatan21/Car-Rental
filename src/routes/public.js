@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const { db, audit, currentPolicy } = require('../db');
 const auth = require('../auth');
 const { passwordProblem } = require('../passwords');
+const passkeys = require('../passkeys');
 const mail = require('../mail');
 const time = require('../time');
 const config = require('../config');
@@ -77,7 +78,6 @@ function loginPage(req, { error, email = '', next = req.query.next || req.body?.
 </div>`;
 }
 
-/** Password, e-mail code or Google checked: start the session and go on. */
 /** "Enter the code": after asking for a code, and as a manager's second step after the password (S-02). */
 function codePage(req, email, { secondStep = false, next = req.body?.next || '' } = {}) {
   return html`
@@ -107,12 +107,47 @@ function codePage(req, email, { secondStep = false, next = req.body?.next || '' 
 const needsSecondStep = (user) => user.role === 'admin' && user.status === 'active' && Boolean(config.smtp)
   && process.env.ADMIN_SECOND_STEP !== 'false';
 
-function finishLogin(req, res, user, next = req.body?.next) {
+/** Password, e-mail code or Google checked: start the session and go on (no further step). */
+function completeLogin(req, res, user, next) {
   // Only this account's failures are cleared: signing in to some other account must not reset the counter of the one
   // being guessed (SEC-002). The per-address counter runs out on its own.
   auth.resetThrottle(`login:acct:${user.id}`);
   auth.createSession(res, user.id);
   res.redirect(safeNext(next) || homeFor(user));
+}
+
+/**
+ * The page that asks for the passkey (signing in, or confirming before a sensitive action). The button (app.js)
+ * asks the device, puts its answer in the form and sends it. Without JavaScript passkeys cannot work: said so.
+ */
+function passkeyPage(req, { action, token, options, title, intro, extra = '' }) {
+  return html`
+<div class="narrow">
+  ${pageHead(title, { iconName: 'lock', sub: intro })}
+  <section class="card">
+    ${postForm(req, action, html`
+      <input type="hidden" name="token" value="${token}">
+      <input type="hidden" name="credential" value="">
+      <button type="button" class="btn btn-primary btn-block" data-passkey="get" data-options="${JSON.stringify(options)}" autofocus>${icon('lock')} אימות עם מפתח הגישה</button>
+      <p class="muted small" data-passkey-error role="alert"></p>`, 'data-passkey-form')}
+    <noscript><p class="flash flash-warning small">אימות עם מפתח גישה דורש JavaScript בדפדפן.</p></noscript>
+    <p class="muted small">המכשיר יבקש טביעת אצבע, זיהוי פנים, קוד המכשיר או מפתח אבטחה. אין לכם את המכשיר? פנו לבעלים של האתר, שיכול להסיר את מפתח הגישה.</p>
+    ${extra}
+  </section>
+</div>`;
+}
+
+/**
+ * Password, e-mail code or Google checked. An account with a passkey must also prove it (a stolen password or a
+ * taken-over mailbox is not enough); otherwise the session starts.
+ */
+async function finishLogin(req, res, user, next = req.body?.next) {
+  if (!passkeys.has(user.id)) return completeLogin(req, res, user, next);
+  const { token, options } = await passkeys.authenticationOptions(req, user, 'login', safeNext(next) || null);
+  return res.page('אימות עם מפתח גישה', passkeyPage(req, {
+    action: '/login/passkey', token, options, title: 'אימות עם מפתח גישה',
+    intro: html`החשבון <b dir="ltr">${user.email}</b> מוגן במפתח גישה. אשרו את הכניסה במכשיר שלכם.`,
+  }));
 }
 
 const googleButton = (href, label) => html`
@@ -293,7 +328,7 @@ module.exports = ({ app, licenseUpload }) => {
       return res.status(401).page('התחברות', loginPage(req, { error: fieldError(['email', 'password'], 'דואר אלקטרוני או סיסמה שגויים'), email }));
     }
     auth.release(ipKey);
-    if (needsSecondStep(user)) {
+    if (!passkeys.has(user.id) && needsSecondStep(user)) {
       const sent = !auth.throttled(`code:acct:${user.id}`, 5, 3600000) && await mail.loginCode(user, auth.createLoginCode(user.id));
       if (!sent) {
         return res.status(503).page('התחברות', loginPage(req, { email,
@@ -302,7 +337,22 @@ module.exports = ({ app, licenseUpload }) => {
       audit(user.id, 'user.login_second_step', 'user', user.id);
       return res.page('אימות כניסה', codePage(req, user.email, { secondStep: true }));
     }
-    finishLogin(req, res, user);
+    await finishLogin(req, res, user);
+  });
+
+  // The passkey step of signing in (see finishLogin).
+  app.post('/login/passkey', async (req, res) => {
+    if (auth.throttled(`passkey:${req.ip}`, 30)) return res.status(429).page('התחברות', loginPage(req, { error: 'יותר מדי ניסיונות. נסו שוב בעוד מספר דקות.' }));
+    let r;
+    try {
+      r = await passkeys.authenticate(req, String(req.body.token || ''), String(req.body.credential || ''), 'login');
+    } catch (err) {
+      return res.status(401).page('התחברות', loginPage(req, { error: `${err.message} התחילו את הכניסה מחדש.` }));
+    }
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(r.userId);
+    if (!user) return res.redirect(303, '/login');
+    audit(user.id, 'user.login_passkey', 'user', user.id);
+    completeLogin(req, res, user, r.next);
   });
 
   app.post('/login/code', async (req, res) => {
@@ -327,7 +377,7 @@ module.exports = ({ app, licenseUpload }) => {
     res.page('קוד התחברות', codePage(req, email));
   });
 
-  app.post('/login/code/verify', (req, res) => {
+  app.post('/login/code/verify', async (req, res) => {
     const email = String(req.body.email || '').trim().slice(0, 254);
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     // Per network address only: codes already allow 5 wrong tries per account (consumeLoginCode), and this way a
@@ -337,7 +387,7 @@ module.exports = ({ app, licenseUpload }) => {
       return res.status(401).page('התחברות', loginPage(req, { error: 'הקוד שגוי או שפג תוקפו', email: req.body.email }));
     }
     auth.release(ipKey);
-    finishLogin(req, res, user);
+    await finishLogin(req, res, user);
   });
 
   app.post('/logout', (req, res) => {
@@ -662,3 +712,4 @@ module.exports.safeNext = safeNext;
 module.exports.validEmail = validEmail;
 module.exports.loginPage = loginPage;
 module.exports.uploadName = uploadName;
+module.exports.passkeyPage = passkeyPage;

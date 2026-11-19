@@ -9,7 +9,9 @@ const storage = require('../storage');
 const { renderCalendar, windowFor } = require('../views/calendar');
 const { later } = require('../later');
 const { html, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
-const { normalizePhone, validPhone, safeNext } = require('./public');
+const { normalizePhone, validPhone, safeNext, passkeyPage } = require('./public');
+const passkeys = require('../passkeys');
+const config = require('../config');
 
 const STATUS_HELP = {
   pending: 'החשבון ממתין לבדיקת המנהל. תישלח הודעה בדואר האלקטרוני לאחר האישור.',
@@ -47,7 +49,11 @@ function upcomingFor(userId) {
     AND status IN ('pending','approved') ORDER BY start_at`).all(userId, time.now());
 }
 
-module.exports = ({ app, requireLogin, licenseUpload }) => {
+/** Is this person one of the console's admins (the console requires them to have a passkey)? */
+const consoleAdmin = (u) => u.role === 'admin' && (config.master
+  || (config.masterConsole && String(u.email).toLowerCase() === require('../bootstrap').mainAdminEmail()));
+
+module.exports = ({ app, requireLogin, requireRecentAuth, licenseUpload }) => {
   app.get('/me', requireLogin, (req, res) => {
     const u = req.user;
     const upcoming = upcomingFor(u.id);
@@ -391,7 +397,135 @@ ${accepted?.policy_version === policy.version ? html`<p class="note-line">${icon
     ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password">`, 'לפחות 8 תווים, לא סיסמה נפוצה ולא השם או המייל')}
     <button class="btn btn-primary">שמירה</button>`, 'class="card"')}
   ${u.google_sub ? html`<section class="card"><h2 class="section-title">${icon('user')} חשבון Google</h2><p>${badge('active', 'מקושר')} ניתן להתחבר עם חשבון Google של ${u.email}.</p></section>` : ''}
+  ${u.role === 'admin' ? passkeysCard(req, u) : ''}
 </div>`);
+  });
+
+  // ---------- Passkeys (src/passkeys.js) ----------
+  function passkeysCard(req, u) {
+    const keys = passkeys.list(u.id);
+    const required = consoleAdmin(u) && passkeys.consoleRequires();
+    return html`<section class="card" id="passkeys">
+  <h2 class="section-title">${icon('lock')} מפתחות גישה (Passkeys)</h2>
+  ${required && !keys.length ? html`<div class="flash flash-warning"><b>נדרש מפתח גישה.</b> כדי להיכנס למרכז הניהול, הוסיפו מפתח גישה למכשיר שלכם.</div>` : ''}
+  <p>מפתח גישה הוא אימות נוסף שאינו עובר במייל: טביעת אצבע או זיהוי פנים בטלפון, Windows Hello או Touch ID במחשב, או מפתח אבטחה.
+    ${keys.length ? 'כל כניסה לחשבון הזה (בסיסמה, בקוד במייל או עם Google) מבקשת גם אותו.' : 'אחרי שתוסיפו מפתח, כל כניסה לחשבון תבקש גם אותו, כך שגם סיסמה גנובה או תיבת מייל פרוצה לא יספיקו.'}</p>
+  ${keys.length ? html`<ul class="plain">${keys.map((k) => html`<li>
+    <b>${k.name}</b> <span class="muted small">נוסף ${time.fmt(k.created_at)}${k.last_used_at ? ` · שימוש אחרון ${time.fmt(k.last_used_at)}` : ''}</span>
+    ${postForm(req, `/me/passkeys/${encodeURIComponent(k.id)}/remove`, html`<button class="btn btn-light btn-sm" data-confirm="להסיר את מפתח הגישה ${k.name}?">הסרה</button>`, 'class="inline"')}</li>`)}</ul>` : ''}
+  ${postForm(req, '/me/passkeys', html`
+    ${field('שם למפתח (לא חובה)', html`<input name="name" maxlength="60" placeholder="למשל: הטלפון שלי">`)}
+    <input type="hidden" name="token" value="">
+    <input type="hidden" name="credential" value="">
+    <button type="button" class="btn btn-primary" data-passkey="create" data-options-url="/me/passkeys/options">${icon('plus')} הוספת מפתח גישה</button>
+    <p class="muted small" data-passkey-error role="alert"></p>`, 'data-passkey-form')}
+  <noscript><p class="flash flash-warning small">הוספת מפתח גישה דורשת JavaScript בדפדפן.</p></noscript>
+</section>`;
+  }
+
+  // The device's options for a new passkey (JSON for app.js).
+  app.post('/me/passkeys/options', requireLogin, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'managers only' });
+    res.set('Cache-Control', 'no-store').json(await passkeys.registrationOptions(req, req.user));
+  });
+
+  app.post('/me/passkeys', requireLogin, async (req, res) => {
+    if (req.user.role !== 'admin') return res.redirect(303, '/me/security');
+    try {
+      const k = await passkeys.register(req, req.user, String(req.body.token || ''), String(req.body.credential || ''), req.body.name);
+      res.flash('success', `מפתח הגישה "${k.name}" נוסף. מעכשיו כל כניסה לחשבון תבקש גם אותו.`);
+    } catch (err) {
+      res.flash('error', err.message);
+    }
+    res.redirect(303, '/me/security#passkeys');
+  });
+
+  app.post('/me/passkeys/:id/remove', requireLogin, requireRecentAuth, (req, res) => {
+    const u = req.user;
+    if (consoleAdmin(u) && passkeys.consoleRequires() && passkeys.list(u.id).length <= 1) {
+      res.flash('error', 'זה מפתח הגישה האחרון, ובלעדיו אי אפשר להיכנס למרכז הניהול. הוסיפו מפתח אחר לפני שתסירו אותו.');
+    } else if (passkeys.remove(u.id, req.params.id, u.id)) {
+      res.flash('success', 'מפתח הגישה הוסר');
+    }
+    res.redirect(303, '/me/security#passkeys');
+  });
+
+  // ---------- Confirming again before a sensitive action (requireRecentAuth) ----------
+  const backFrom = (req) => safeNext(req.query.back || req.body?.back) || '/';
+
+  app.get('/reauth', requireLogin, async (req, res) => {
+    const u = req.user;
+    const back = backFrom(req);
+    if (passkeys.has(u.id)) {
+      const { token, options } = await passkeys.authenticationOptions(req, u, 'reauth', back);
+      return res.page('אישור זהות', passkeyPage(req, {
+        action: '/reauth/passkey', token, options, title: 'אישור זהות', intro: 'לפני פעולה רגישה: אשרו במכשיר שלכם שזה אתם.',
+        extra: html`<p><a href="${back}">ביטול</a></p>`,
+      }));
+    }
+    res.page('אישור זהות', html`
+<div class="narrow">
+  ${pageHead('אישור זהות', { iconName: 'lock', sub: 'לפני פעולה רגישה יש לאשר שוב שזה אתם.' })}
+  ${u.password_hash ? postForm(req, '/reauth', html`
+    <input type="hidden" name="back" value="${back}">
+    ${field('הסיסמה שלך', html`<input type="password" name="password" required autocomplete="current-password" autofocus>`)}
+    <button class="btn btn-primary btn-block">אישור</button>`, 'class="card"')
+    : postForm(req, '/reauth/code', html`
+    <input type="hidden" name="back" value="${back}">
+    <p>לחשבון אין סיסמה: נשלח קוד לכתובת <b dir="ltr">${u.email}</b>.</p>
+    <button class="btn btn-primary btn-block">שליחת קוד</button>`, 'class="card"')}
+  <p><a href="${back}">ביטול</a></p>
+</div>`);
+  });
+
+  const confirmed = (req, res, back, how) => {
+    auth.confirmIdentity(req);
+    audit(req.user.id, 'user.reauth', 'user', req.user.id, how);
+    res.flash('success', 'אושר. אפשר לבצע את הפעולה.');
+    res.redirect(303, back);
+  };
+
+  app.post('/reauth', requireLogin, async (req, res) => {
+    const back = backFrom(req);
+    if (passkeys.has(req.user.id)) return res.redirect(303, `/reauth?back=${encodeURIComponent(back)}`); // the passkey, not a password
+    if (auth.throttled(`reauth:${req.user.id}`, 10)) { res.flash('error', 'יותר מדי ניסיונות. נסו שוב בעוד מספר דקות.'); return res.redirect(303, back); }
+    if (req.body.code != null) {
+      if (!auth.consumeLoginCode(req.user.id, req.body.code)) { res.flash('error', 'הקוד שגוי או שפג תוקפו'); return res.redirect(303, `/reauth?back=${encodeURIComponent(back)}`); }
+      return confirmed(req, res, back, 'code');
+    }
+    if (!(await auth.verifyPasswordAsync(String(req.body.password || ''), req.user.password_hash))) {
+      res.flash('error', 'הסיסמה שגויה');
+      return res.redirect(303, `/reauth?back=${encodeURIComponent(back)}`);
+    }
+    confirmed(req, res, back, 'password');
+  });
+
+  app.post('/reauth/code', requireLogin, async (req, res) => {
+    const back = backFrom(req);
+    const u = req.user;
+    const sent = !auth.throttled(`code:acct:${u.id}`, 5, 3600000) && await mail.loginCode(u, auth.createLoginCode(u.id));
+    if (!sent) { res.flash('error', 'לא ניתן לשלוח קוד כרגע. נסו שוב בעוד כמה דקות.'); return res.redirect(303, back); }
+    res.page('אישור זהות', html`
+<div class="narrow">
+  ${pageHead('אישור זהות', { iconName: 'lock', sub: html`שלחנו קוד בן 6 ספרות לכתובת <b dir="ltr">${u.email}</b>.` })}
+  ${postForm(req, '/reauth', html`
+    <input type="hidden" name="back" value="${back}">
+    ${field('קוד', html`<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus>`)}
+    <button class="btn btn-primary btn-block">אישור</button>`, 'class="card"')}
+  <p><a href="${back}">ביטול</a></p>
+</div>`);
+  });
+
+  app.post('/reauth/passkey', requireLogin, async (req, res) => {
+    let r;
+    try {
+      r = await passkeys.authenticate(req, String(req.body.token || ''), String(req.body.credential || ''), 'reauth');
+    } catch (err) {
+      res.flash('error', err.message);
+      return res.redirect(303, '/reauth');
+    }
+    if (r.userId !== req.user.id) return res.redirect(303, '/reauth');
+    confirmed(req, res, safeNext(r.next) || '/', 'passkey');
   });
 
   app.post('/me/password', requireLogin, async (req, res) => {

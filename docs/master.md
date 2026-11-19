@@ -153,5 +153,12 @@ client page shows the exact value.
 - The Turso and Vercel tokens stay in the console's Vercel variables (Sensitive). Client database tokens go straight
   into each client's project and are never stored by the console. They expire after a year (replace them from the
   client page before then).
-- Signing in to the console, like a manager's sign-in on a site, needs the password **and** a code sent by e-mail
-  (when e-mail is set up). Google sign-in counts as both.
+- **Passkeys are required** for the console's admins (`CONSOLE_PASSKEY=required`, the default in production): at the
+  first visit without one, the console sends you to add it (your phone's fingerprint or face, Windows Hello / Touch ID,
+  or a security key). Every later sign-in needs it, whatever the way in (password, e-mailed code, Google).
+- **Lost device:** the main admin removes another admin's passkeys on **Console admins**. If the main admin loses
+  theirs: set `PASSKEY_RESET=<their e-mail>` in the console's Vercel variables, redeploy, sign in and add a new
+  passkey, then delete the variable.
+- **Main admin only:** deleting a client, replacing its database key, and setting passwords for users or console admins.
+- Sensitive actions (those above, adding or removing admins and managers) ask to confirm identity again if the last
+  confirmation was more than 10 minutes ago.

@@ -23,6 +23,7 @@ const INSTANCE = crypto.randomBytes(3).toString('hex');
 const pinnable = (hostname) => hostname !== 'localhost' && !net.isIP(hostname.replace(/^\[|\]$/g, ''));
 
 require('./bootstrap').ensureAdminFromEnv();
+require('./passkeys').resetFromEnv();
 
 const app = express();
 app.set('trust proxy', 1); // in production HTTPS is terminated by the reverse proxy, which sets X-Forwarded-Proto
@@ -170,7 +171,7 @@ const PUBLIC_ORIGIN = new URL(config.baseUrl).origin;
 // Forms anyone may submit (signing in, registering, password reset) are protected by the Origin check alone: they
 // are often rendered before any session exists (a login page left open while signing in on another tab), so they
 // cannot carry a session's token.
-const PUBLIC_POSTS = new Set(['/login', '/login/code', '/login/code/verify', '/register', '/password/forgot', '/password/reset']);
+const PUBLIC_POSTS = new Set(['/login', '/login/code', '/login/code/verify', '/login/passkey', '/register', '/password/forgot', '/password/reset']);
 
 /** A path on this same site taken from the Referer header, or null. */
 function sameSiteReferer(req) {
@@ -196,7 +197,7 @@ const discardUpload = (req) => { if (req.file) fs.rmSync(req.file.path, { force:
 
 // Text fields are cut to a sensible length (S-06): a 100,000-character name made managers' pages and e-mails huge.
 // The browser's maxlength stops typing earlier; this is for posts made without the form.
-const FIELD_MAX = { first_name: 60, last_name: 60, purpose: 200, content: 100000, welcome_text: 5000, instructions: 5000, notes: 5000, admin_note: 5000 };
+const FIELD_MAX = { credential: 20000, first_name: 60, last_name: 60, purpose: 200, content: 100000, welcome_text: 5000, instructions: 5000, notes: 5000, admin_note: 5000 };
 function capFields(body) {
   if (!body || typeof body !== 'object') return;
   for (const [k, v] of Object.entries(body)) {
@@ -294,20 +295,37 @@ const requireAdmin = (req, res, next) => {
   if (req.user.role !== 'admin' || req.user.status !== 'active') {
     return res.status(403).page('אין הרשאה', html`<h1>אין הרשאה לעמוד זה</h1>`);
   }
+  // A read-only manager sees everything and changes nothing.
+  if (req.user.admin_level === 'viewer' && !['GET', 'HEAD'].includes(req.method)) {
+    res.flash('error', 'יש לך הרשאת צפייה בלבד, ולכן הפעולה לא בוצעה. שינויים עושים הבעלים או מנהל אחר.');
+    return res.redirect(303, sameSiteReferer(req) || '/admin');
+  }
   next();
+};
+
+/**
+ * Before a sensitive action (deleting a user or a client, setting someone's password, changing managers, removing
+ * passkeys): the person must have proved who they are in the last 10 minutes. Otherwise they confirm (/reauth: the
+ * passkey, else the password, else an e-mailed code) and come back to the page to do it.
+ */
+const requireRecentAuth = (req, res, next) => {
+  if (!req.user) return requireLogin(req, res, next);
+  if (auth.recentlyConfirmed(req)) return next();
+  res.flash('warning', 'לפני פעולה רגישה יש לאשר שוב שזה אתם. אחרי האישור חזרו על הפעולה.');
+  res.redirect(303, `/reauth?back=${encodeURIComponent(sameSiteReferer(req) || '/')}`);
 };
 
 // The master console (APP_MODE=master) is only the console: signing in and /master. Everything else, the booking
 // pages included, leads to it.
 if (config.master) {
-  const OPEN = /^\/(login|logout|password\/|auth\/google|static\/|favicon\.ico$|healthz$|brand\/logo$|accessibility$|master(\/|$))/;
+  const OPEN = /^\/(login|logout|password\/|auth\/google|static\/|favicon\.ico$|healthz$|brand\/logo$|accessibility$|master(\/|$)|reauth|me\/(security|passkeys|password)(\/|$))/;
   app.use((req, res, next) => {
     if (OPEN.test(req.path)) return next();
     res.redirect(req.method === 'GET' || req.method === 'HEAD' ? 302 : 303, '/master');
   });
 }
 
-const ctx = { app, requireLogin, requireAdmin, licenseUpload, documentUpload, logoUpload };
+const ctx = { app, requireLogin, requireAdmin, requireRecentAuth, licenseUpload, documentUpload, logoUpload };
 if (config.master || config.masterConsole) require('./routes/master')(ctx);
 require('./routes/manage')(ctx);
 require('./routes/public')(ctx);

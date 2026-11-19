@@ -9,4 +9,3 @@ docker-compose*.yml
 Caddyfile
 .env
 .env.*
-agent

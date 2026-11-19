@@ -633,7 +633,12 @@ ul.docs .doc-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
 .toggle-row input { margin-top: .25rem; }
 
 /* Console: the sites behind a summary number, each a link into that site's list */
-.stat-sites { list-style: none; margin: .45rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem; }
+/* Its own row of two wider boxes: the label on one line, the sites underneath across the whole box. */
+.stats-waiting { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.stats-waiting .stat > ul, .stats-waiting .stat > small { grid-column: 1 / -1; }
+.stats-waiting .stat > small { margin-top: .45rem; }
+.stat-sites { list-style: none; margin: .6rem 0 0; padding: .6rem 0 0; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: .35rem; }
+.stat-sites li { white-space: nowrap; }
 .stat-sites a { display: inline-block; font-size: .8rem; padding: .15rem .55rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); text-decoration: none; }
 .stat-sites a:hover { border-color: var(--primary); }
 a.waiting-link { display: inline-block; min-width: 1.8rem; text-align: center; font-weight: 700; padding: .1rem .5rem; border-radius: 999px;

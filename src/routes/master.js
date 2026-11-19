@@ -132,6 +132,8 @@ ${setupNotice()}
   <div class="stat">${icon('car')}<b>${clients.length}</b><span>לקוחות</span></div>
   <div class="stat ${online.length < clients.length ? 'warn' : ''}">${icon('check')}<b>${online.filter((s) => !s.data.suspended).length}</b><span>אתרים פעילים</span></div>
   <div class="stat">${icon('users')}<b>${sum('users')}</b><span>משתמשים בכל האתרים</span></div>
+</div>
+<div class="stats stats-waiting">
   ${waitingBox(clients, statuses, 'pendingBookings', 'clock', 'בקשות הזמנה ממתינות לאישור', '/admin/bookings?status=pending')}
   ${waitingBox(clients, statuses, 'pendingUsers', 'userplus', 'הרשמות ורישיונות ממתינים לבדיקה', '/admin/users?status=pending')}
 </div>

@@ -154,6 +154,14 @@ function brandingCard(req) {
     ${b.logoFile ? html`<p class="kv-inline"><img class="brand-logo" src="/brand/logo?v=${b.logoFile}" alt="הלוגו הנוכחי">
       <label class="check"><input type="checkbox" name="remove_logo" value="1"> <span>הסרת הלוגו</span></label></p>` : ''}
     ${field('טקסט פתיחה בדף הבית', html`<textarea name="welcome_text" rows="2" maxlength="300" placeholder="${b.welcomeText}">${s.welcome_text || ''}</textarea>`)}
+    <hr class="form-sep">
+    <h3 class="sub-title">${icon('shield', 18)} רכז/ת נגישות</h3>
+    <p class="muted small">מופיעים ב<a href="/accessibility">הצהרת הנגישות</a>, שהחוק מחייב בכל אתר. עד שימולאו, ההצהרה מציגה "יש להשלים".</p>
+    <div class="grid2">
+      ${field('שם', html`<input name="a11y_name" value="${s.a11y_name || ''}" maxlength="60" autocomplete="off">`)}
+      ${field('טלפון', html`<input type="tel" name="a11y_phone" value="${s.a11y_phone || ''}" maxlength="30" dir="ltr">`)}
+      ${field('דואר אלקטרוני', html`<input type="email" name="a11y_email" value="${s.a11y_email || ''}" maxlength="120" dir="ltr">`)}
+    </div>
     <div class="form-actions"><button class="btn btn-primary">שמירת השינויים</button></div>`, 'enctype="multipart/form-data"')}
 </section>`;
 }
@@ -312,7 +320,7 @@ function newUserPage(req, { errors = [], v = {} } = {}) {
 <div class="narrow-wide">
   <p><a class="back" href="/admin/users">${icon('arrow', 16)} חזרה לרשימה</a></p>
   ${pageHead('הוספת משתמש', { iconName: 'userplus', sub: 'בלי הרשמה עצמית: המשתמש יקבל במייל קישור לבחירת סיסמה.' })}
-  ${errors.length ? html`<div class="flash flash-error"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+  ${errors.length ? html`<div class="flash flash-error" role="alert" tabindex="-1" data-error-summary><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
   ${postForm(req, '/admin/users/new', html`
     <fieldset>
       <legend>${icon('user')} פרטים אישיים</legend>
@@ -434,10 +442,10 @@ ${pageHead('משתמשים', {
     actions: html`<a class="btn btn-primary" href="/admin/users/new">${icon('userplus')} הוספת משתמש</a>`,
   })}
 <form class="filters" method="get">
-  <input name="q" value="${q}" placeholder="חיפוש לפי שם, מייל, טלפון או ת״ז">
-  <select name="status"><option value="">כל הסטטוסים</option>
+  <input name="q" value="${q}" placeholder="חיפוש לפי שם, מייל, טלפון או ת״ז" aria-label="חיפוש משתמשים">
+  <select name="status" aria-label="סינון לפי סטטוס"><option value="">כל הסטטוסים</option>
     ${Object.entries(USER_STATUS).map(([k, l]) => html`<option value="${k}" ${k === status ? 'selected' : ''}>${l}</option>`)}</select>
-  <select name="role"><option value="">כל התפקידים</option>
+  <select name="role" aria-label="סינון לפי תפקיד"><option value="">כל התפקידים</option>
     <option value="admin" ${role === 'admin' ? 'selected' : ''}>מנהלים</option>
     <option value="user" ${role === 'user' ? 'selected' : ''}>משתמשים רגילים</option></select>
   <button class="btn btn-light">סינון</button>
@@ -802,13 +810,13 @@ ${pageHead('הזמנות', {
     actions: html`<a class="btn btn-primary" href="/admin/bookings/new">${icon('plus')} הזמנה ידנית</a> <a class="btn btn-light" href="/admin/blocks/new">${icon('wrench')} חסימת מועד</a>`,
   })}
 <form class="filters" method="get">
-  <input name="q" value="${q}" placeholder="שם משתמש, מייל או מטרה">
-  <select name="status"><option value="">כל הסטטוסים</option>
+  <input name="q" value="${q}" placeholder="שם משתמש, מייל או מטרה" aria-label="חיפוש הזמנות">
+  <select name="status" aria-label="סינון לפי סטטוס"><option value="">כל הסטטוסים</option>
     ${Object.entries(bookings.STATUS_LABELS).map(([k, l]) => html`<option value="${k}" ${k === status ? 'selected' : ''}>${l}</option>`)}</select>
-  <select name="kind"><option value="">הזמנות וחסימות</option>
+  <select name="kind" aria-label="סינון לפי סוג"><option value="">הזמנות וחסימות</option>
     <option value="booking" ${kind === 'booking' ? 'selected' : ''}>הזמנות בלבד</option>
     <option value="block" ${kind === 'block' ? 'selected' : ''}>חסימות בלבד</option></select>
-  ${vehicles.length > 1 ? html`<select name="vehicle"><option value="">כל הרכבים</option>
+  ${vehicles.length > 1 ? html`<select name="vehicle" aria-label="סינון לפי רכב"><option value="">כל הרכבים</option>
     ${vehicles.map((v) => html`<option value="${v.id}" ${v.id === vehicleId ? 'selected' : ''}>${v.plate}</option>`)}</select>` : ''}
   <label class="inline-label">מ־<input type="date" name="from" value="${from}"></label>
   <label class="inline-label">עד<input type="date" name="to" value="${to}"></label>
@@ -1080,10 +1088,15 @@ ${pageTabs(SETTINGS_TABS, 'חלקי ההגדרות', tab)}
     const color = String(b.brand_color || '').toLowerCase();
     const values = {
       org_name: b.org_name, mail_from_name: b.mail_from_name, contact_phone: b.contact_phone, welcome_text: b.welcome_text,
-      contact_email: b.contact_email,
+      contact_email: b.contact_email, a11y_name: b.a11y_name, a11y_phone: b.a11y_phone, a11y_email: b.a11y_email,
       // The default colour is stored as "no override", so the instance's BRAND_COLOR (if any) applies again.
       brand_color: validColor(color) && color !== DEFAULT_COLOR ? color : '',
     };
+    if (values.a11y_email && !validEmail(String(values.a11y_email).trim())) {
+      storage.discard(req.file);
+      res.flash('error', 'כתובת המייל של רכז/ת הנגישות אינה תקינה');
+      return res.redirect('/admin/settings?tab=general');
+    }
     if (values.contact_email && !validEmail(String(values.contact_email).trim())) {
       storage.discard(req.file);
       res.flash('error', 'כתובת המייל ליצירת קשר אינה תקינה');

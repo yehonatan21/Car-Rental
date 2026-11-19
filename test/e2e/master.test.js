@@ -98,6 +98,9 @@ test('the console is only the console: everything leads to /master, no sign-up, 
   const anon = new Client(srv.base);
   assert.equal((await anon.get('/')).location, '/master');
   for (const path of ['/register', '/admin', '/calendar', '/me', '/api/manage/status']) assert.equal((await anon.get(path)).location, '/master', path);
+  const statement = await anon.get('/accessibility');
+  assert.equal(statement.status, 200, 'the accessibility statement is open in the console too');
+  assert.match(statement.text, /הצהרת נגישות/);
   const login = await anon.get('/master');
   assert.equal(login.status, 401);
   assert.match(login.text, /כניסה למרכז הניהול/);

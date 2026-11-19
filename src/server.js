@@ -281,7 +281,7 @@ const requireAdmin = (req, res, next) => {
 // The master console (APP_MODE=master) is only the console: signing in and /master. Everything else, the booking
 // pages included, leads to it.
 if (config.master) {
-  const OPEN = /^\/(login|logout|password\/|auth\/google|static\/|favicon\.ico$|healthz$|brand\/logo$|master(\/|$))/;
+  const OPEN = /^\/(login|logout|password\/|auth\/google|static\/|favicon\.ico$|healthz$|brand\/logo$|accessibility$|master(\/|$))/;
   app.use((req, res, next) => {
     if (OPEN.test(req.path)) return next();
     res.redirect(req.method === 'GET' || req.method === 'HEAD' ? 302 : 303, '/master');

@@ -18,6 +18,10 @@ const FIELDS = {
   contact_phone: { max: 30 },
   welcome_text: { max: 300 },
   logo_file: { max: 80 },
+  // The accessibility coordinator named in the accessibility statement (/accessibility).
+  a11y_name: { max: 60 },
+  a11y_phone: { max: 30 },
+  a11y_email: { max: 120 },
 };
 
 const validColor = (c) => /^#[0-9a-f]{6}$/i.test(c);
@@ -48,6 +52,7 @@ function brand() {
     contactPhone: s.contact_phone || env('CONTACT_PHONE'),
     welcomeText: s.welcome_text || env('WELCOME_TEXT') || DEFAULT_WELCOME,
     logoFile: s.logo_file || null,
+    a11y: { name: s.a11y_name || '', phone: s.a11y_phone || '', email: s.a11y_email || '' },
     stored: s,
   };
 }
@@ -70,6 +75,7 @@ const mix = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
 const WHITE = [255, 255, 255];
 const BLACK = [0, 0, 0];
 const DARK_BG = [21, 32, 29];
+const PAGE_BG = [243, 246, 245]; // --bg in light mode
 function luminance(c) {
   const [r, g, b] = c.map((x) => { const s = x / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; });
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -81,6 +87,9 @@ function paletteCss(hex) {
   let c = rgb(hex);
   // A very light colour is darkened until white text on it stays readable; the other way round for dark mode.
   for (let i = 0; i < 10 && contrast(c, WHITE) < 4.5; i++) c = mix(c, BLACK, 0.12);
+  // Links and headings in the colour sit on the light grey page too (#f3f6f5): a small extra darkening keeps 4.5:1
+  // there (WCAG 1.4.3), so the shade stays the client's own (e.g. #6b7a1a → #687619).
+  for (let i = 0; i < 20 && contrast(c, PAGE_BG) < 4.5; i++) c = mix(c, BLACK, 0.03);
   let d = mix(c, WHITE, 0.35);
   for (let i = 0; i < 10 && contrast(d, DARK_BG) < 4.5; i++) d = mix(d, WHITE, 0.15);
   const light = {

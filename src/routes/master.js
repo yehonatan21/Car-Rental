@@ -171,7 +171,7 @@ ${clients.length ? html`<table class="table">
   ${pageHead('לקוח חדש', { iconName: 'plus', sub: 'נוצרים אתר ומסד נתונים חדשים, נפרדים לגמרי מכל לקוח אחר.' })}
   ${ready ? '' : html`<div class="flash flash-warning">${icon('alert', 18)} כדי ליצור אתר מכאן צריך קודם לחבר את Turso ו־Vercel.
     <a href="/master/settings">להגדרת החיבורים</a>. אפשר גם <a href="/master/clients/import">להוסיף אתר שכבר קיים</a>.</div>`}
-  ${errors.length ? html`<div class="flash flash-error" role="alert"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+  ${errors.length ? html`<div class="flash flash-error" role="alert" tabindex="-1" data-error-summary><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
   ${postForm(req, '/master/clients/new', html`
     ${field('שם הלקוח', html`<input name="name" value="${v.name || ''}" maxlength="60" required>`, 'מופיע בראש האתר, בכותרות ובמיילים. הלקוח יוכל לשנות אותו.')}
     ${field('מזהה קצר באנגלית', html`<input name="slug" value="${v.slug || ''}" pattern="[a-z0-9][a-z0-9\\-]{0,30}" maxlength="32" dir="ltr" required placeholder="bne-adam">`,
@@ -242,7 +242,7 @@ ${clients.length ? html`<table class="table">
     return html`
 <div class="narrow">
   ${pageHead('הוספת אתר קיים', { iconName: 'login', sub: 'אתר הזמנת רכב שכבר פועל (למשל האתר הראשון), כדי לנהל אותו מכאן.' })}
-  ${errors.length ? html`<div class="flash flash-error" role="alert"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+  ${errors.length ? html`<div class="flash flash-error" role="alert" tabindex="-1" data-error-summary><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
   ${postForm(req, '/master/clients/import', html`
     ${field('שם הלקוח', html`<input name="name" value="${v.name || ''}" maxlength="60" required>`)}
     ${field('מזהה קצר באנגלית', html`<input name="slug" value="${v.slug || ''}" pattern="[a-z0-9][a-z0-9\\-]{0,30}" maxlength="32" dir="ltr" required>`,

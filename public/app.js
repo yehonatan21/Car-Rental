@@ -97,17 +97,29 @@ function enhanceDateInput(input) {
   };
 
   let month; // first day of the month on show
-  const render = () => {
+  // One day is a tab stop (the selected one, else today, else the first available); arrows move between days.
+  const render = (focusIso) => {
     const sel = datePart();
     const today = isoDate(new Date());
     const min = minIso();
+    const inMonth = (iso) => iso.slice(0, 7) === isoDate(month).slice(0, 7);
+    let stop = [focusIso, sel, today].find((x) => x && inMonth(x) && !(min && x < min));
     const start = new Date(month.getFullYear(), month.getMonth(), 1 - month.getDay());
     let cells = HE_DOW.map((d) => `<span class="dow">${d}</span>`).join('');
+    if (!stop) {
+      for (let i = 1; i <= 31 && !stop; i++) {
+        const iso = isoDate(new Date(month.getFullYear(), month.getMonth(), i));
+        if (inMonth(iso) && !(min && iso < min)) stop = iso;
+      }
+    }
     for (let i = 0; i < 42; i++) {
       const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
       const iso = isoDate(d);
       const cls = [d.getMonth() !== month.getMonth() && 'other', iso === today && 'today', iso === sel && 'sel'].filter(Boolean).join(' ');
-      cells += `<button type="button" data-d="${iso}" class="${cls}" ${min && iso < min ? 'disabled' : ''} aria-label="${showDmy(iso)}"${iso === sel ? ' aria-pressed="true"' : ''}>${d.getDate()}</button>`;
+      // The name starts with the number shown ("10 בדצמבר 2026"), so voice control finds it (WCAG 2.5.3).
+      const name = `${d.getDate()} ב${HE_MONTHS[d.getMonth()]} ${d.getFullYear()}${iso === today ? ', היום' : ''}`;
+      cells += `<button type="button" data-d="${iso}" class="${cls}" ${min && iso < min ? 'disabled' : ''} aria-label="${name}"`
+        + ` tabindex="${iso === stop ? 0 : -1}"${iso === sel ? ' aria-pressed="true"' : ''}>${d.getDate()}</button>`;
     }
     pop.innerHTML = `<div class="dp-head"><button type="button" class="dp-prev" aria-label="החודש הקודם">${svg(ARROW_ICON)}</button>`
       + `<b>${HE_MONTHS[month.getMonth()]} ${month.getFullYear()}</b><button type="button" class="dp-next" aria-label="החודש הבא">${svg(ARROW_ICON)}</button></div>`
@@ -122,7 +134,7 @@ function enhanceDateInput(input) {
     pop.hidden = false;
     toggle.setAttribute('aria-expanded', 'true');
     openPicker = close;
-    (pop.querySelector('.sel') || pop.querySelector('.today:not(:disabled)') || pop.querySelector('.dp-grid button:not(:disabled)'))?.focus();
+    pop.querySelector('.dp-grid button[tabindex="0"]')?.focus();
   };
   function close(focus) {
     pop.hidden = true;
@@ -135,8 +147,10 @@ function enhanceDateInput(input) {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.classList.contains('dp-prev') || b.classList.contains('dp-next')) {
-      month = new Date(month.getFullYear(), month.getMonth() + (b.classList.contains('dp-next') ? 1 : -1), 1);
+      const which = b.classList.contains('dp-next') ? '.dp-next' : '.dp-prev';
+      month = new Date(month.getFullYear(), month.getMonth() + (which === '.dp-next' ? 1 : -1), 1);
       render();
+      pop.querySelector(which).focus(); // the button was redrawn: keep the focus on it
       return;
     }
     if (b.hasAttribute('data-clear')) { commit(''); close(true); return; }
@@ -151,9 +165,17 @@ function enhanceDateInput(input) {
     const [y, m, day] = cur.dataset.d.split('-').map(Number);
     const d = new Date(y, m - 1, day + step);
     const iso = isoDate(d);
-    if (d.getMonth() !== month.getMonth()) { month = new Date(d.getFullYear(), d.getMonth(), 1); render(); }
-    pop.querySelector(`[data-d="${iso}"]`)?.focus();
+    if (d.getMonth() !== month.getMonth()) { month = new Date(d.getFullYear(), d.getMonth(), 1); render(iso); }
+    const next = pop.querySelector(`[data-d="${iso}"]`);
+    if (!next || next.disabled) return;
+    for (const x of pop.querySelectorAll('.dp-grid button[tabindex="0"]')) x.tabIndex = -1;
+    next.tabIndex = 0;
+    next.focus();
   });
+  // Focus leaving the picker (Tab past its last button, or elsewhere) closes it.
+  wrap.addEventListener('focusout', () => setTimeout(() => {
+    if (!pop.hidden && !wrap.contains(document.activeElement)) close();
+  }, 0));
   // Typing: "3112" → "31/12/", digits only, slashes added as you go.
   text.addEventListener('input', (e) => {
     if (e.inputType && e.inputType.startsWith('delete')) return;
@@ -183,7 +205,16 @@ function enhanceDateInput(input) {
 
 for (const input of document.querySelectorAll('input[type=date]:not([data-native]), input[type=datetime-local]:not([data-native])')) enhanceDateInput(input);
 document.addEventListener('click', (e) => { if (openPicker && !e.target.closest('.dp')) openPicker(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openPicker) openPicker(true); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (openPicker) { openPicker(true); return; }
+  // The phone menu closes on Escape too, and the focus goes back to its button.
+  const menu = document.querySelector('details.menu[open]');
+  if (menu) { menu.open = false; menu.querySelector('summary').focus(); }
+});
+
+// A form that came back with errors: the list of errors gets the focus, so screen readers read it at once.
+document.querySelector('[data-error-summary]')?.focus();
 
 // ---------- Calendar ----------
 // Day / week: open the 24-hour grid at the morning (or the first booking of the shown days), not at midnight.

@@ -93,7 +93,7 @@ ${pageHead(`שלום ${u.first_name}`, { iconName: 'user', sub: 'האזור הא
       <dt>תוקף רישיון</dt><dd>${time.fmt(u.license_expiry)} ${u.license_verified ? badge('active', 'אומת') : badge('pending', 'טרם אומת')}</dd>
     </dl>
     ${postForm(req, '/me/profile', html`
-      ${field('טלפון נייד', html`<input type="tel" name="phone" value="${u.phone}" required>`)}
+      ${field('טלפון נייד', html`<input type="tel" name="phone" value="${u.phone}" required autocomplete="tel">`)}
       <button class="btn btn-light">עדכון טלפון</button>`)}
     <p class="muted small">לשינוי שם, תעודת זהות או דואר אלקטרוני יש לפנות למנהל.</p>
     <p class="small"><a href="/me/license">עדכון רישיון נהיגה</a> · <a href="/me/security">סיסמה ואבטחה</a> · <a href="/policy">נהלי השאלה</a></p>

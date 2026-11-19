@@ -69,7 +69,7 @@ function loginPage(req, { error, email = '', next = req.query.next || req.body?.
     <h2 class="section-title">${icon('lock')} כניסה עם קוד חד־פעמי</h2>
     <p class="muted">נשלח קוד בן 6 ספרות לכתובת הדואר האלקטרוני שלך.</p>
     ${postForm(req, '/login/code', html`
-      ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required>`)}
+      ${field('דואר אלקטרוני', html`<input type="email" name="email" value="${email}" required autocomplete="email">`)}
       <button class="btn btn-light btn-block">שליחת קוד</button>`)}
   </div>` : ''}
   ${config.master ? '' : html`<p class="auth-foot">עדיין אין לך חשבון? <a href="/register">להרשמה</a></p>`}
@@ -111,7 +111,8 @@ function registerPage(req, { errors = [], v = {}, draft = null } = {}) {
   return html`
 <div class="narrow-wide">
 ${pageHead('הרשמה למערכת', { iconName: 'userplus', sub: 'לאחר ההרשמה המנהל יבדוק את הפרטים ואת רישיון הנהיגה. לא ניתן להזמין את הרכב עד לאישור.' })}
-${errors.length ? html`<div class="flash flash-error"><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+${errors.length ? html`<div class="flash flash-error" role="alert" tabindex="-1" data-error-summary><ul>${errors.map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+<p class="muted small">שדות המסומנים בכוכבית (*) הם שדות חובה.</p>
 ${gs ? html`<div class="flash flash-success">מתחברים עם חשבון Google <b>${gs.email}</b>. נשאר להשלים את הפרטים ולהעלות רישיון נהיגה.</div>`
     : googleOption(req, '/auth/google', 'הרשמה מהירה עם Google', '/register',
       'השם והדואר האלקטרוני יילקחו מחשבון Google. עדיין יש להשלים ת"ז, טלפון ורישיון נהיגה.')}
@@ -557,6 +558,45 @@ module.exports = ({ app, licenseUpload }) => {
   ${markdown(policy.content)}
 </article>
 ${req.user ? raw(`<p><a href="/policy/accept">לאישור הנהלים</a></p>`) : ''}`);
+  });
+
+  // The accessibility statement required by the Israeli accessibility regulations (WCAG 2.1 AA / SI 5568). The
+  // coordinator's details come from Settings → Organization; until they are filled in, a marked placeholder shows.
+  app.get('/accessibility', (req, res) => {
+    const b = brand();
+    const missing = (what) => html`<mark class="placeholder">[יש להשלים: ${what}]</mark>`;
+    const isAdmin = req.user?.role === 'admin';
+    res.page('הצהרת נגישות', html`
+<article class="card prose">
+  <h1>הצהרת נגישות</h1>
+  ${isAdmin && !(b.a11y.name && (b.a11y.phone || b.a11y.email)) ? html`<div class="flash flash-warning">חסרים פרטי רכז/ת הנגישות.
+    <a href="/admin/settings?tab=general#branding">להשלמה בהגדרות ← הארגון ומיתוג</a></div>` : ''}
+  <p>${b.name} רואה חשיבות רבה במתן שירות שוויוני ונגיש לכל המשתמשים, כולל אנשים עם מוגבלות. האתר הותאם לדרישות
+    תקנות שוויון זכויות לאנשים עם מוגבלות (התאמות נגישות לשירות), התשע"ג־2013, ולתקן הישראלי ת"י 5568, המבוסס על
+    הנחיות WCAG 2.1 ברמה AA.</p>
+  <h2>מה הונגש באתר</h2>
+  <ul>
+    <li>ניווט מלא במקלדת, עם סימון ברור של הרכיב הממוקד, וקישור "דילוג לתוכן" בראש כל עמוד.</li>
+    <li>התאמה לקוראי מסך: כותרות, תוויות לכל שדה ולכל כפתור, והודעות שמוקראות כשהן מופיעות.</li>
+    <li>ניגודיות צבעים לפי הנדרש, וטקסט שאפשר להגדיל עד 200% בלי לאבד תוכן.</li>
+    <li>התאמה לטלפון ולמחשב, בעברית ומימין לשמאל.</li>
+    <li>שדות התאריך והשעה ניתנים להקלדה (יום/חודש/שנה, 24 שעות) ולבחירה מלוח שנה שנגיש במקלדת.</li>
+  </ul>
+  <h2>מגבלות ידועות</h2>
+  <ul>
+    <li>מסמכים שהמנהלים מעלים (למשל רישיון רכב או פוליסת ביטוח בפורמט PDF או כתמונה) עשויים שלא להיות נגישים במלואם.</li>
+    <li>יומן הרכב בתצוגה שבועית כולל משבצות רבות; לניווט מהיר במקלדת מומלצת התצוגה היומית.</li>
+  </ul>
+  <h2>פנייה בנושא נגישות</h2>
+  <p>נתקלתם בקושי? נשמח לשמוע ולתקן. אפשר לפנות לרכז/ת הנגישות:</p>
+  <ul class="plain">
+    <li><b>שם:</b> ${b.a11y.name || missing('שם רכז/ת הנגישות')}</li>
+    <li><b>טלפון:</b> ${b.a11y.phone ? html`<a href="tel:${b.a11y.phone}" dir="ltr">${b.a11y.phone}</a>` : missing('טלפון')}</li>
+    <li><b>דואר אלקטרוני:</b> ${b.a11y.email ? html`<a href="mailto:${b.a11y.email}" dir="ltr">${b.a11y.email}</a>` : missing('דואר אלקטרוני')}</li>
+  </ul>
+  <p>בפנייה כדאי לציין את העמוד, מה ניסיתם לעשות ובאיזה דפדפן או טכנולוגיה מסייעת השתמשתם.</p>
+  <p class="muted small">ההצהרה עודכנה בתאריך 19/11/2026, בעקבות בדיקת נגישות של האתר.</p>
+</article>`);
   });
 
   app.get('/privacy', (req, res) => {

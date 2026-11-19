@@ -175,6 +175,7 @@ ${config.ephemeral ? html`<div class="demo-banner" role="note">סביבת הדג
   ${flash ? html`<div class="flash flash-${flash.type}" role="status">${flash.text}</div>` : ''}
   ${body}
 </main>
+<footer class="page-footer"><a href="/accessibility">הצהרת נגישות</a>${config.master ? '' : html` · <a href="/policy">נהלי השאלת הרכב</a> · <a href="/privacy">מדיניות פרטיות</a>`}</footer>
 ${user ? html`<nav class="tabbar" aria-label="ניווט מהיר">${tabs.map(link)}</nav>` : ''}
 <script src="${asset('app.js')}" defer></script>
 ${config.vercelAnalytics ? raw('<script defer src="/_vercel/insights/script.js"></script>') : ''}

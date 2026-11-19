@@ -49,6 +49,9 @@ const tip = (e) => `${e.label} · ${time.fmt(e.start_at)} – ${e.end_at.slice(0
 /** Attributes of an entry that opens a window (admins: details, approve / reject) instead of following its link. */
 const dialogAttr = (e) => (e.dialog ? ` data-dialog="${e.dialog}" aria-haspopup="dialog"` : '');
 
+/** "5 בנובמבר 2026, יום חמישי": starts with the day number that is shown, so "click 5" works by voice (WCAG 2.5.3). */
+const dayLabel = (d) => `${Number(d.slice(8))} ב${time.HE_MONTHS[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}, יום ${time.HE_DAYS[time.parse(d).getDay()]}`;
+
 function entryChip(e, linkFor) {
   const href = linkFor(e);
   const inner = html`<span class="t">${hhmm(e.start_at)}</span> <span class="l">${e.label}</span>`;
@@ -78,7 +81,7 @@ function timeGrid(days, entries, { linkFor, slotLink, nowStr }) {
     ${hours.map((h) => {
       const slot = `${d}T${String(h).padStart(2, '0')}:00`;
       const href = slotLink && time.addMinutes(slot, 60) > nowStr ? slotLink(slot) : null;
-      return href ? html`<a class="tg-slot" href="${href}" title="הזמנה מ־${time.fmt(slot)}"></a>` : html`<div class="tg-slot past"></div>`;
+      return href ? html`<a class="tg-slot" href="${href}" title="הזמנה מ־${time.fmt(slot)}" aria-label="הזמנה מ־${time.fmt(slot)}"></a>` : html`<div class="tg-slot past"></div>`;
     })}
     ${segmentsForDay(entries, d).map(({ e, top, height, s, en }) => {
       const href = linkFor(e);
@@ -102,7 +105,7 @@ function monthGrid(win, entries, { linkFor, nowStr }) {
     const dayEntries = entries.filter((e) => e.start_at < time.addDays(d, 1) + 'T00:00' && e.end_at > d + 'T00:00');
     const out = d < win.monthStart || d >= win.monthEnd;
     return html`<div class="m-cell ${out ? 'out' : ''} ${d === nowStr.slice(0, 10) ? 'today' : ''} ${d < nowStr.slice(0, 10) ? 'past' : ''} ${dayEntries.length ? 'has' : 'free'}">
-      <a class="m-day" href="?view=day&date=${d}" aria-label="${time.fmtLong(d).replace(/ \d\d:\d\d$/, '')}">${Number(d.slice(8))}</a>
+      <a class="m-day" href="?view=day&date=${d}" aria-label="${dayLabel(d)}">${Number(d.slice(8))}</a>
       ${dayEntries.slice(0, 3).map((e) => entryChip(e, linkFor))}
       ${dayEntries.length > 3 ? html`<a class="more" href="?view=day&date=${d}">+${dayEntries.length - 3}</a>` : ''}
     </div>`;

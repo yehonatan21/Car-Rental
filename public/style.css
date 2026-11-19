@@ -658,10 +658,10 @@ ul.docs .doc-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
 .stats-waiting .stat > small { margin-top: .45rem; }
 .stat-sites { list-style: none; margin: .6rem 0 0; padding: .6rem 0 0; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: .35rem; }
 .stat-sites li { white-space: nowrap; }
-.stat-sites a { display: inline-block; font-size: .8rem; padding: .15rem .55rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); text-decoration: none; }
-.stat-sites a:hover { border-color: var(--primary); }
-a.waiting-link { display: inline-block; min-width: 1.8rem; text-align: center; font-weight: 700; padding: .1rem .5rem; border-radius: 999px;
-  background: var(--warning-soft, #fef3c7); color: var(--warning); text-decoration: none; }
+.stat-sites .site-chip { display: inline-block; font: inherit; font-size: .8rem; padding: .15rem .55rem; border-radius: 999px; background: var(--surface); color: var(--link, var(--primary)); border: 1px solid var(--border); cursor: pointer; }
+.stat-sites .site-chip:hover { border-color: var(--primary); }
+.waiting-link { display: inline-block; min-width: 1.8rem; text-align: center; font-weight: 700; padding: .1rem .5rem; border-radius: 999px;
+  background: var(--warning-soft, #fef3c7); color: var(--warning); text-decoration: none; border: 0; font: inherit; font-weight: 700; cursor: pointer; }
 
 /* Reports: horizontal bars */
 .report-stats .stat { grid-template-columns: 1fr; }

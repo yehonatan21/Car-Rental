@@ -33,6 +33,27 @@ the GitHub workflows. Earlier pass: [archive/analysis/car-rental/SECURITY_FINDIN
 rebuilt with its new key; `lapidot`, the first, for a few minutes, because its first new key was refused by the
 database. The console's button now tests every key before saving it.
 
+## Cross-check with an external review (19/11/2026)
+
+An external source review of `bcf35ed` (before the fixes above) listed the same S-01 to S-11 and four more points:
+
+| Point | Status |
+|---|---|
+| A. Deleting a user left their name and e-mail in the action log | **Fixed:** deletion removes the person's name, e-mail, phone and ID number from every log entry (the entries stay, as "[נמחק]") and drops mail waiting for them; the deletion entry itself holds only the id and the booking count |
+| B. The privacy document said the console never receives phone numbers | **Fixed:** the document says what the console's main admin sees (S-07); the console can no longer search users by ID number |
+| C. "Sign in as manager" from the console was a GET link with side effects | **Fixed:** it is a form post with the session's token; the old address only shows the button |
+| D. Administrator roles are broad (no owner / read-only roles) | **Open, needs a decision:** see below |
+| An e-mailed code is not a true second factor while code-only sign-in exists | **Agreed, partly open:** the code after the password stops a stolen password, but whoever controls the manager's mailbox can still sign in (code, or reset link). A factor that does not go through e-mail (passkey or authenticator app) is needed for that; see below |
+| Restore not demonstrated | **Procedure written** ([restore.md](restore.md)); the drill is still to be run |
+| GitHub branch rules, secret scanning, CodeQL; SMTP domain authentication (SPF/DKIM); monitoring of privilege changes | **Open:** repository and mail-account settings, outside the code |
+
+**Decisions still needed**
+1. Passkeys (or an authenticator app) for console admins, and optionally for site managers.
+2. Roles: a site *owner* who alone can remove managers and delete users, and a read-only manager; on the console,
+   the main admin alone deleting clients (today any console admin can).
+3. Re-confirming identity (password or code) right before the most dangerous actions: deleting a client or a user,
+   setting someone's password, adding a manager.
+
 The findings as they were found:
 
 ## Summary
@@ -92,7 +113,7 @@ no second factor for managers, and the database keys never expire and are copied
   the CSP still applies.
 - All managers of a site have equal rights, so any manager can remove another. That is by design; an "owner" role
   would be a product decision.
-- Backups rely on Turso's point-in-time history; the restore procedure (`docs/restore.md`) is still not written.
+- Backups rely on Turso's point-in-time history; the restore procedure is in [restore.md](restore.md) (drill not yet run).
 
 ## Suggested order
 

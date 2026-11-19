@@ -343,6 +343,18 @@ function audit(actorId, action, targetType, targetId, details) {
     .run(actorId ?? null, action, targetType ?? null, targetId ?? null, details ? String(details) : null, time.stamp());
 }
 
+/**
+ * A deleted account's name and e-mail are removed from what stays behind (the action log keeps what happened, as
+ * "#id", and mail waiting or failed to that address is dropped), so deleting a user really forgets who they were.
+ */
+function forgetIdentifiers(u) {
+  const name = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+  for (const s of [u.email, name, u.id_number, u.phone].filter((x) => x && String(x).length >= 3)) {
+    db.prepare("UPDATE audit_log SET details = replace(details, ?, '[נמחק]') WHERE instr(details, ?) > 0").run(s, s);
+  }
+  if (u.email) db.prepare('DELETE FROM mail_outbox WHERE instr(recipients, ?) > 0').run(u.email);
+}
+
 function currentPolicy() {
   return db.prepare('SELECT * FROM policies ORDER BY version DESC LIMIT 1').get();
 }
@@ -398,6 +410,7 @@ function storageInfo() {
 }
 
 module.exports = {
+  forgetIdentifiers,
   db, transaction, audit, getSettings, setSetting, DEFAULT_SETTINGS, storageInfo, isPerDeploymentHost,
   currentPolicy, requiredPolicyVersion, userAcceptedPolicy, defaultVehicle,
 };

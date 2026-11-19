@@ -1,6 +1,6 @@
 'use strict';
 const path = require('node:path');
-const { db, transaction, audit, getSettings, setSetting, currentPolicy, defaultVehicle, storageInfo } = require('../db');
+const { db, transaction, audit, forgetIdentifiers, getSettings, setSetting, currentPolicy, defaultVehicle, storageInfo } = require('../db');
 const auth = require('../auth');
 const { passwordProblem } = require('../passwords');
 const mail = require('../mail');
@@ -641,7 +641,8 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
       db.prepare('DELETE FROM users WHERE id = ?').run(u.id); // sessions, codes, reset links, policy acceptances: cascade
     });
     for (const f of files) storage.remove(f);
-    audit(req.user.id, 'user.delete', 'user', u.id, `${fullName(u)} · ${u.email} · ${bookingsCount} הזמנות`);
+    forgetIdentifiers(u);
+    audit(req.user.id, 'user.delete', 'user', u.id, `${bookingsCount} הזמנות`); // no name or e-mail: the person asked to be forgotten
     res.flash('success', `המשתמש ${fullName(u)} נמחק${bookingsCount ? `, יחד עם ${bookingsCount} הזמנות` : ''}.`);
     res.redirect(303, '/admin/users');
   });

@@ -55,7 +55,7 @@ test('from inside the site: add a client site, see it, sign in to it, set a user
   const list = await main.get('/master');
   assert.match(list.text, /רכב קהילתי רמות[\s\S]*?badge-active">פעיל/);
 
-  const go = await main.get('/master/clients/ramot/login');
+  const go = await main.post('/master/clients/ramot/login', {}, '/master');
   assert.ok(go.location.startsWith(`${site.base}/manage/sso?token=`));
   const there = new Client(site.base);
   assert.equal((await there.get(go.location.slice(site.base.length))).status, 303);

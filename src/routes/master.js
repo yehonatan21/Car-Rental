@@ -33,22 +33,27 @@ const ROLE_LABEL = (u) => (u.role === 'admin' ? badge('admin', 'מנהל/ת') : 
 /** Created here in the last 20 minutes: a site that does not answer yet is most likely still being built. */
 const isNew = (c) => Boolean(c.provisioned) && c.created_at >= time.stamp(new Date(Date.now() - 20 * 60000));
 
-/** The console's "sign in as manager" for client c, opening `next` (a page under /admin) on its site. */
-const loginTo = (c, next) => `/master/clients/${encodeURIComponent(c.slug)}/login${next ? `?next=${encodeURIComponent(next)}` : ''}`;
+/**
+ * "Sign in as manager" is a form post with the session's token, never a plain link: it can create or promote a manager
+ * account on the client's site, so a link on another page, or a browser prefetching links, must not set it off.
+ */
+const loginButton = (req, c, next, inner, cls, title = '') => postForm(req, `/master/clients/${encodeURIComponent(c.slug)}/login`,
+  html`${next ? html`<input type="hidden" name="next" value="${next}">` : ''}<button class="${cls}" ${title ? html`title="${title}"` : ''}>${inner}</button>`,
+  'class="inline"');
 
 /** A count of waiting items in the list: when there are any, it signs in to that site straight at the page with them. */
-const waitingCount = (c, st, n, page) => (n && st.online
-  ? html`<a class="waiting-link" href="${loginTo(c, page)}" title="כניסה כמנהל לרשימה באתר של ${c.name}">${n}</a>` : String(n || 0));
+const waitingCount = (req, c, st, n, page) => (n && st.online
+  ? loginButton(req, c, page, n, 'waiting-link', `כניסה כמנהל לרשימה באתר של ${c.name}`) : String(n || 0));
 
 /**
  * A summary box of one kind of waiting item across all sites, with the sites that have any: each opens that site,
  * signed in as manager, at the list of those items.
  */
-function waitingBox(clients, statuses, key, iconName, label, page) {
+function waitingBox(req, clients, statuses, key, iconName, label, page) {
   const sites = clients.map((c, i) => ({ c, st: statuses[i], n: statuses[i].online ? statuses[i].data.counts?.[key] || 0 : 0 })).filter((x) => x.n);
   const total = sites.reduce((t, x) => t + x.n, 0);
   return html`<div class="stat ${total ? 'hot' : ''}">${icon(iconName)}<b>${total}</b><span>${label}</span>
-    ${sites.length ? html`<ul class="stat-sites">${sites.map(({ c, n }) => html`<li><a href="${loginTo(c, page)}">${c.name}: ${n}</a></li>`)}</ul>`
+    ${sites.length ? html`<ul class="stat-sites">${sites.map(({ c, n }) => html`<li>${loginButton(req, c, page, `${c.name}: ${n}`, 'site-chip')}</li>`)}</ul>`
     : html`<small class="muted">אין כרגע באף אתר</small>`}</div>`;
 }
 
@@ -88,6 +93,16 @@ function setupNotice() {
 }
 
 module.exports = ({ app, requireAdmin: requireSiteAdmin, logoUpload }) => {
+  // "Sign in as manager" is a form post that ends on the client's site (its one-time sign-in link). Browsers apply the
+  // page's CSP form-action to where a form's redirects lead too, so the console's pages allow its own clients' sites.
+  app.use('/master', (req, res, next) => {
+    const csp = res.get('Content-Security-Policy');
+    if (csp) {
+      const origins = [...new Set(master.list().map((c) => { try { return new URL(c.url).origin; } catch { return null; } }).filter(Boolean))];
+      if (origins.length) res.set('Content-Security-Policy', csp.replace("form-action 'self'", `form-action 'self' ${origins.join(' ')}`));
+    }
+    next();
+  });
   // Inside a regular site (MASTER_CONSOLE=true) the console belongs to the site's main admin (ADMIN_EMAIL) alone; the
   // site's other managers run only their own site. A dedicated console (APP_MODE=master) is for all its admins.
   const onlyMainAdmin = (req, res, next) => {
@@ -145,8 +160,8 @@ ${setupNotice()}
   <div class="stat">${icon('users')}<b>${sum('users')}</b><span>משתמשים בכל האתרים</span></div>
 </div>
 <div class="stats stats-waiting">
-  ${waitingBox(clients, statuses, 'pendingBookings', 'clock', 'בקשות הזמנה ממתינות לאישור', '/admin/bookings?status=pending')}
-  ${waitingBox(clients, statuses, 'pendingUsers', 'userplus', 'הרשמות ורישיונות ממתינים לבדיקה', '/admin/users?status=pending')}
+  ${waitingBox(req, clients, statuses, 'pendingBookings', 'clock', 'בקשות הזמנה ממתינות לאישור', '/admin/bookings?status=pending')}
+  ${waitingBox(req, clients, statuses, 'pendingUsers', 'userplus', 'הרשמות ורישיונות ממתינים לבדיקה', '/admin/users?status=pending')}
 </div>
 <section class="card">
 ${clients.length ? html`<table class="table">
@@ -159,12 +174,12 @@ ${clients.length ? html`<table class="table">
     ${c.url ? html`<br><a class="muted small" href="${c.url}" target="_blank" rel="noopener" dir="ltr">${c.url.replace(/^https?:\/\//, '')}</a>` : ''}</td>
   <td data-label="מצב">${stateBadge(c, st)} ${st.online ? versionLabel(d) : ''}</td>
   <td data-label="משתמשים">${d ? d.counts.users : '—'}</td>
-  <td data-label="בקשות ממתינות">${d ? waitingCount(c, st, d.counts.pendingBookings, '/admin/bookings?status=pending') : '—'}</td>
-  <td data-label="הרשמות ממתינות">${d ? waitingCount(c, st, d.counts.pendingUsers, '/admin/users?status=pending') : '—'}</td>
+  <td data-label="בקשות ממתינות">${d ? waitingCount(req, c, st, d.counts.pendingBookings, '/admin/bookings?status=pending') : '—'}</td>
+  <td data-label="הרשמות ממתינות">${d ? waitingCount(req, c, st, d.counts.pendingUsers, '/admin/users?status=pending') : '—'}</td>
   <td data-label="הזמנות קרובות">${d ? d.counts.upcomingBookings : '—'}</td>
   <td data-label="מנהל/ת"><span dir="ltr">${c.manager_email || '—'}</span></td>
   <td><a class="btn btn-light btn-sm" href="${backTo(c)}">ניהול</a>
-    ${st.online ? html`<a class="btn btn-light btn-sm" href="${backTo(c, '/login')}">${icon('login', 16)} כניסה כמנהל</a>` : ''}</td>
+    ${st.online ? loginButton(req, c, '', html`${icon('login', 16)} כניסה כמנהל`, 'btn btn-light btn-sm') : ''}</td>
 </tr>`;
   })}</tbody></table>` : html`<p class="empty">${icon('car', 28)}<span>${config.master ? 'עדיין אין לקוחות. צרו אתר ללקוח חדש, או הוסיפו את האתר שכבר קיים.'
     : `עדיין אין לקוחות נוספים. האתר הזה (${brand().name}) מנוהל כרגיל מהתפריט; כאן יוצרים ומנהלים את האתרים של לקוחות אחרים.`}</span></p>`}
@@ -308,7 +323,7 @@ ${clients.length ? html`<table class="table">
     res.page(c.name, html`
 ${pageHead(html`${dot(d?.branding?.color)} ${c.name}`, {
     sub: html`${c.url ? html`<a href="${c.url}" target="_blank" rel="noopener" dir="ltr">${c.url}</a> · ` : ''}<span dir="ltr">${c.slug}</span> · ${stateBadge(c, st)}`,
-    actions: html`${st.online ? html`<a class="btn btn-primary" href="${backTo(c, '/login')}">${icon('login')} כניסה כמנהל</a>` : ''}
+    actions: html`${st.online ? loginButton(req, c, '', html`${icon('login')} כניסה כמנהל`, 'btn btn-primary') : ''}
       <a class="btn btn-light" href="/master">${icon('arrow')} לכל הלקוחות</a>`,
   })}
 ${st.online ? '' : html`<div class="card alert">
@@ -403,7 +418,7 @@ ${st.online && isMainAdmin(req.user) ? html`<section class="card" id="users">
   <h2 class="section-title">${icon('users')} משתמשי האתר</h2>
   <p class="muted small card-intro">חיפוש משתמש/ת באתר של ${c.name} כדי להגדיר לו/ה סיסמה חדשה.</p>
   <form method="get" action="${backTo(c, '/users')}" class="kv-inline">
-    <input name="q" placeholder="שם, מייל, טלפון או ת״ז" aria-label="חיפוש משתמש" class="inline-note">
+    <input name="q" placeholder="שם, מייל או טלפון" aria-label="חיפוש משתמש" class="inline-note">
     <button class="btn btn-light">${icon('users', 16)} חיפוש</button>
   </form>
 </section>` : ''}
@@ -442,23 +457,26 @@ ${st.online && isMainAdmin(req.user) ? html`<section class="card" id="users">
   // Sign in to the client's site as a manager. A link (GET), not a form: browsers refuse to follow a form to another
   // site (the page's form-action policy). A link from another site only asks first, so it cannot be used to slip
   // someone into a client's site unnoticed.
-  app.get('/master/clients/:slug/login', requireAdmin, withClient(async (req, res, c) => {
-    // ?next=/admin/…: which page of the client's admin area to open after signing in (only pages under /admin).
-    const next = /^\/admin(\/|\?|$)/.test(String(req.query.next || '')) && !/[\r\n\\]/.test(req.query.next) ? req.query.next : '';
-    if (req.get('sec-fetch-site') === 'cross-site') {
-      return res.page('כניסה לאתר הלקוח', html`<div class="narrow"><section class="card">
-        <h1>כניסה לאתר של ${c.name}</h1><p><a class="btn btn-primary" href="${loginTo(c, next)}">כניסה כמנהל</a></p></section></div>`);
-    }
+  // ?next=/admin/…: which page of the client's admin area to open after signing in (only pages under /admin).
+  const adminPage = (v) => (/^\/admin(\/|\?|$)/.test(String(v || '')) && !/[\r\n\\]/.test(v) ? String(v) : '');
+
+  // An old link or bookmark: it only asks; signing in is the button's form post below.
+  app.get('/master/clients/:slug/login', requireAdmin, withClient((req, res, c) => res.page('כניסה לאתר הלקוח', html`<div class="narrow"><section class="card">
+    <h1>כניסה לאתר של ${c.name}</h1>
+    <p>${loginButton(req, c, adminPage(req.query.next), html`${icon('login')} כניסה כמנהל`, 'btn btn-primary')}</p></section></div>`)));
+
+  app.post('/master/clients/:slug/login', requireAdmin, withClient(async (req, res, c) => {
+    const next = adminPage(req.body.next);
     try {
       const r = await master.call(c, 'POST', '/api/manage/login-link', {
         email: req.user.email, first_name: req.user.first_name, last_name: req.user.last_name, by: req.user.email,
       });
       audit(req.user.id, 'master.client_login', null, null, c.slug);
-      res.set('Cache-Control', 'no-store').redirect(302, c.url + r.path + (next ? `&next=${encodeURIComponent(next)}` : ''));
+      res.set('Cache-Control', 'no-store').redirect(303, c.url + r.path + (next ? `&next=${encodeURIComponent(next)}` : ''));
     } catch (err) {
       if (!(err instanceof master.InstanceError)) throw err;
       res.flash('error', `הכניסה לאתר נכשלה: ${err.message}`);
-      res.redirect(backTo(c));
+      res.redirect(303, backTo(c));
     }
   }));
 
@@ -535,7 +553,7 @@ ${st.online && isMainAdmin(req.user) ? html`<section class="card" id="users">
 <p><a class="back" href="${backTo(c)}">${icon('arrow', 16)} ${c.name}</a></p>
 ${pageHead('משתמשי האתר', { iconName: 'users', sub: `באתר של ${c.name}: ${r.total} משתמשים. מוצגים עד 50.` })}
 <form method="get" class="filters card">
-  <input name="q" value="${q}" placeholder="שם, מייל, טלפון או ת״ז" aria-label="חיפוש משתמש" class="inline-note">
+  <input name="q" value="${q}" placeholder="שם, מייל או טלפון" aria-label="חיפוש משתמש" class="inline-note">
   <button class="btn btn-primary">${icon('users', 16)} חיפוש</button>
   ${q ? html`<a class="btn btn-light" href="${backTo(c, '/users')}">ניקוי</a>` : ''}
 </form>

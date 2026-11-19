@@ -98,3 +98,21 @@ test('S-10: CSP forbids <base> and plugins; a Permissions-Policy is sent', async
   assert.match(r.headers.get('content-security-policy'), /base-uri 'none'; object-src 'none'/);
   assert.match(r.headers.get('permissions-policy'), /camera=\(\)/);
 });
+
+test('deleting a user forgets their name, e-mail, phone and ID number everywhere, but keeps what happened', async () => {
+  createUser({ role: 'admin', email: 'deleter@h3.test' });
+  const admin = client();
+  await admin.login('deleter@h3.test');
+  const u = createUser({ email: 'forget-me@h3.test', first_name: 'שושנה', last_name: 'דמארי', phone: '0527777777' });
+  const { audit } = require('../../src/db');
+  audit(null, 'user.google_link', 'user', u.id, 'forget-me@h3.test');
+  audit(null, 'mail.failed', null, null, `אישור הזמנה: שושנה דמארי → forget-me@h3.test: timeout`);
+  db.prepare("INSERT INTO mail_outbox (recipients, subject, message, status, attempts, created_at) VALUES (?, 's', '{}', 'failed', 6, datetime('now'))").run(JSON.stringify(['forget-me@h3.test']));
+  const r = await admin.post(`/admin/users/${u.id}/delete`, { confirm: '1' }, `/admin/users/${u.id}`);
+  assert.equal(r.location, '/admin/users');
+  const log = db.prepare('SELECT action, details FROM audit_log').all().map((x) => `${x.action} ${x.details}`).join('\n');
+  for (const s of ['forget-me@h3.test', 'שושנה דמארי', '0527777777', u.id_number]) assert.ok(!log.includes(s), `"${s}" is gone from the action log`);
+  assert.match(log, /user\.delete 0 הזמנות/);
+  assert.match(log, /mail\.failed אישור הזמנה: \[נמחק\] → \[נמחק\]/, 'the entry stays, without who');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM mail_outbox WHERE recipients LIKE '%forget-me%'").get().n, 0);
+});

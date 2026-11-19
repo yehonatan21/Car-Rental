@@ -80,10 +80,11 @@ async function runJobs({ by = 'timer' } = {}) {
   // Registrations nobody approved or rejected for 90 days: the account and its license photo are deleted (S-09,
   // docs/privacy.md). The dashboard lists them all along. Never an account with bookings, or a manager.
   const unhandledSince = time.stamp(new Date(Date.now() - 90 * 86400000));
-  for (const u of db.prepare(`SELECT id, email, license_file, pending_license_file FROM users WHERE status = 'pending' AND role = 'user'
+  for (const u of db.prepare(`SELECT id, email, first_name, last_name, id_number, phone, license_file, pending_license_file FROM users WHERE status = 'pending' AND role = 'user'
     AND created_at < ? AND NOT EXISTS (SELECT 1 FROM bookings WHERE user_id = users.id)`).all(unhandledSince)) {
     if (!claim("DELETE FROM users WHERE id = ? AND status = 'pending'", u.id)) continue;
     for (const f of [u.license_file, u.pending_license_file]) if (f) storage.remove(f);
+    require('./db').forgetIdentifiers(u);
     audit(null, 'user.pending_expired', 'user', u.id, '90 ימים בלי אישור או דחייה');
   }
   // The action log keeps two years.

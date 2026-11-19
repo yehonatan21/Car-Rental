@@ -287,8 +287,9 @@ module.exports = ({ app }) => {
     const q = String(req.query.q || '').trim().slice(0, 100);
     const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     const rows = q
+      // Not by ID number: the console never needs it, so it cannot be used to check whose ID number is registered.
       ? db.prepare(`SELECT * FROM users WHERE first_name || ' ' || last_name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\'
-          OR phone LIKE ? ESCAPE '\\' OR id_number LIKE ? ESCAPE '\\' ORDER BY role = 'admin' DESC, first_name, last_name LIMIT 50`).all(like, like, like, like)
+          OR phone LIKE ? ESCAPE '\\' ORDER BY role = 'admin' DESC, first_name, last_name LIMIT 50`).all(like, like, like)
       : db.prepare("SELECT * FROM users ORDER BY role = 'admin' DESC, id DESC LIMIT 50").all();
     res.json({ users: rows.map(userRow), total: db.prepare('SELECT COUNT(*) AS n FROM users').get().n });
   });

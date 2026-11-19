@@ -194,8 +194,8 @@ test('a new client: its own database and Vercel project, with its own management
 
 test('signing in to a client site as a manager, from the console', async () => {
   const c = master.get('bne-adam');
-  const r = await boss.get('/master/clients/bne-adam/login');
-  assert.equal(r.status, 302);
+  const r = await boss.post('/master/clients/bne-adam/login', {}, '/master/clients/bne-adam');
+  assert.equal(r.status, 303);
   assert.ok(r.location.startsWith(`${c.url}/manage/sso?token=`));
   const browser = new Client(c.url);
   const sso = await browser.get(r.location.slice(c.url.length));
@@ -206,11 +206,11 @@ test('signing in to a client site as a manager, from the console', async () => {
   assert.equal((await new Client(c.url).get(r.location.slice(c.url.length))).status, 400, 'the link works once');
 
   // Straight to a page of the admin area (the waiting requests); anything outside /admin is ignored.
-  const toList = await boss.get('/master/clients/bne-adam/login?next=' + encodeURIComponent('/admin/bookings?status=pending'));
+  const toList = await boss.post('/master/clients/bne-adam/login', { next: '/admin/bookings?status=pending' }, '/master');
   assert.match(toList.location, /&next=%2Fadmin%2Fbookings%3Fstatus%3Dpending$/);
   const b2 = new Client(c.url);
   assert.equal((await b2.get(toList.location.slice(c.url.length))).location, '/admin/bookings?status=pending');
-  const evil = await boss.get('/master/clients/bne-adam/login?next=' + encodeURIComponent('//evil.example/admin'));
+  const evil = await boss.post('/master/clients/bne-adam/login', { next: '//evil.example/admin' }, '/master');
   assert.doesNotMatch(evil.location, /next=/, 'not passed on');
   const b3 = new Client(c.url);
   const token = /token=([^&]+)/.exec(evil.location)[1];
@@ -221,10 +221,21 @@ test('signing in to a client site as a manager, from the console', async () => {
   assert.match(list, /בקשות הזמנה ממתינות לאישור/);
   assert.match(list, /הרשמות ורישיונות ממתינים לבדיקה/);
 
-  // A link from another site does not sign in by itself: it asks first.
-  const cross = await boss.req('GET', '/master/clients/bne-adam/login', null, { 'sec-fetch-site': 'cross-site' });
-  assert.equal(cross.status, 200);
-  assert.match(cross.text, /כניסה לאתר של גמח בני אדם/);
+  // A link (from anywhere, or a browser prefetching it) never signs in: it only shows the button, a form post with the
+  // session's token. Without the token, or from another site, the post is refused.
+  const callsBefore = calls.length;
+  const link = await boss.get('/master/clients/bne-adam/login?next=' + encodeURIComponent('/admin/users'));
+  assert.equal(link.status, 200);
+  assert.match(link.text, /כניסה לאתר של גמח בני אדם[\s\S]*<form method="post" action="\/master\/clients\/bne-adam\/login"[\s\S]*name="next" value="\/admin\/users"/);
+  assert.equal(calls.length, callsBefore, 'nothing was asked of the site');
+  assert.equal((await boss.req('POST', '/master/clients/bne-adam/login', {})).status, 303);
+  assert.doesNotMatch((await boss.req('POST', '/master/clients/bne-adam/login', {})).location || '', /sso/, 'no token: refused');
+  assert.equal((await boss.req('POST', '/master/clients/bne-adam/login', {}, { origin: 'https://evil.example' })).status, 403);
+  assert.match(list, /<form method="post" action="\/master\/clients\/bne-adam\/login"/, 'the list signs in with a form, not a link');
+  // Browsers apply form-action to where the form's redirect leads: the console's pages allow its clients' sites.
+  const csp = (await boss.req('GET', '/master')).headers.get('content-security-policy');
+  assert.ok(csp.includes(`form-action 'self' ${new URL(c.url).origin}`), csp);
+  assert.match((await boss.req('GET', '/me')).headers.get('content-security-policy'), /form-action 'self';/, 'other pages unchanged');
 
   const page = await boss.get('/master/clients/bne-adam');
   assert.match(page.text, /dana@bne-adam\.org/);

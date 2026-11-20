@@ -565,11 +565,13 @@ test('console: a passkey is required (CONSOLE_PASSKEY); deleting a client and re
   }
 });
 
-test('monitoring on the dashboard: Turso and Vercel plan, balance and usage against limits; each site\'s numbers', async () => {
+test('monitoring (/master/metrics): Turso and Vercel plan, balance and usage against limits; each site\'s numbers', async () => {
   createUser({ role: 'admin', email: 'watcher@master.test' });
   const watcher = new Client(srv.base);
   await watcher.login('watcher@master.test');
-  const r = await watcher.get('/master?fresh=1');
+  const r = await watcher.get('/master/metrics?fresh=1');
+  assert.doesNotMatch((await watcher.get('/master')).text, /id="monitoring"/, 'no longer on the client list');
+  assert.match((await watcher.get('/master')).text, /href="\/master\/metrics"/, 'linked from the menu and the client list');
   const page = r.text;
   assert.match(page, /<section class="monitoring" id="monitoring">/, `status ${r.status} ${r.location || ''} ${page.slice(page.indexOf('<main'), page.indexOf('<main') + 300)}`);
   assert.match(page, /מסדי נתונים \(Turso\)[\s\S]*starter[\s\S]*\$12\.50[\s\S]*שורות שנקראו החודש[\s\S]*9,600,000 \/ 500,000,000/);

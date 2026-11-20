@@ -113,9 +113,6 @@ function monitoringSection(clients, statuses, acc, own, ownDb) {
   ];
   const overall = problems.some((p) => p.level === 'bad') ? 'bad' : problems.length ? 'warn' : 'ok';
   return html`<section class="monitoring" id="monitoring">
-  <div class="page-head"><h2 class="section-title">${icon('chart')} ניטור</h2>
-    <div class="page-actions"><span class="muted small">חשבונות: ${time.fmt(acc.at.slice(0, 16).replace('T', ' '))} UTC</span>
-      <a class="btn btn-light btn-sm" href="/master?fresh=1#monitoring">רענון</a></div></div>
   <p class="mon-overall">${badge(LEVEL[overall][0], overall === 'ok' ? 'הכול תקין' : overall === 'warn' ? `${problems.length} דברים לבדוק` : 'יש בעיה')}
     ${overall === 'ok' ? '' : html`<span class="muted small">הנקודות הצהובות והאדומות למטה מראות מה.</span>`}</p>
   <div class="mon-grid">
@@ -278,19 +275,14 @@ module.exports = ({ app, requireAdmin: requireSiteAdmin, requireRecentAuth, logo
     await Promise.all(clients.filter((c) => !c.url).map((c) => master.discoverUrl(c).catch(() => null)));
     clients = master.list();
     const statuses = await master.statusAll(clients);
-    // The Turso databases to read the usage of: each site's, and the console's own (its storage host).
-    const dbNames = statuses.map((st, i) => master.databaseName(clients[i], statusData(st)?.storage?.host))
-      .concat(master.databaseName({}, require('../db').storageInfo().host));
-    const acc = await monitoring.accounts({ fresh: req.query.fresh === '1', databases: dbNames });
     const online = statuses.filter((s) => s.online);
-    let own = null;
-    try { own = require('./manage').metrics(); } catch { /* the console's own numbers are optional */ }
     const sum = (k) => online.reduce((n, s) => n + (s.data.counts?.[k] || 0), 0);
     res.page('לקוחות', html`
 ${pageHead('לקוחות', {
     iconName: 'dashboard', sub: 'כל אתרי הלקוחות. לכל לקוח אתר, מסד נתונים ומנהלים משלו.',
     actions: html`<a class="btn btn-primary" href="/master/clients/new">${icon('plus')} לקוח חדש</a>
       <a class="btn btn-light" href="/master/clients/import">${icon('login')} הוספת אתר קיים</a>
+      <a class="btn btn-light" href="/master/metrics">${icon('chart')} ניטור</a>
       ${config.master ? '' : html`<a class="btn btn-light" href="/master/settings">${icon('settings')} חיבורים</a>`}`,
   })}
 ${setupNotice()}
@@ -323,8 +315,25 @@ ${clients.length ? html`<table class="table">
 </tr>`;
   })}</tbody></table>` : html`<p class="empty">${icon('car', 28)}<span>${config.master ? 'עדיין אין לקוחות. צרו אתר ללקוח חדש, או הוסיפו את האתר שכבר קיים.'
     : `עדיין אין לקוחות נוספים. האתר הזה (${brand().name}) מנוהל כרגיל מהתפריט; כאן יוצרים ומנהלים את האתרים של לקוחות אחרים.`}</span></p>`}
-</section>
-${monitoringSection(clients, statuses, acc, own, master.databaseName({}, require('../db').storageInfo().host))}`);
+</section>`);
+  });
+
+  // ---------- Monitoring: the accounts (Turso, Vercel), e-mail volume, jobs and each site's numbers ----------
+  app.get('/master/metrics', requireAdmin, async (req, res) => {
+    const clients = master.list();
+    const statuses = await master.statusAll(clients);
+    // The Turso databases to read the usage of: each site's, and the console's own (its storage host).
+    const ownDb = master.databaseName({}, require('../db').storageInfo().host);
+    const dbNames = statuses.map((st, i) => master.databaseName(clients[i], statusData(st)?.storage?.host)).concat(ownDb);
+    const acc = await monitoring.accounts({ fresh: req.query.fresh === '1', databases: dbNames });
+    let own = null;
+    try { own = require('./manage').metrics(); } catch { /* the console's own numbers are optional */ }
+    res.page('ניטור', html`
+${pageHead('ניטור', {
+    iconName: 'chart', sub: html`חשבונות האירוח, מיילים, משימות מתוזמנות והנתונים של כל אתר. נתוני החשבונות נכון ל־${time.fmt(acc.at.slice(0, 16).replace('T', ' '))} UTC.`,
+    actions: html`<a class="btn btn-light" href="/master/metrics?fresh=1">${icon('clock')} רענון</a>`,
+  })}
+${monitoringSection(clients, statuses, acc, own, ownDb)}`);
   });
 
   // ---------- A new client ----------

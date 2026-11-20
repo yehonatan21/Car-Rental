@@ -110,7 +110,7 @@ function navLinks(user) {
   if (config.master) {
     // The master console: clients, not bookings.
     if (!user) return [['/login', 'התחברות', 'login']];
-    return [['/master', 'לקוחות', 'dashboard'], ['/master/clients/new', 'לקוח חדש', 'plus'], ['/master/admins', 'מנהלי המרכז', 'shield'],
+    return [['/master', 'לקוחות', 'dashboard'], ['/master/metrics', 'ניטור', 'chart'], ['/master/clients/new', 'לקוח חדש', 'plus'], ['/master/admins', 'מנהלי המרכז', 'shield'],
       ['/master/settings', 'הגדרות', 'settings']];
   }
   if (!user) return [['/login', 'התחברות', 'login'], ['/register', 'הרשמה', 'userplus'], ['/policy', 'נהלים', 'file']];

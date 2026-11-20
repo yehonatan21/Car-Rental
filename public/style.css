@@ -773,7 +773,7 @@ mark.placeholder { background: var(--warning-soft); color: var(--warning); paddi
 .user-actions .secondary-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 
 /* Console monitoring (master dashboard). */
-.monitoring { margin-top: 1.5rem; }
+.monitoring { margin-top: 0; }
 .mon-overall { margin: 0 0 1rem; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .mon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem; margin-bottom: 1rem; }
 .mon-card { margin: 0; }

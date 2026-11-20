@@ -145,7 +145,7 @@ client page shows the exact value.
 
 ## Monitoring
 
-The dashboard (**Clients**) ends with a **Monitoring** section, with a green / amber / red mark on each number
+**Monitoring** (ניטור, in the console's menu, `/master/metrics`) has a green / amber / red mark on each number
 (amber from 80% of a limit, red from 95%):
 
 - **Databases (Turso):** plan, credit balance, billing period, unpaid invoices or blocked reads/writes, and this month's
@@ -159,7 +159,7 @@ The dashboard (**Clients**) ends with a **Monitoring** section, with a green / a
 - **Per site:** response time, database size and rows, stored files, its Turso usage and Vercel requests this month,
   e-mails today, and the database key's expiry.
 
-The account numbers are read at most every 5 minutes; **Refresh** reads them now. Sites report counts only, never
+The account numbers are read at most every 5 minutes; **Refresh** (רענון) reads them now. Sites report counts only, never
 personal data.
 
 ## Security

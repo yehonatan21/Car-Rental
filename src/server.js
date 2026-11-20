@@ -121,6 +121,7 @@ if (config.onVercel) {
         }
       } catch (err) {
         console.error('[jobs]', err);
+        require('./errors').record(err, { where: 'jobs' });
       }
     }
     next();
@@ -353,6 +354,7 @@ app.use((err, req, res, next) => {
     return res.redirect(sameSiteReferer(req) || '/'); // only back to our own pages (SEC-011)
   }
   console.error(err);
+  require('./errors').record(err, { req });
   res.status(500).page('שגיאה', html`<h1>אירעה שגיאה</h1><p>נסו שוב מאוחר יותר.</p>`);
 });
 
@@ -381,8 +383,8 @@ module.exports = { app, start, BookingError };
 if (require.main === module) {
   // A stray error from a background task (for example a mail server dropping the connection mid-send) must not
   // take the whole site down: log it loudly and keep serving. Requests have their own error handler above.
-  process.on('uncaughtException', (err) => console.error('[error] Unexpected error; the server keeps running:', err));
-  process.on('unhandledRejection', (err) => console.error('[error] Unhandled rejection; the server keeps running:', err));
+  process.on('uncaughtException', (err) => { console.error('[error] Unexpected error; the server keeps running:', err); require('./errors').record(err, { where: 'background' }); });
+  process.on('unhandledRejection', (err) => { console.error('[error] Unhandled rejection; the server keeps running:', err); require('./errors').record(err, { where: 'background' }); });
   start().catch((err) => {
     console.error(err);
     process.exit(1);

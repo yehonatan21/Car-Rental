@@ -262,6 +262,20 @@ if (!schemaIsCurrent) {
     value TEXT NOT NULL
   );
 
+  -- Server errors, one row per kind (src/errors.js): no request data or user, only where in the code and how often.
+  CREATE TABLE IF NOT EXISTS error_log (
+    fp TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    message TEXT NOT NULL,
+    frame TEXT,
+    stack TEXT,
+    where_ TEXT NOT NULL,
+    route TEXT,
+    count INTEGER NOT NULL DEFAULT 1,
+    first_at TEXT NOT NULL,
+    last_at TEXT NOT NULL
+  );
+
   -- The console's open alerts (src/alerts.js): what was last e-mailed about each problem, so only news is sent.
   CREATE TABLE IF NOT EXISTS alerts (
     key TEXT PRIMARY KEY,

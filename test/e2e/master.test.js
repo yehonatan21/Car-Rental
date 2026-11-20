@@ -686,3 +686,44 @@ test('alerts on the monitoring page, and from the scheduled run', async () => {
     delete process.env.CRON_SECRET;
   }
 });
+
+test('errors: a new kind is e-mailed once (no daily reminder, no "fixed"), and listed on the monitoring page', async () => {
+  const alerts = require('../../src/alerts');
+  const errors = require('../../src/errors');
+  db.prepare('DELETE FROM alerts').run();
+  db.prepare('DELETE FROM error_log').run();
+  const sent = [];
+  const send = async (to, subject, parts) => { sent.push({ subject, body: parts.join('\n') }); return true; };
+  const again = () => db.prepare("UPDATE job_state SET value = '0' WHERE key = 'alerts_at'").run();
+  errors.record(new RangeError('Invalid time value'), { req: { method: 'GET', baseUrl: '', path: '/calendar' } });
+  const snap = () => ({ clients: [], statuses: [], acc: { turso: { ok: false, error: 'not_configured' }, vercel: { ok: false, error: 'not_configured' } },
+    own: require('../../src/routes/manage').metrics() });
+  process.env.ALERT_EMAIL = 'ops@master.test';
+  try {
+    again();
+    await alerts.run({ snap: snap(), send });
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].body, /מרכז הניהול: שגיאת שרת חדשה: \u2066RangeError: Invalid time value · GET \/calendar/);
+    // A day later: not repeated.
+    db.prepare('UPDATE alerts SET sent_at = sent_at - ?').run(25 * 3600000);
+    again();
+    await alerts.run({ snap: snap(), send });
+    assert.equal(sent.length, 1, 'no daily reminder for an error');
+    // Out of the 24 hours: forgotten without a "fixed" e-mail.
+    db.prepare("UPDATE error_log SET first_at = '2020-01-01 00:00:00'").run();
+    again();
+    await alerts.run({ snap: snap(), send });
+    assert.equal(sent.length, 1);
+    assert.equal(alerts.open().length, 0);
+
+    const c = new Client(srv.base);
+    createUser({ role: 'admin', email: 'errors-page@master.test' });
+    await c.login('errors-page@master.test');
+    const page = (await c.get('/master/metrics')).text;
+    assert.match(page, /שגיאות שרת \(24 שעות\)[\s\S]*מרכז הניהול[\s\S]*RangeError: Invalid time value[\s\S]*GET \/calendar/);
+  } finally {
+    delete process.env.ALERT_EMAIL;
+    db.prepare('DELETE FROM alerts').run();
+    db.prepare('DELETE FROM error_log').run();
+  }
+});

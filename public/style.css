@@ -780,6 +780,10 @@ mark.placeholder { background: var(--warning-soft); color: var(--warning); paddi
 .mon-alerts { margin-bottom: 1rem; }
 .mon-alert-list { list-style: none; margin: 0 0 .6rem; padding: 0; display: grid; gap: .45rem; }
 .mon-alert-list li { line-height: 1.5; }
+#errors { margin-top: 1rem; }
+.mon-errors { list-style: none; margin: 0 0 .6rem; padding: 0; display: grid; gap: .8rem; }
+.mon-errors li { border-bottom: 1px solid var(--border, #e5e7eb); padding-bottom: .6rem; overflow-wrap: anywhere; }
+.mon-errors pre { font-size: .75rem; white-space: pre-wrap; background: var(--surface-2, #f5f5f4); padding: .5rem; border-radius: 6px; margin: .3rem 0 0; }
 .mon-card .dl { margin-bottom: .8rem; }
 .mon-meter { margin: .7rem 0; }
 .mon-meter-head { display: flex; justify-content: space-between; gap: .5rem; font-size: .92rem; }

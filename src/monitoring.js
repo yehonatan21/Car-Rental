@@ -123,6 +123,7 @@ function siteChecks(st, ms) {
     const age = m.jobs.lastRun ? (Date.now() - new Date(m.jobs.lastRun.replace(' ', 'T')).getTime()) / 60000 : Infinity;
     out.push({ key: 'jobs', level: age > 180 ? 'bad' : age > 30 ? 'warn' : 'ok', text: m.jobs.lastRun ? `${Math.max(0, Math.round(age))} דק׳` : 'אף פעם' });
   }
+  if (m?.errors) out.push({ key: 'errors', level: m.errors.new24h ? 'warn' : 'ok', text: m.errors.kinds24h ? `${m.errors.kinds24h} ב־24 שעות` : 'אין' });
   if (m?.mail) out.push({ key: 'mail', level: m.mail.failed || m.mail.today.failed ? 'warn' : 'ok', text: `${m.mail.today.recipients} היום` });
   const exp = d.storage?.keyExpiresAt;
   if (d.storage?.kind === 'hosted') {

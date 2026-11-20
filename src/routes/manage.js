@@ -139,6 +139,7 @@ function metrics() {
       failed: n("SELECT COUNT(*) AS n FROM mail_outbox WHERE status = 'failed' AND message != '{}'"),
     },
     runtime: { node: process.version, region: process.env.VERCEL_REGION || null },
+    errors: require('../errors').summary(),
   };
 }
 

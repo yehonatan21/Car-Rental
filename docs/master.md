@@ -157,7 +157,10 @@ client page shows the exact value.
   Gmail), failed today, and waiting for a retry.
 - **Scheduled jobs:** when each site last ran them (amber after 30 minutes: the GitHub schedule is not running).
 - **Per site:** response time, database size and rows, stored files, its Turso usage and Vercel requests this month,
-  e-mails today, and the database key's expiry.
+  e-mails today, server errors in the last 24 hours, and the database key's expiry.
+- **Server errors (24 hours):** each kind of error on every site and the console: the message, the page, where in the
+  code, how many times, and the code's lines (under "מקום בקוד"). A site keeps its errors in its own database for 30
+  days (`error_log`), grouped by kind; nothing about the user or the request is kept (docs/privacy.md).
 
 The account numbers are read at most every 5 minutes; **Refresh** (רענון) reads them now. Sites report counts only, never
 personal data.
@@ -170,7 +173,8 @@ the console checks the same numbers and e-mails its active admins (or `ALERT_EMA
 - a site that does not answer, answers slowly (over 3 s), has not run its jobs, has e-mails that failed for good, or
   whose database key expires within 30 days;
 - Turso or Vercel blocking the account, a failed payment, unpaid invoices, or any usage from 80% of the plan's limit;
-- Vercel's server errors above 5% this month, and the shared mailbox from 80% of its daily limit.
+- Vercel's server errors above 5% this month, and the shared mailbox from 80% of its daily limit;
+- a new kind of server error on a site or the console (once per kind; no daily reminder, and no "fixed" e-mail).
 
 One e-mail per run, only with news: a problem that appeared, got worse (amber → red) or was fixed. A problem still open
 is repeated once a day. The open alerts are listed at the top of **Monitoring**. If the e-mail fails, the next run tries

@@ -99,6 +99,7 @@ async function runJobs({ by = 'timer' } = {}) {
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   db.prepare('DELETE FROM login_codes WHERE expires_at < ?').run(Date.now());
   db.prepare('DELETE FROM mail_daily WHERE day < ?').run(time.addDays(time.today(), -90));
+  db.prepare('DELETE FROM error_log WHERE last_at < ?').run(`${time.addDays(time.today(), -30)} 00:00:00`);
 
   const after = await mail.drainOutbox(); // anything that failed just now and is already due (none, normally)
   const ms = Date.now() - started;
@@ -110,7 +111,7 @@ async function runJobs({ by = 'timer' } = {}) {
 }
 
 function startJobs(intervalMs = 5 * 60000) {
-  const tick = () => runJobs({ by: 'timer' }).catch((err) => console.error('[jobs]', err));
+  const tick = () => runJobs({ by: 'timer' }).catch((err) => { console.error('[jobs]', err); require('./errors').record(err, { where: 'jobs' }); });
   tick();
   return setInterval(tick, intervalMs);
 }

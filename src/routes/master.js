@@ -95,6 +95,22 @@ function accountCard(title, iconName, a, body) {
 </section>`;
 }
 
+/** Server errors of the last 24 hours on every site (src/errors.js): what, where in the code, how often, and the stack. */
+function errorsCard(sites) {
+  const rows = sites.flatMap((s) => (s.errors?.recent || []).map((e) => ({ site: s.site, ...e }))).sort((a, b) => (a.last_at < b.last_at ? 1 : -1));
+  const since = time.stamp(new Date(Date.now() - 24 * 3600000));
+  return html`<section class="card" id="errors">
+  <h3 class="section-title">${icon('alert')} שגיאות שרת (24 שעות)</h3>
+  ${rows.length ? html`<ul class="mon-errors">${rows.map((e) => html`<li>
+    <div>${levelDot(e.first_at >= since ? 'warn' : 'ok', html`<b>${e.site}</b>: <span dir="ltr">${e.name}: ${e.message}</span>`)}
+      ${e.first_at >= since ? html`<span class="badge badge-pending">חדשה</span>` : ''}</div>
+    <div class="muted small">${e.count} פעמים · לאחרונה ${time.fmt(e.last_at.slice(0, 16))}${e.route ? html` · <span dir="ltr">${e.route}</span>` : ''}${e.frame ? html` · <span dir="ltr">${e.frame}</span>` : ''}</div>
+    ${e.stack ? html`<details><summary class="small">מקום בקוד</summary><pre dir="ltr">${e.stack}</pre></details>` : ''}
+  </li>`)}</ul>` : html`<p>${levelDot('ok', 'לא היו שגיאות שרת ב־24 השעות האחרונות.')}</p>`}
+  <p class="muted small">נשמר בכל אתר בלי פרטי בקשה או משתמש: סוג השגיאה, הודעה מקוצרת והמקום בקוד. על סוג חדש נשלחת התראה במייל.</p>
+</section>`;
+}
+
 /** The alerts e-mailed and still open (src/alerts.js), and who gets them. */
 function alertsCard(open, to) {
   return html`<section class="card mon-alerts" id="alerts">
@@ -164,14 +180,14 @@ function monitoringSection(clients, statuses, acc, own, ownDb) {
   <section class="card">
     <h3 class="section-title">${icon('list')} לפי אתר</h3>
     <table class="table mon-table">
-      <thead><tr><th>אתר</th><th>זמן תגובה</th><th>מסד נתונים</th><th>שורות</th><th>קבצים</th><th>שימוש ב־Turso החודש</th><th>בקשות החודש</th><th>מיילים היום</th><th>מפתח מסד</th></tr></thead>
+      <thead><tr><th>אתר</th><th>זמן תגובה</th><th>מסד נתונים</th><th>שורות</th><th>קבצים</th><th>שימוש ב־Turso החודש</th><th>בקשות החודש</th><th>מיילים היום</th><th>שגיאות</th><th>מפתח מסד</th></tr></thead>
       <tbody>${online.map((x, i) => {
     const m = x.d?.metrics;
     const ch = Object.fromEntries(checks[i].map((k) => [k.key, k]));
     const dbName = x.d?.storage?.host ? master.databaseName(x.c, x.d.storage.host) : x.c.turso_db;
     const tu = t && dbName ? t.perDb[dbName] : null;
     const reqs = v && x.c.vercel_project ? v.perProject[x.c.vercel_project] ?? 0 : null;
-    if (!x.d) return html`<tr><td data-label="אתר"><b>${x.c.name}</b></td><td data-label="מצב" colspan="8">${levelDot('bad', x.st.error || 'לא עונה')}</td></tr>`;
+    if (!x.d) return html`<tr><td data-label="אתר"><b>${x.c.name}</b></td><td data-label="מצב" colspan="9">${levelDot('bad', x.st.error || 'לא עונה')}</td></tr>`;
     return html`<tr>
       <td data-label="אתר"><a href="/master/clients/${encodeURIComponent(x.c.slug)}"><b>${x.c.name}</b></a><br><span class="muted small">${versionLabel(x.d) || ''}</span></td>
       <td data-label="זמן תגובה">${levelDot(ch.response.level, ch.response.text)}${m ? html`<br><span class="muted small">שאילתה ${m.db.queryMs} ms</span>` : ''}</td>
@@ -181,16 +197,19 @@ function monitoringSection(clients, statuses, acc, own, ownDb) {
       <td data-label="שימוש ב־Turso החודש">${tu ? html`${num(tu.rows_read)} נקראו<br><span class="muted small">${num(tu.rows_written)} נכתבו · ${bytes(tu.storage_bytes)}</span>` : '—'}</td>
       <td data-label="בקשות החודש">${reqs != null ? num(reqs) : '—'}</td>
       <td data-label="מיילים היום">${ch.mail ? levelDot(ch.mail.level, num(m.mail.today.recipients)) : '—'}${m?.mail?.failed ? html`<br><span class="muted small">${m.mail.failed} נכשלו</span>` : ''}</td>
+      <td data-label="שגיאות">${ch.errors ? html`<a href="#errors">${levelDot(ch.errors.level, ch.errors.text)}</a>` : '—'}</td>
       <td data-label="מפתח מסד">${ch.key ? levelDot(ch.key.level, ch.key.text) : '—'}</td>
     </tr>`;
   })}
       ${own ? html`<tr class="mon-own"><td data-label="אתר"><b>מרכז הניהול</b></td><td data-label="זמן תגובה">—</td><td data-label="מסד נתונים">${bytes(own.db.sizeBytes)}</td>
         <td data-label="שורות">${num(own.db.rows.users)} מנהלים</td><td data-label="קבצים">${num(own.files.count)}</td>
         <td data-label="שימוש ב־Turso החודש">${ownDb && t?.perDb[ownDb] ? html`${num(t.perDb[ownDb].rows_read)} נקראו` : '—'}</td>
-        <td data-label="בקשות החודש">${v && process.env.VERCEL_PROJECT_ID ? num(Object.entries(v.perProject).find(([n]) => n.endsWith('master'))?.[1]) : '—'}</td><td data-label="מיילים היום">${num(own.mail.today.recipients)}</td><td data-label="מפתח מסד">—</td></tr>` : ''}
+        <td data-label="בקשות החודש">${v && process.env.VERCEL_PROJECT_ID ? num(Object.entries(v.perProject).find(([n]) => n.endsWith('master'))?.[1]) : '—'}</td><td data-label="מיילים היום">${num(own.mail.today.recipients)}</td>
+        <td data-label="שגיאות">${own.errors?.kinds24h ? html`<a href="#errors">${levelDot(own.errors.new24h ? 'warn' : 'ok', `${own.errors.kinds24h} ב־24 שעות`)}</a>` : 'אין'}</td><td data-label="מפתח מסד">—</td></tr>` : ''}
       </tbody>
     </table>
   </section>
+  ${errorsCard([...online.map((x) => ({ site: x.c.name, errors: x.d?.metrics?.errors })), { site: 'מרכז הניהול', errors: own?.errors }])}
 </section>`;
 }
 

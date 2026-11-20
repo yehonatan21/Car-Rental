@@ -27,6 +27,13 @@ function problems({ clients, statuses, acc, own }) {
   const out = [];
   const add = (key, level, text) => out.push({ key, level, text });
   let mailToday = own?.mail?.today?.recipients || 0;
+  // A new kind of server error (first seen in the last 24 hours): told once, not repeated or "fixed" (src/errors.js).
+  const since = time.stamp(new Date(Date.now() - 24 * 3600000));
+  const newErrors = (slug, name, e) => {
+    for (const x of (e?.recent || []).filter((r) => r.first_at >= since).slice(0, 3)) {
+      add(`error:${slug}:${x.fp}`, 'warn', `${name}: שגיאת שרת חדשה${x.count > 1 ? ` (${x.count} פעמים)` : ''}: \u2066${x.name}: ${x.message}${x.route ? ` · ${x.route}` : ''}${x.frame ? ` · ${x.frame}` : ''}\u2069`);
+    }
+  };
   statuses.forEach((st, i) => {
     const c = clients[i];
     const name = c.name || c.slug;
@@ -40,7 +47,9 @@ function problems({ clients, statuses, acc, own }) {
       if (ch.key === 'response' && ch.level === 'bad') add(`site:${c.slug}:slow`, 'warn', `${name}: האתר עונה לאט (${ch.text}).`);
     }
     if (m?.mail?.failed) add(`site:${c.slug}:mail`, 'warn', `${name}: ${m.mail.failed} מיילים נכשלו סופית ולא יישלחו.`);
+    newErrors(c.slug, name, m?.errors);
   });
+  newErrors('console', 'מרכז הניהול', own?.errors);
 
   const t = acc.turso;
   if (t.ok) {
@@ -73,6 +82,7 @@ function problems({ clients, statuses, acc, own }) {
 }
 
 /** What to tell, given the problems now and the alerts open from before. Pure: the tests drive it directly. */
+const once = (key) => key.startsWith('error:');
 function diff(now, open, at = Date.now()) {
   const before = new Map(open.map((a) => [a.key, a]));
   const found = new Set(now.map((p) => p.key));
@@ -81,10 +91,12 @@ function diff(now, open, at = Date.now()) {
     const o = before.get(p.key);
     if (!o) fresh.push(p);
     else if (p.level === 'bad' && o.level === 'warn') worse.push(p);
-    else if (at - o.sent_at >= REMIND_MS) still.push(p);
+    else if (at - o.sent_at >= REMIND_MS && !once(p.key)) still.push(p);
   }
-  const fixed = open.filter((a) => !found.has(a.key));
-  return { fresh, worse, still, fixed };
+  // A new error kind is news once; when it leaves the 24-hour window it is forgotten quietly (it was not "fixed").
+  const fixed = open.filter((a) => !found.has(a.key) && !once(a.key));
+  const gone = open.filter((a) => !found.has(a.key) && once(a.key));
+  return { fresh, worse, still, fixed, gone };
 }
 
 /** The alerts open now, for the monitoring page. */
@@ -141,6 +153,7 @@ async function run({ snap, send = require('./mail').send } = {}) {
     for (const p of [...d.fresh, ...d.worse, ...d.still]) upsert.run(p.key, p.level, p.text, stamp, now);
     for (const a of d.fixed) db.prepare('DELETE FROM alerts WHERE key = ?').run(a.key);
   }
+  for (const a of d.gone) db.prepare('DELETE FROM alerts WHERE key = ?').run(a.key);
   const keep = db.prepare('UPDATE alerts SET text = ? WHERE key = ?'); // the numbers move; the page shows the latest
   for (const p of list) keep.run(p.text, p.key);
   if (news) console.log(`[alerts] ${list.length} open; new ${d.fresh.length}, worse ${d.worse.length}, reminded ${d.still.length}, fixed ${d.fixed.length}; ${sent ? 'e-mailed' : to.length ? 'e-mail failed' : 'nobody to tell'}`);

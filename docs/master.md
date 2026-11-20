@@ -143,6 +143,25 @@ client page shows the exact value.
 | Replace a site's database key | client page → **Replace database key** (החלפת מפתח מסד הנתונים). The old key stops working at once and the site is rebuilt with a new one, valid for a year; the site is unavailable for about a minute. The client page shows each key's expiry and warns a month before |
 | Remove a client | client page → **Delete client** (מחיקת הלקוח); type its id. **Full delete** removes its Vercel project and database, with all its data, permanently. To keep a backup first: `turso db shell car-rental-<id> .dump > backup.sql` |
 
+## Monitoring
+
+The dashboard (**Clients**) ends with a **Monitoring** section, with a green / amber / red mark on each number
+(amber from 80% of a limit, red from 95%):
+
+- **Databases (Turso):** plan, credit balance, billing period, unpaid invoices or blocked reads/writes, and this month's
+  rows read and written, storage and databases against the plan's quotas.
+- **Hosting (Vercel):** plan and account status (blocked or not), this month's requests, function runs, outgoing data
+  and server time against the plan's limits (the API does not give Hobby's limits, so they are built in; `VERCEL_LIMITS`
+  changes them), and the server-error rate.
+- **E-mails:** recipients today across all sites against the shared mailbox's daily limit (`MAIL_DAILY_LIMIT`, 500 like
+  Gmail), failed today, and waiting for a retry.
+- **Scheduled jobs:** when each site last ran them (amber after 30 minutes: the GitHub schedule is not running).
+- **Per site:** response time, database size and rows, stored files, its Turso usage and Vercel requests this month,
+  e-mails today, and the database key's expiry.
+
+The account numbers are read at most every 5 minutes; **Refresh** reads them now. Sites report counts only, never
+personal data.
+
 ## Security
 
 - The console's pages are for its admins only; there is no sign-up.

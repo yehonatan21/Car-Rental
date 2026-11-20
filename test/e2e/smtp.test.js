@@ -330,3 +330,14 @@ test('/internal/cron: only with the secret; answers with what it did', async () 
     delete process.env.CRON_SECRET;
   }
 });
+
+test('every e-mail sent over SMTP is counted per day (recipients), for the console\'s monitoring', async () => {
+  const time = require('../../src/time');
+  const before = db.prepare('SELECT recipients, messages FROM mail_daily WHERE day = ?').get(time.today()) || { recipients: 0, messages: 0 };
+  createUser({ email: 'count-me@test.org' });
+  await new Client(srv.base).post('/login/code', { email: 'count-me@test.org' });
+  const after = db.prepare('SELECT recipients, messages FROM mail_daily WHERE day = ?').get(time.today());
+  assert.equal(after.messages, before.messages + 1);
+  assert.equal(after.recipients, before.recipients + 1);
+  assert.equal(require('../../src/routes/manage').metrics().mail.today.recipients, after.recipients);
+});

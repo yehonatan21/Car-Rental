@@ -47,9 +47,28 @@ const RETRY_MINUTES = [1, 5, 15, 60, 180];
 const MAX_ATTEMPTS = RETRY_MINUTES.length + 1;
 
 /** Delivers one composed message (or, without SMTP, saves it to data/outbox). Throws on failure. */
+/** Counts what went out over SMTP today (mail_daily), for the console's monitoring. Never fails a send. */
+function countMail(recipients, ok) {
+  if (!config.smtp) return;
+  try {
+    db.prepare(`INSERT INTO mail_daily (day, recipients, messages, failed) VALUES (?, ?, ?, ?)
+      ON CONFLICT(day) DO UPDATE SET recipients = recipients + excluded.recipients, messages = messages + excluded.messages,
+      failed = failed + excluded.failed`).run(time.today(), ok ? recipients : 0, ok ? 1 : 0, ok ? 0 : 1);
+  } catch (err) {
+    console.error('[mail] could not count the message:', err.message);
+  }
+}
+
 async function deliver(recipients, subject, { html, text, attachments }) {
   const from = { name: brand().mailFromName, address: config.mailFrom }; // inboxes show the name, not the bare address
-  const info = await getTransport().sendMail({ from, to: recipients.join(', '), subject, html, text, attachments });
+  let info;
+  try {
+    info = await getTransport().sendMail({ from, to: recipients.join(', '), subject, html, text, attachments });
+  } catch (err) {
+    countMail(recipients.length, false);
+    throw err;
+  }
+  countMail(recipients.length, true);
   if (!config.smtp) {
     fs.mkdirSync(config.outboxDir, { recursive: true });
     const file = path.join(config.outboxDir, `${Date.now()}-${Math.random().toString(36).slice(2, 7)}.eml`);

@@ -19,10 +19,15 @@ const fake = http.createServer((req, res) => {
   req.on('end', () => {
     const url = new URL(req.url, 'http://x');
     const data = body ? JSON.parse(body) : null;
-    calls.push({ method: req.method, path: url.pathname, query: url.search, auth: req.headers.authorization, body: data });
     const send = (status, out) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(out)); };
     const p = url.pathname;
     let m;
+    // The dashboard's monitoring reads the accounts (usage, plan, balance): answered here, not counted in `calls`.
+    if (req.method === 'GET' && monitoringAnswers[p]) return send(200, monitoringAnswers[p]());
+    if (req.method === 'GET' && /^\/turso\/v1\/organizations\/myorg\/databases\/[\w-]+\/usage$/.test(p)) {
+      return send(200, { database: { usage: { rows_read: 1234, rows_written: 56, storage_bytes: 1081344 } } });
+    }
+    calls.push({ method: req.method, path: url.pathname, query: url.search, auth: req.headers.authorization, body: data });
     if (p.startsWith('/turso/')) {
       if (req.headers.authorization !== 'Bearer turso-key') return send(401, { error: 'invalid token' });
       if (p === '/turso/v1/organizations/myorg/databases' && req.method === 'GET') return send(200, { databases: [...databases].map((Name) => ({ Name })) });
@@ -71,6 +76,17 @@ const fake = http.createServer((req, res) => {
   });
 });
 let keyChecks = 0;
+const monitoringAnswers = {
+  '/turso/v1/organizations/myorg': () => ({ organization: { plan_id: 'starter', blocked_reads: false, blocked_writes: false, payment_failing_since: { Valid: false } } }),
+  '/turso/v1/organizations/myorg/subscription': () => ({ subscription: { plan: 'starter', overages: false, current_billing_period_start: '2026-11-01T04:00:00+00:00', current_billing_period_end: '2026-12-01T05:00:00+00:00' } }),
+  '/turso/v1/organizations/myorg/plans': () => ({ plans: [{ name: 'starter', quotas: { rowsRead: 500000000, rowsWritten: 10000000, databases: 100, storage: 5000000000 } }] }),
+  '/turso/v1/organizations/myorg/invoices': () => ({ credit_balance: '12.50', invoices: [] }),
+  '/turso/v1/organizations/myorg/usage': () => ({ organization: { usage: { rows_read: 9600000, rows_written: 2500, storage_bytes: 6021120, databases: 3 },
+    databases: [{ uuid: 'db-uuid-2', usage: { rows_read: 1234, rows_written: 56, storage_bytes: 1081344 } }] } }),
+  '/vercel/v2/user': () => ({ user: { billing: { plan: 'hobby', status: 'active' }, softBlock: null } }),
+  '/vercel/v2/usage': () => ({ data: [{ request_hit_count: 100, request_miss_count: 900, bandwidth_outgoing_bytes: 5e6, function_invocation_successful_count: 880,
+    function_invocation_error_count: 20, function_execution_successful_gb_hours: 0.5, breakdown: { requests: [{ name: 'car-rental-second', percent: 40 }] } }] }),
+};
 const callsTo = (method, re) => calls.filter((c) => c.method === method && re.test(c.path));
 
 let srv, boss, fakeBase;
@@ -547,4 +563,35 @@ test('console: a passkey is required (CONSOLE_PASSKEY); deleting a client and re
   } finally {
     for (const [k, v] of Object.entries(saved)) if (v == null) delete process.env[k]; else process.env[k] = v;
   }
+});
+
+test('monitoring on the dashboard: Turso and Vercel plan, balance and usage against limits; each site\'s numbers', async () => {
+  createUser({ role: 'admin', email: 'watcher@master.test' });
+  const watcher = new Client(srv.base);
+  await watcher.login('watcher@master.test');
+  const r = await watcher.get('/master?fresh=1');
+  const page = r.text;
+  assert.match(page, /<section class="monitoring" id="monitoring">/, `status ${r.status} ${r.location || ''} ${page.slice(page.indexOf('<main'), page.indexOf('<main') + 300)}`);
+  assert.match(page, /מסדי נתונים \(Turso\)[\s\S]*starter[\s\S]*\$12\.50[\s\S]*שורות שנקראו החודש[\s\S]*9,600,000 \/ 500,000,000/);
+  assert.match(page, /אירוח \(Vercel\)[\s\S]*hobby[\s\S]*20 \(2\.2%\)[\s\S]*1,000 \/ 1,000,000/);
+  assert.match(page, /נמענים היום, בכל האתרים/);
+  assert.match(page, /<table class="table mon-table">[\s\S]*זמן תגובה[\s\S]*\d+ ms/);
+  // A site's own report carries its metrics (counts only).
+  const c = master.list().find((x) => x.url);
+  const st = await master.statusOf(c);
+  if (st.online) {
+    assert.ok(st.data.metrics.db.rows.users >= 0);
+    assert.ok('recipients' in st.data.metrics.mail.today);
+    assert.ok(Number.isFinite(st.ms));
+  }
+});
+
+test('monitoring verdicts: from 80% "warn", from 95% "bad"', () => {
+  const monitoring = require('../../src/monitoring');
+  assert.equal(monitoring.meter(79, 100).level, 'ok');
+  assert.equal(monitoring.meter(80, 100).level, 'warn');
+  assert.equal(monitoring.meter(95, 100).level, 'bad');
+  const site = monitoring.siteChecks({ online: true, data: { storage: { kind: 'hosted', keyExpiresAt: new Date(Date.now() + 10 * 86400000).toISOString() },
+    metrics: { jobs: { lastRun: null }, mail: { failed: 0, today: { recipients: 3, failed: 0 } } } } }, 200);
+  assert.deepEqual(site.map((k) => [k.key, k.level]), [['response', 'ok'], ['jobs', 'bad'], ['mail', 'ok'], ['key', 'warn']]);
 });

@@ -284,6 +284,14 @@ if (!schemaIsCurrent) {
     last_used_at TEXT
   );
   CREATE INDEX IF NOT EXISTS passkeys_user ON passkeys(user_id);
+  -- E-mails sent over SMTP per day (the console's monitoring: a shared mailbox has a daily limit, e.g. Gmail's ~500
+  -- recipients). Recipients, not messages, are what such limits count.
+  CREATE TABLE IF NOT EXISTS mail_daily (
+    day TEXT PRIMARY KEY,
+    recipients INTEGER NOT NULL DEFAULT 0,
+    messages INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0
+  );
   -- One-time WebAuthn challenges: adding a passkey, signing in, confirming before a sensitive action.
   CREATE TABLE IF NOT EXISTS webauthn_challenges (
     token_hash TEXT PRIMARY KEY,

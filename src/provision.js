@@ -237,7 +237,7 @@ function instanceVars(o, env, secrets) {
 const randomSecret = (bytes = 24) => crypto.randomBytes(bytes).toString('hex');
 
 module.exports = {
-  newDatabaseKey, rotateDatabaseKey, KEY_LIFETIME,
+  newDatabaseKey, rotateDatabaseKey, KEY_LIFETIME, turso, vercel,
   providers, resourceName, validSlug, validate, api, SECRETS, instanceVars, randomSecret, clean,
   createDatabase, deleteDatabase, checkTurso,
   getProject, ensureProject, setEnv, deploy, createDeployment, projectDomains, deleteProject, checkVercel,

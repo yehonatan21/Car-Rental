@@ -771,3 +771,22 @@ mark.placeholder { background: var(--warning-soft); color: var(--warning); paddi
 .user-actions .primary-action { display: flex; align-items: flex-end; gap: .75rem; flex-wrap: wrap; padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
 .user-actions .primary-action .field { flex: 1 1 14rem; margin: 0; }
 .user-actions .secondary-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+/* Console monitoring (master dashboard). */
+.monitoring { margin-top: 1.5rem; }
+.mon-overall { margin: 0 0 1rem; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.mon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem; margin-bottom: 1rem; }
+.mon-card { margin: 0; }
+.mon-card .dl { margin-bottom: .8rem; }
+.mon-meter { margin: .7rem 0; }
+.mon-meter-head { display: flex; justify-content: space-between; gap: .5rem; font-size: .92rem; }
+.mon-meter-head b { font-variant-numeric: tabular-nums; }
+.mon-bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin: .3rem 0 .15rem; }
+.mon-bar i { display: block; height: 100%; border-radius: 999px; background: var(--primary); }
+.mon-bar.mon-warn i { background: var(--pending, #d4a017); }
+.mon-bar.mon-bad i { background: var(--danger); }
+.mon-dot { display: inline-block; width: .65rem; height: .65rem; border-radius: 50%; margin-inline-end: .4rem; vertical-align: middle; background: var(--primary); }
+.mon-dot.mon-warn { background: var(--pending, #d4a017); }
+.mon-dot.mon-bad { background: var(--danger); }
+.mon-table td { vertical-align: top; }
+.mon-own td { color: var(--muted); }

@@ -13,6 +13,7 @@ const storage = require('../storage');
 const provision = require('../provision');
 const master = require('../master');
 const passkeys = require('../passkeys');
+const monitoring = require('../monitoring');
 const { DEFAULT_COLOR, brand } = require('../brand');
 const { html, raw, postForm, field, fieldError, errorSummary, badge, icon, pageHead, pageTabs, activeTab, newPasswordPage: passwordPage } = require('../views/html');
 const { validEmail } = require('./public');
@@ -67,6 +68,124 @@ function stateBadge(c, st) {
 
 const dot = (color) => html`<span class="client-dot" style="background:${/^#[0-9a-f]{6}$/i.test(color || '') ? color : DEFAULT_COLOR}"></span>`;
 const statusData = (st) => (st.online ? st.data : st.last);
+
+// ---------- Monitoring (src/monitoring.js) ----------
+const LEVEL = { ok: ['active', 'תקין'], warn: ['pending', 'לבדוק'], bad: ['rejected', 'בעיה'] };
+const levelDot = (lv, text) => html`<span class="mon-dot mon-${lv}" aria-hidden="true"></span><span class="sr-only">${LEVEL[lv][1]}: </span>${text}`;
+const num = (n) => (n == null ? '—' : Number(n).toLocaleString('he-IL'));
+function bytes(n) {
+  if (n == null) return '—';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0; let v = Number(n);
+  while (v >= 1000 && i < u.length - 1) { v /= 1000; i++; } // decimal, as the plans state their limits (5 GB = 5×10⁹)
+  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${u[i]}`;
+}
+/** A usage bar: used of limit, coloured by its level. */
+const meterRow = (label, m, fmt = num) => html`<div class="mon-meter">
+  <div class="mon-meter-head"><span>${label}</span><b dir="ltr">${fmt(m.used)}${m.limit ? html` / ${fmt(m.limit)}` : ''}</b></div>
+  ${m.limit ? html`<div class="mon-bar mon-${m.level}" role="img" aria-label="${m.pct}%"><i style="width:${Math.min(100, Math.max(m.pct, 1))}%"></i></div>
+    <small class="muted">${m.pct}% ${m.level === 'ok' ? '' : m.level === 'warn' ? '· מתקרב למגבלה' : '· כמעט במגבלה!'}</small>` : ''}
+</div>`;
+
+function accountCard(title, iconName, a, body) {
+  return html`<section class="card mon-card">
+  <h3 class="section-title">${icon(iconName)} ${title}</h3>
+  ${a.ok ? body(a.data) : html`<p class="muted">${a.error === 'not_configured' ? 'אין מפתח API לשירות הזה (הגדרות ← חיבורים).' : html`לא ניתן לקרוא את הנתונים: <span dir="ltr">${a.error}</span>`}</p>`}
+</section>`;
+}
+
+function monitoringSection(clients, statuses, acc, own, ownDb) {
+  const online = statuses.map((st, i) => ({ c: clients[i], st, d: st.online ? st.data : null }));
+  const mailToday = online.reduce((t, x) => t + (x.d?.metrics?.mail?.today?.recipients || 0), 0) + (own?.mail?.today?.recipients || 0);
+  const mailFailedToday = online.reduce((t, x) => t + (x.d?.metrics?.mail?.today?.failed || 0), 0);
+  const outboxFailed = online.reduce((t, x) => t + (x.d?.metrics?.mail?.failed || 0), 0);
+  const outboxWaiting = online.reduce((t, x) => t + (x.d?.metrics?.mail?.waiting || 0), 0);
+  const mailMeter = monitoring.meter(mailToday, monitoring.mailDailyLimit());
+  const checks = online.map((x) => monitoring.siteChecks(x.st, x.st.ms));
+  const jobsAges = checks.map((ch) => ch.find((k) => k.key === 'jobs')).filter(Boolean);
+  const jobsLevel = jobsAges.some((j) => j.level === 'bad') ? 'bad' : jobsAges.some((j) => j.level === 'warn') ? 'warn' : 'ok';
+  const t = acc.turso.ok ? acc.turso.data : null;
+  const v = acc.vercel.ok ? acc.vercel.data : null;
+  const problems = [
+    ...checks.flat().filter((k) => k.level !== 'ok'),
+    ...(t ? Object.values(t.meters).filter((m) => m.level !== 'ok') : []), ...(v ? Object.values(v.meters).filter((m) => m.level !== 'ok') : []),
+    ...(mailMeter.level !== 'ok' ? [mailMeter] : []), ...(t?.blocked.reads || t?.blocked.writes || t?.paymentFailing || v?.blocked ? [{ level: 'bad' }] : []),
+  ];
+  const overall = problems.some((p) => p.level === 'bad') ? 'bad' : problems.length ? 'warn' : 'ok';
+  return html`<section class="monitoring" id="monitoring">
+  <div class="page-head"><h2 class="section-title">${icon('chart')} ניטור</h2>
+    <div class="page-actions"><span class="muted small">חשבונות: ${time.fmt(acc.at.slice(0, 16).replace('T', ' '))} UTC</span>
+      <a class="btn btn-light btn-sm" href="/master?fresh=1#monitoring">רענון</a></div></div>
+  <p class="mon-overall">${badge(LEVEL[overall][0], overall === 'ok' ? 'הכול תקין' : overall === 'warn' ? `${problems.length} דברים לבדוק` : 'יש בעיה')}
+    ${overall === 'ok' ? '' : html`<span class="muted small">הנקודות הצהובות והאדומות למטה מראות מה.</span>`}</p>
+  <div class="mon-grid">
+    ${accountCard('מסדי נתונים (Turso)', 'file', acc.turso, (d) => html`
+      <dl class="dl"><dt>תוכנית</dt><dd>${d.plan || '—'}${d.overages ? ' (חריגות מותרות)' : ''}</dd>
+        <dt>יתרת זיכוי</dt><dd dir="ltr">$${d.balance ?? '0.00'}</dd>
+        <dt>תקופת חיוב</dt><dd>${d.period.start ? `${time.fmt(d.period.start.slice(0, 10))} – ${time.fmt(d.period.end.slice(0, 10))}` : '—'}</dd>
+        ${d.unpaidInvoices ? html`<dt>חשבוניות</dt><dd>${levelDot('bad', `${d.unpaidInvoices} לא שולמו`)}</dd>` : ''}
+        ${d.blocked.reads || d.blocked.writes ? html`<dt>חסימה</dt><dd>${levelDot('bad', d.blocked.writes ? 'כתיבה חסומה' : 'קריאה חסומה')}</dd>` : ''}
+        ${d.paymentFailing ? html`<dt>תשלום</dt><dd>${levelDot('bad', 'התשלום נכשל')}</dd>` : ''}</dl>
+      ${meterRow('שורות שנקראו החודש', d.meters.rowsRead)}${meterRow('שורות שנכתבו החודש', d.meters.rowsWritten)}
+      ${meterRow('אחסון', d.meters.storage, bytes)}${meterRow('מסדי נתונים', d.meters.databases)}`)}
+    ${accountCard('אירוח (Vercel)', 'wrench', acc.vercel, (d) => html`
+      <dl class="dl"><dt>תוכנית</dt><dd>${d.plan || '—'}${d.plan === 'hobby' ? html` <span class="muted small">(חינם, לשימוש לא מסחרי)</span>` : ''}</dd>
+        <dt>מצב החשבון</dt><dd>${d.blocked ? levelDot('bad', `חסום${d.blockReason ? ` (${d.blockReason})` : ''}`) : levelDot('ok', d.status === 'active' ? 'פעיל' : d.status || 'פעיל')}</dd>
+        <dt>שגיאות שרת החודש</dt><dd>${levelDot(d.errorRate > 5 ? 'bad' : d.errorRate > 1 ? 'warn' : 'ok', `${num(d.errors)} (${d.errorRate}%)`)}</dd></dl>
+      ${meterRow(`בקשות מאז ${time.fmt(d.since)}`, d.meters.requests)}${meterRow('הפעלות שרת', d.meters.invocations)}
+      ${meterRow('תעבורה יוצאת', d.meters.bandwidth, bytes)}${meterRow('זמן שרת (GB-hours)', d.meters.gbHours, (n) => Number(n).toFixed(2))}
+      <p class="muted small">המגבלות לפי תוכנית Hobby (Vercel לא מחזירה אותן ב־API).</p>`)}
+    <section class="card mon-card">
+      <h3 class="section-title">${icon('mail')} מיילים</h3>
+      ${meterRow('נמענים היום, בכל האתרים', mailMeter)}
+      <dl class="dl"><dt>נכשלו היום</dt><dd>${levelDot(mailFailedToday ? 'warn' : 'ok', num(mailFailedToday))}</dd>
+        <dt>ממתינים לשליחה חוזרת</dt><dd>${levelDot(outboxWaiting ? 'warn' : 'ok', num(outboxWaiting))}</dd>
+        <dt>נכשלו סופית</dt><dd>${levelDot(outboxFailed ? 'warn' : 'ok', num(outboxFailed))}</dd></dl>
+      <p class="muted small">כל האתרים שולחים מאותה תיבה; למשל Gmail מאפשר כ־${num(monitoring.mailDailyLimit())} נמענים ביום (MAIL_DAILY_LIMIT).</p>
+    </section>
+    <section class="card mon-card">
+      <h3 class="section-title">${icon('clock')} משימות מתוזמנות</h3>
+      <p>${levelDot(jobsLevel, jobsLevel === 'ok' ? 'רצות כל 10 דקות' : 'לא רצו לאחרונה בכל האתרים')}</p>
+      ${jobsLevel === 'ok' ? '' : html`<p class="muted small">תזכורות והתראות יוצאות באיחור. בדקו שהתזמון ב־GitHub מוגדר (CONSOLE_URL ו־CONSOLE_CRON_SECRET) ורץ: Actions ← Scheduled jobs.</p>`}
+      <dl class="dl">${online.map((x, i) => {
+    const j = checks[i].find((k) => k.key === 'jobs');
+    return html`<dt>${x.c.name}</dt><dd>${j ? levelDot(j.level, j.text === 'אף פעם' ? 'אף פעם' : j.text === '0 דק׳' ? 'עכשיו' : `לפני ${j.text}`) : '—'}</dd>`;
+  })}</dl>
+    </section>
+  </div>
+  <section class="card">
+    <h3 class="section-title">${icon('list')} לפי אתר</h3>
+    <table class="table mon-table">
+      <thead><tr><th>אתר</th><th>זמן תגובה</th><th>מסד נתונים</th><th>שורות</th><th>קבצים</th><th>שימוש ב־Turso החודש</th><th>בקשות החודש</th><th>מיילים היום</th><th>מפתח מסד</th></tr></thead>
+      <tbody>${online.map((x, i) => {
+    const m = x.d?.metrics;
+    const ch = Object.fromEntries(checks[i].map((k) => [k.key, k]));
+    const dbName = x.d?.storage?.host ? master.databaseName(x.c, x.d.storage.host) : x.c.turso_db;
+    const tu = t && dbName ? t.perDb[dbName] : null;
+    const reqs = v && x.c.vercel_project ? v.perProject[x.c.vercel_project] ?? 0 : null;
+    if (!x.d) return html`<tr><td data-label="אתר"><b>${x.c.name}</b></td><td data-label="מצב" colspan="8">${levelDot('bad', x.st.error || 'לא עונה')}</td></tr>`;
+    return html`<tr>
+      <td data-label="אתר"><a href="/master/clients/${encodeURIComponent(x.c.slug)}"><b>${x.c.name}</b></a><br><span class="muted small">${versionLabel(x.d) || ''}</span></td>
+      <td data-label="זמן תגובה">${levelDot(ch.response.level, ch.response.text)}${m ? html`<br><span class="muted small">שאילתה ${m.db.queryMs} ms</span>` : ''}</td>
+      <td data-label="מסד נתונים">${m ? bytes(m.db.sizeBytes) : '—'}</td>
+      <td data-label="שורות">${m ? html`${num(m.db.rows.users)} משתמשים<br><span class="muted small">${num(m.db.rows.bookings)} הזמנות · ${num(m.db.rows.audit)} פעולות · ${num(m.db.rows.sessions)} חיבורים</span>` : '—'}</td>
+      <td data-label="קבצים">${m ? html`${num(m.files.count)}<br><span class="muted small">${bytes(m.files.bytes)}</span>` : '—'}</td>
+      <td data-label="שימוש ב־Turso החודש">${tu ? html`${num(tu.rows_read)} נקראו<br><span class="muted small">${num(tu.rows_written)} נכתבו · ${bytes(tu.storage_bytes)}</span>` : '—'}</td>
+      <td data-label="בקשות החודש">${reqs != null ? num(reqs) : '—'}</td>
+      <td data-label="מיילים היום">${ch.mail ? levelDot(ch.mail.level, num(m.mail.today.recipients)) : '—'}${m?.mail?.failed ? html`<br><span class="muted small">${m.mail.failed} נכשלו</span>` : ''}</td>
+      <td data-label="מפתח מסד">${ch.key ? levelDot(ch.key.level, ch.key.text) : '—'}</td>
+    </tr>`;
+  })}
+      ${own ? html`<tr class="mon-own"><td data-label="אתר"><b>מרכז הניהול</b></td><td data-label="זמן תגובה">—</td><td data-label="מסד נתונים">${bytes(own.db.sizeBytes)}</td>
+        <td data-label="שורות">${num(own.db.rows.users)} מנהלים</td><td data-label="קבצים">${num(own.files.count)}</td>
+        <td data-label="שימוש ב־Turso החודש">${ownDb && t?.perDb[ownDb] ? html`${num(t.perDb[ownDb].rows_read)} נקראו` : '—'}</td>
+        <td data-label="בקשות החודש">${v && process.env.VERCEL_PROJECT_ID ? num(Object.entries(v.perProject).find(([n]) => n.endsWith('master'))?.[1]) : '—'}</td><td data-label="מיילים היום">${num(own.mail.today.recipients)}</td><td data-label="מפתח מסד">—</td></tr>` : ''}
+      </tbody>
+    </table>
+  </section>
+</section>`;
+}
+
 
 /** The database key's expiry (S-01): a warning a month before, and for a key that never expires. */
 function keyExpiry(at) {
@@ -159,7 +278,13 @@ module.exports = ({ app, requireAdmin: requireSiteAdmin, requireRecentAuth, logo
     await Promise.all(clients.filter((c) => !c.url).map((c) => master.discoverUrl(c).catch(() => null)));
     clients = master.list();
     const statuses = await master.statusAll(clients);
+    // The Turso databases to read the usage of: each site's, and the console's own (its storage host).
+    const dbNames = statuses.map((st, i) => master.databaseName(clients[i], statusData(st)?.storage?.host))
+      .concat(master.databaseName({}, require('../db').storageInfo().host));
+    const acc = await monitoring.accounts({ fresh: req.query.fresh === '1', databases: dbNames });
     const online = statuses.filter((s) => s.online);
+    let own = null;
+    try { own = require('./manage').metrics(); } catch { /* the console's own numbers are optional */ }
     const sum = (k) => online.reduce((n, s) => n + (s.data.counts?.[k] || 0), 0);
     res.page('לקוחות', html`
 ${pageHead('לקוחות', {
@@ -198,7 +323,8 @@ ${clients.length ? html`<table class="table">
 </tr>`;
   })}</tbody></table>` : html`<p class="empty">${icon('car', 28)}<span>${config.master ? 'עדיין אין לקוחות. צרו אתר ללקוח חדש, או הוסיפו את האתר שכבר קיים.'
     : `עדיין אין לקוחות נוספים. האתר הזה (${brand().name}) מנוהל כרגיל מהתפריט; כאן יוצרים ומנהלים את האתרים של לקוחות אחרים.`}</span></p>`}
-</section>`);
+</section>
+${monitoringSection(clients, statuses, acc, own, master.databaseName({}, require('../db').storageInfo().host))}`);
   });
 
   // ---------- A new client ----------

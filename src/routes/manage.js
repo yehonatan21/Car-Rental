@@ -97,6 +97,51 @@ function counts() {
   };
 }
 
+/**
+ * How this site is doing, for the console's monitoring: database size and rows, stored files, how long a query takes,
+ * when the scheduled jobs last ran, and the e-mails sent today. Counts only, no personal data.
+ */
+function metrics() {
+  const n = (sql, ...a) => db.prepare(sql).get(...a)?.n ?? 0;
+  const t0 = process.hrtime.bigint();
+  db.prepare('SELECT 1').get();
+  const queryMs = Number(process.hrtime.bigint() - t0) / 1e6;
+  let sizeBytes = null;
+  try {
+    sizeBytes = db.prepare('PRAGMA page_count').get().page_count * db.prepare('PRAGMA page_size').get().page_size;
+  } catch { /* not every hosted database answers PRAGMAs */ }
+  const files = storage.inDatabase()
+    ? db.prepare('SELECT COUNT(DISTINCT name) AS n, COALESCE(SUM(length(data)), 0) AS bytes FROM files').get()
+    : (() => {
+      try {
+        const dir = config.uploadsDir;
+        const names = fs.readdirSync(dir);
+        return { n: names.length, bytes: names.reduce((t, f) => t + fs.statSync(path.join(dir, f)).size, 0) };
+      } catch { return { n: 0, bytes: 0 }; }
+    })();
+  const job = Object.fromEntries(db.prepare("SELECT key, value FROM job_state WHERE key IN ('last_run', 'last_run_by', 'last_run_ms')").all().map((r) => [r.key, r.value]));
+  const today = db.prepare('SELECT recipients, messages, failed FROM mail_daily WHERE day = ?').get(time.today()) || { recipients: 0, messages: 0, failed: 0 };
+  const week = db.prepare('SELECT COALESCE(SUM(recipients), 0) AS recipients, COALESCE(SUM(failed), 0) AS failed FROM mail_daily WHERE day > ?').get(time.addDays(time.today(), -7));
+  return {
+    db: {
+      sizeBytes, queryMs: Math.round(queryMs * 10) / 10,
+      rows: {
+        users: n('SELECT COUNT(*) AS n FROM users'), bookings: n('SELECT COUNT(*) AS n FROM bookings'),
+        audit: n('SELECT COUNT(*) AS n FROM audit_log'), sessions: n('SELECT COUNT(*) AS n FROM sessions WHERE expires_at > ?', Date.now()),
+      },
+    },
+    files: { count: files.n, bytes: files.bytes },
+    jobs: { lastRun: job.last_run || null, by: job.last_run_by || null, ms: job.last_run_ms ? Number(job.last_run_ms) : null },
+    mail: {
+      today: { recipients: today.recipients, messages: today.messages, failed: today.failed },
+      week: { recipients: week.recipients, failed: week.failed },
+      waiting: n("SELECT COUNT(*) AS n FROM mail_outbox WHERE status IN ('pending', 'sending')"),
+      failed: n("SELECT COUNT(*) AS n FROM mail_outbox WHERE status = 'failed' AND message != '{}'"),
+    },
+    runtime: { node: process.version, region: process.env.VERCEL_REGION || null },
+  };
+}
+
 function status() {
   const b = brand();
   const s = storageInfo();
@@ -117,6 +162,7 @@ function status() {
     mail: { configured: Boolean(config.smtp), from: config.mailFrom },
     google: google.enabled(),
     googleRelay: google.status().relay,
+    metrics: metrics(),
   };
 }
 
@@ -325,5 +371,6 @@ module.exports = ({ app }) => {
 };
 
 module.exports.suspendedGate = suspendedGate;
+module.exports.metrics = metrics;
 module.exports.suspension = suspension;
 module.exports.enabled = enabled;

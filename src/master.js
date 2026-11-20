@@ -187,12 +187,14 @@ async function call(client, method, path, body, { timeoutMs = 8000 } = {}) {
 
 /** Live status of one client: { online, data } or { online: false, error, kind, last } (the last status seen). */
 async function statusOf(client, opts) {
+  const t0 = Date.now();
   try {
     const data = await call(client, 'GET', '/api/manage/status', null, opts);
+    const ms = Date.now() - t0; // how long the site took to answer (the console's monitoring)
     if (data.app !== 'car-rental') throw new InstanceError('not_app', INSTANCE_ERRORS.not_app);
     update(client.slug, { last_status: JSON.stringify(data), last_seen_at: time.stamp() });
     const mailShared = data.mail && !data.mail.configured ? await autoShareMail(client) : false;
-    return { online: true, data, mailShared };
+    return { online: true, data, mailShared, ms };
   } catch (err) {
     if (!(err instanceof InstanceError)) throw err;
     let last = null;

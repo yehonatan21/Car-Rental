@@ -17,8 +17,15 @@ const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex'
 /** The site as the browser sees it: passkeys belong to a host name (rpID) and are checked against the page's origin. */
 const site = (req) => ({ rpID: req.hostname, origin: `${req.protocol}://${req.get('host')}` });
 
+/**
+ * Passkeys are switched OFF for now (not needed yet): nobody is asked for one, the console does not require them,
+ * and the screens to add or remove them are hidden. Everything else here stays as it is; PASSKEYS=on in a site's
+ * variables (or the console's) switches them back on. Passkeys saved earlier are kept in the database meanwhile.
+ */
+const enabled = () => String(process.env.PASSKEYS || '').trim() === 'on';
+
 const list = (userId) => db.prepare('SELECT * FROM passkeys WHERE user_id = ? ORDER BY created_at').all(userId);
-const has = (userId) => Boolean(userId) && Boolean(db.prepare('SELECT 1 FROM passkeys WHERE user_id = ? LIMIT 1').get(userId));
+const has = (userId) => enabled() && Boolean(userId) && Boolean(db.prepare('SELECT 1 FROM passkeys WHERE user_id = ? LIMIT 1').get(userId));
 
 /** Keeps a challenge for `purpose` and returns the token that names it (the token goes back with the answer). */
 function keepChallenge(userId, purpose, challenge, next = null) {
@@ -127,6 +134,7 @@ function removeAll(userId, actorId) {
  * CONSOLE_PASSKEY=optional turns it off).
  */
 const consoleRequires = () => {
+  if (!enabled()) return false;
   const v = String(process.env.CONSOLE_PASSKEY || '').trim();
   return v ? v === 'required' : config.production;
 };
@@ -149,5 +157,5 @@ function resetFromEnv() {
 }
 
 module.exports = {
-  has, list, registrationOptions, register, authenticationOptions, authenticate, remove, removeAll, consoleRequires, resetFromEnv,
+  enabled, has, list, registrationOptions, register, authenticationOptions, authenticate, remove, removeAll, consoleRequires, resetFromEnv,
 };

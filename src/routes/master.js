@@ -757,7 +757,7 @@ ${r.users.map((u) => html`<tr>
     <ul class="plain">${admins.map((a) => html`<li><b>${fullName(a)}</b> <span class="muted" dir="ltr">${a.email}</span>
       ${a.email === main ? badge('admin', 'מנהל/ת ראשי/ת (ADMIN_EMAIL)') : ''}
       ${!a.password_hash && !a.google_sub ? badge('pending', 'ללא סיסמה') : ''}
-      ${passkeys.has(a.id) ? badge('active', 'מפתח גישה') : badge('pending', 'בלי מפתח גישה')}
+      ${!passkeys.enabled() ? '' : passkeys.has(a.id) ? badge('active', 'מפתח גישה') : badge('pending', 'בלי מפתח גישה')}
       ${a.id === req.user.id ? badge('active', 'את/ה') : ''}
       <div class="kv-inline">
         ${isMainAdmin(req.user) ? html`<a class="btn btn-light btn-sm" href="/master/admins/${a.id}/password">${icon('lock', 16)} סיסמה חדשה</a>` : ''}
@@ -777,7 +777,7 @@ ${r.users.map((u) => html`<tr>
       ${field('שם משפחה', html`<input name="last_name" maxlength="60">`)}
     </div>
     <button class="btn btn-primary">הוספה ושליחת הזמנה</button>
-    <p class="muted small">מנהל/ת המרכז יכול/ה לראות ולנהל את כל הלקוחות, ונדרש/ת להוסיף מפתח גישה. מחיקת לקוח, החלפת מפתח מסד נתונים וסיסמאות: רק המנהל/ת הראשי/ת.</p>`, 'class="card"')}
+    <p class="muted small">מנהל/ת המרכז יכול/ה לראות ולנהל את כל הלקוחות, מחיקת לקוח, החלפת מפתח מסד נתונים וסיסמאות: רק המנהל/ת הראשי/ת.</p>`, 'class="card"')}
 </div>`);
   });
 

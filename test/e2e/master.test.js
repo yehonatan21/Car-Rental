@@ -525,8 +525,9 @@ test('S-01: the console replaces a site\'s database key: old keys revoked, new o
 });
 
 test('console: a passkey is required (CONSOLE_PASSKEY); deleting a client and replacing its key are the main admin\'s alone', async () => {
-  const saved = { ADMIN_EMAIL: process.env.ADMIN_EMAIL, CONSOLE_PASSKEY: process.env.CONSOLE_PASSKEY };
+  const saved = { ADMIN_EMAIL: process.env.ADMIN_EMAIL, CONSOLE_PASSKEY: process.env.CONSOLE_PASSKEY, PASSKEYS: process.env.PASSKEYS };
   process.env.ADMIN_EMAIL = 'owner@master.test';
+  process.env.PASSKEYS = 'on';
   try {
     createUser({ role: 'admin', email: 'helper@master.test' });
     const helper = new Client(srv.base);

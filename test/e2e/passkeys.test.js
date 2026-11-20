@@ -7,8 +7,8 @@ const { FakeAuthenticator, pageOptions } = require('../fake-authenticator');
 const passkeys = require('../../src/passkeys');
 
 let srv;
-before(async () => { srv = await startServer(); });
-after(() => srv.close());
+before(async () => { process.env.PASSKEYS = 'on'; srv = await startServer(); }); // switched off by default (src/passkeys.js)
+after(() => { delete process.env.PASSKEYS; return srv.close(); });
 const client = () => new Client(srv.base);
 
 /** Adds a passkey to the signed-in client c; returns the authenticator. */
@@ -158,5 +158,23 @@ test('an owner removes a manager\'s passkeys after a lost device; PASSKEY_RESET 
     assert.equal(passkeys.list(lost.id).length, 1, 'not again at the next start');
   } finally {
     delete process.env.PASSKEY_RESET;
+  }
+});
+
+test('switched off (the default): nobody is asked for a passkey, even with one saved, and the screens are hidden', async () => {
+  const u = createUser({ role: 'admin', email: 'pk-off@pk.test' });
+  const c = client();
+  await c.login('pk-off@pk.test');
+  await addPasskey(c);
+  delete process.env.PASSKEYS;
+  try {
+    const b = client();
+    const r = await b.post('/login', { email: 'pk-off@pk.test', password: 'Password1' });
+    assert.equal(r.status, 303, 'signed in with the password alone');
+    assert.doesNotMatch((await b.get('/me/security')).text, /מפתחות גישה \(Passkeys\)/);
+    assert.equal(passkeys.consoleRequires(), false);
+    assert.equal(passkeys.list(u.id).length, 1, 'the saved passkey is kept for later');
+  } finally {
+    process.env.PASSKEYS = 'on';
   }
 });

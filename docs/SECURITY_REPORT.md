@@ -48,7 +48,8 @@ An external source review of `bcf35ed` (before the fixes above) listed the same 
 | GitHub branch rules, secret scanning, CodeQL; SMTP domain authentication (SPF/DKIM); monitoring of privilege changes | **Open:** repository and mail-account settings, outside the code |
 
 **Decisions taken and done (19/11/2026)**
-1. **Passkeys** (WebAuthn, `src/passkeys.js`): any manager or console admin can add one; once an account has one,
+1. **Passkeys** (WebAuthn, `src/passkeys.js`), **switched off for now at the owner's request (20/11/2026)**: managers and
+   console admins sign in with the password and an e-mailed code. `PASSKEYS=on` switches them back on. When on: any manager or console admin can add one; once an account has one,
    every way in (password, e-mailed code, Google) also needs it, so neither a stolen password nor a taken-over mailbox
    is enough. **Required for console admins.** Recovery: a site's owner or the console's main admin removes them;
    `PASSKEY_RESET` for the main admin.

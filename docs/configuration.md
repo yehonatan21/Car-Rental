@@ -17,7 +17,8 @@
 | `APP_MODE=master` | הפריסה היא מרכז הניהול ([master.md](master.md)) |
 | `MASTER_CONSOLE=true` | מרכז הניהול בתוך אתר רגיל, למנהל הראשי בלבד |
 | `APP_NAME`, `BRAND_COLOR`, `CONTACT_EMAIL`, `CONTACT_PHONE`, `WELCOME_TEXT` | המיתוג ההתחלתי. מנהל האתר משנה אותו ב־הגדרות ← הארגון ומיתוג |
-| `CONSOLE_PASSKEY` | `required` (ברירת המחדל ב־production) או `optional`: האם מרכז הניהול דורש מפתח גישה ממנהליו |
+| `PASSKEYS=on` | מפעיל מפתחות גישה (Passkeys). **כבוי כרגע** כברירת מחדל: אף אחד לא מתבקש מפתח, והמסכים שלהם מוסתרים |
+| `CONSOLE_PASSKEY` | רק כש־`PASSKEYS=on`: `required` (ברירת המחדל ב־production) או `optional`, האם מרכז הניהול דורש מפתח גישה ממנהליו |
 | `PASSKEY_RESET=<מייל>` | חד־פעמי: מסיר את מפתחות הגישה של החשבון הזה בהפעלה הבאה (למשל המנהל/ת הראשי/ת איבד/ה את המכשיר). למחוק אחרי השימוש |
 | `ADMIN_SECOND_STEP=false` | מבטל את הקוד במייל שמנהלים מקבלים אחרי הסיסמה (פועל רק כשמוגדר SMTP). לא מומלץ |
 | `VERCEL_ANALYTICS=true` | סטטיסטיקת צפיות של Vercel, אחרי Analytics → Enable בפרויקט ([vercel.md](vercel.md)). כבויה כברירת מחדל |

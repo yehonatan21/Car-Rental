@@ -417,7 +417,7 @@ ${accepted?.policy_version === policy.version ? html`<p class="note-line">${icon
     ${field('סיסמה חדשה', html`<input type="password" name="password" minlength="8" required autocomplete="new-password">`, 'לפחות 8 תווים, לא סיסמה נפוצה ולא השם או המייל')}
     <button class="btn btn-primary">שמירה</button>`, 'class="card"')}
   ${u.google_sub ? html`<section class="card"><h2 class="section-title">${icon('user')} חשבון Google</h2><p>${badge('active', 'מקושר')} ניתן להתחבר עם חשבון Google של ${u.email}.</p></section>` : ''}
-  ${u.role === 'admin' ? passkeysCard(req, u) : ''}
+  ${u.role === 'admin' && passkeys.enabled() ? passkeysCard(req, u) : ''}
 </div>`);
   });
 
@@ -445,12 +445,12 @@ ${accepted?.policy_version === policy.version ? html`<p class="note-line">${icon
 
   // The device's options for a new passkey (JSON for app.js).
   app.post('/me/passkeys/options', requireLogin, async (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).json({ error: 'managers only' });
+    if (req.user.role !== 'admin' || !passkeys.enabled()) return res.status(403).json({ error: 'not available' });
     res.set('Cache-Control', 'no-store').json(await passkeys.registrationOptions(req, req.user));
   });
 
   app.post('/me/passkeys', requireLogin, async (req, res) => {
-    if (req.user.role !== 'admin') return res.redirect(303, '/me/security');
+    if (req.user.role !== 'admin' || !passkeys.enabled()) return res.redirect(303, '/me/security');
     try {
       const k = await passkeys.register(req, req.user, String(req.body.token || ''), String(req.body.credential || ''), req.body.name);
       res.flash('success', `מפתח הגישה "${k.name}" נוסף. מעכשיו כל כניסה לחשבון תבקש גם אותו.`);

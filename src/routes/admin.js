@@ -169,7 +169,7 @@ function permissionsCard(req, u, isSelf) {
     });
   }
   const level = levelOf(u);
-  const keys = isAdmin ? require('../passkeys').list(u.id).length : 0;
+  const keys = isAdmin && require('../passkeys').enabled() ? require('../passkeys').list(u.id).length : 0;
   return html`<section class="card" id="permissions">
   <h2 class="section-title">${icon('shield')} הרשאות</h2>
   <p>תפקיד נוכחי: ${isAdmin ? html`${badge('admin', 'מנהל מערכת')} ${badge(level === 'viewer' ? 'pending' : 'active', LEVELS[level])}` : badge('completed', 'משתמש רגיל')}</p>
@@ -181,7 +181,7 @@ function permissionsCard(req, u, isSelf) {
     <label class="inline-label">רמת הרשאה <select name="level">${Object.entries(LEVELS).map(([k, l]) => html`<option value="${k}" ${k === level ? 'selected' : ''}>${l}</option>`)}</select></label>
     <button class="btn btn-light btn-sm">שמירה</button>`, 'class="inline"') : ''}
   ${isAdmin && !siteHasOwner() ? html`<p class="muted small">לאתר עדיין אין בעלים, ולכן כל המנהלים יכולים לעשות הכול. כדאי לקבוע בעלים (רמת הרשאה ← בעלים).</p>` : ''}
-  ${isAdmin ? html`<p class="small">מפתחות גישה: ${keys ? `${keys}` : 'אין'}${keys && !isSelf && owner ? html` ${actionButton(req, `/admin/users/${u.id}/passkeys/remove`, 'הסרת מפתחות הגישה', {
+  ${isAdmin && require('../passkeys').enabled() ? html`<p class="small">מפתחות גישה: ${keys ? `${keys}` : 'אין'}${keys && !isSelf && owner ? html` ${actionButton(req, `/admin/users/${u.id}/passkeys/remove`, 'הסרת מפתחות הגישה', {
     cls: 'btn-light btn-sm', confirm: `להסיר את כל מפתחות הגישה של ${fullName(u)}? (למשל אחרי שאיבד/ה את המכשיר) הכניסה תהיה שוב בסיסמה ובקוד במייל.`,
   })}` : ''}</p>` : ''}
   ${action}

@@ -262,6 +262,15 @@ if (!schemaIsCurrent) {
     value TEXT NOT NULL
   );
 
+  -- The console's open alerts (src/alerts.js): what was last e-mailed about each problem, so only news is sent.
+  CREATE TABLE IF NOT EXISTS alerts (
+    key TEXT PRIMARY KEY,
+    level TEXT NOT NULL,
+    text TEXT NOT NULL,
+    since TEXT NOT NULL,
+    sent_at INTEGER NOT NULL
+  );
+
   -- Facts about the database itself: a random id and creation time written once, when it is first set up. If the id
   -- shown on the settings page changes after a new deployment, that deployment uses a different (or new) database.
   CREATE TABLE IF NOT EXISTS app_meta (

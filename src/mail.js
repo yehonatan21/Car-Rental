@@ -97,7 +97,8 @@ async function send(to, subject, paragraphs, link, { attachments, key, retry = t
   if (!recipients.length) return true;
   const message = {
     html: wrap(subject, paragraphs, link),
-    text: paragraphs.map((p) => p.replace(/<[^>]+>/g, '')).join('\n\n') + (link ? `\n\n${config.baseUrl}${link.href}` : ''),
+    text: paragraphs.map((p) => p.replace(/<br\s*\/?>/g, '\n').replace(/<[^>]+>/g, '')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')).join('\n\n') + (link ? `\n\n${config.baseUrl}${link.href}` : ''),
     attachments,
   };
   const keep = (status, err) => {

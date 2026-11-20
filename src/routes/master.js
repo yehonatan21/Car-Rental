@@ -14,6 +14,7 @@ const provision = require('../provision');
 const master = require('../master');
 const passkeys = require('../passkeys');
 const monitoring = require('../monitoring');
+const alerts = require('../alerts');
 const { DEFAULT_COLOR, brand } = require('../brand');
 const { html, raw, postForm, field, fieldError, errorSummary, badge, icon, pageHead, pageTabs, activeTab, newPasswordPage: passwordPage } = require('../views/html');
 const { validEmail } = require('./public');
@@ -91,6 +92,16 @@ function accountCard(title, iconName, a, body) {
   return html`<section class="card mon-card">
   <h3 class="section-title">${icon(iconName)} ${title}</h3>
   ${a.ok ? body(a.data) : html`<p class="muted">${a.error === 'not_configured' ? 'אין מפתח API לשירות הזה (הגדרות ← חיבורים).' : html`לא ניתן לקרוא את הנתונים: <span dir="ltr">${a.error}</span>`}</p>`}
+</section>`;
+}
+
+/** The alerts e-mailed and still open (src/alerts.js), and who gets them. */
+function alertsCard(open, to) {
+  return html`<section class="card mon-alerts" id="alerts">
+  <h3 class="section-title">${icon('alert')} התראות במייל</h3>
+  ${open.length ? html`<ul class="mon-alert-list">${open.map((a) => html`<li>${levelDot(a.level, a.text)} <span class="muted small">מאז ${time.fmt(a.since.slice(0, 16))}</span></li>`)}</ul>`
+    : html`<p>${levelDot('ok', 'אין התראות פתוחות.')}</p>`}
+  <p class="muted small">${to.length ? html`נשלחות אל ${to.join(', ')}` : 'כבויות (ALERT_EMAIL=off) או שאין מנהל פעיל לשלוח אליו'}: כשבעיה מופיעה, מחמירה או נפתרת, ותזכורת פעם ביום כל עוד היא פתוחה. הבדיקה רצה עם המשימות המתוזמנות.</p>
 </section>`;
 }
 
@@ -320,19 +331,13 @@ ${clients.length ? html`<table class="table">
 
   // ---------- Monitoring: the accounts (Turso, Vercel), e-mail volume, jobs and each site's numbers ----------
   app.get('/master/metrics', requireAdmin, async (req, res) => {
-    const clients = master.list();
-    const statuses = await master.statusAll(clients);
-    // The Turso databases to read the usage of: each site's, and the console's own (its storage host).
-    const ownDb = master.databaseName({}, require('../db').storageInfo().host);
-    const dbNames = statuses.map((st, i) => master.databaseName(clients[i], statusData(st)?.storage?.host)).concat(ownDb);
-    const acc = await monitoring.accounts({ fresh: req.query.fresh === '1', databases: dbNames });
-    let own = null;
-    try { own = require('./manage').metrics(); } catch { /* the console's own numbers are optional */ }
+    const { clients, statuses, acc, own, ownDb } = await alerts.snapshot({ fresh: req.query.fresh === '1' });
     res.page('ניטור', html`
 ${pageHead('ניטור', {
     iconName: 'chart', sub: html`חשבונות האירוח, מיילים, משימות מתוזמנות והנתונים של כל אתר. נתוני החשבונות נכון ל־${time.fmt(acc.at.slice(0, 16).replace('T', ' '))} UTC.`,
     actions: html`<a class="btn btn-light" href="/master/metrics?fresh=1">${icon('clock')} רענון</a>`,
   })}
+${alertsCard(alerts.open(), alerts.recipients())}
 ${monitoringSection(clients, statuses, acc, own, ownDb)}`);
   });
 

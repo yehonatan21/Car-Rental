@@ -162,6 +162,20 @@ client page shows the exact value.
 The account numbers are read at most every 5 minutes; **Refresh** (רענון) reads them now. Sites report counts only, never
 personal data.
 
+### Alerts by e-mail
+
+On each scheduled run (`/internal/cron`: every 10 minutes from the GitHub schedule, and once a day from Vercel Cron)
+the console checks the same numbers and e-mails its active admins (or `ALERT_EMAIL`) about:
+
+- a site that does not answer, answers slowly (over 3 s), has not run its jobs, has e-mails that failed for good, or
+  whose database key expires within 30 days;
+- Turso or Vercel blocking the account, a failed payment, unpaid invoices, or any usage from 80% of the plan's limit;
+- Vercel's server errors above 5% this month, and the shared mailbox from 80% of its daily limit.
+
+One e-mail per run, only with news: a problem that appeared, got worse (amber → red) or was fixed. A problem still open
+is repeated once a day. The open alerts are listed at the top of **Monitoring**. If the e-mail fails, the next run tries
+again. `ALERT_EMAIL=off` turns alerts off. Until the GitHub schedule is set, the check runs once a day.
+
 ## Security
 
 - The console's pages are for its admins only; there is no sign-up.

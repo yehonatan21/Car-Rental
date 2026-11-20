@@ -26,8 +26,12 @@ test('user-supplied text is escaped in e-mail HTML', async () => {
   const u = createUser({ first_name: '<img src=x onerror=alert(1)>' });
   await mail.userApproved(u);
   const { body } = outbox()[0];
-  assert.doesNotMatch(body, /<img src=x/);
-  assert.match(body, /&lt;img src=x/);
+  const htmlPart = body.slice(body.indexOf('<div dir='));
+  assert.ok(htmlPart.length > 0);
+  assert.doesNotMatch(htmlPart, /<img src=x/);
+  assert.match(htmlPart, /&lt;img src=x/);
+  // The plain-text part reads as written ("<" is harmless there), not as "&lt;".
+  assert.doesNotMatch(body.slice(0, body.indexOf('<div dir=')), /&lt;/);
 });
 
 test('approval mail includes vehicle, times and driver instructions', async () => {

@@ -95,9 +95,14 @@ app.get('/internal/cron', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || !sameSecret(req.get('authorization') || '', `Bearer ${secret}`)) return res.status(401).json({ error: 'unauthorized' });
   const own = await runJobs({ by: 'cron' });
-  const sites = config.master || config.masterConsole ? await require('./master').runAllJobs() : undefined;
+  const console_ = config.master || config.masterConsole;
+  // The console also checks for problems and e-mails its admins (src/alerts.js), alongside the sites' jobs.
+  const [sites, alerts] = console_ ? await Promise.all([
+    require('./master').runAllJobs(),
+    config.master ? require('./alerts').run().catch((err) => { console.error('[alerts]', err); return { error: err.message }; }) : undefined,
+  ]) : [];
   if (sites) console.log(`[jobs] cron: ${sites.filter((s) => s.ok).length}/${sites.length} sites ran their jobs`);
-  res.json({ status: 'ok', ...own, sites });
+  res.json({ status: 'ok', ...own, sites, monitoring: alerts });
 });
 // A client's site suspended from the master console shows only a notice (routes/manage.js).
 app.use(require('./routes/manage').suspendedGate);

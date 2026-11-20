@@ -597,3 +597,92 @@ test('monitoring verdicts: from 80% "warn", from 95% "bad"', () => {
     metrics: { jobs: { lastRun: null }, mail: { failed: 0, today: { recipients: 3, failed: 0 } } } } }, 200);
   assert.deepEqual(site.map((k) => [k.key, k.level]), [['response', 'ok'], ['jobs', 'bad'], ['mail', 'ok'], ['key', 'warn']]);
 });
+
+test('alerts: e-mailed when a problem appears, gets worse or is fixed; once a day while open; never twice for nothing', async () => {
+  const alerts = require('../../src/alerts');
+  const mon = require('../../src/monitoring');
+  db.prepare('DELETE FROM alerts').run();
+  db.prepare("DELETE FROM job_state WHERE key = 'alerts_at'").run();
+  const sent = [];
+  const send = async (to, subject, parts) => { sent.push({ to, subject, body: parts.join('\n') }); return true; };
+  const turso = (rowsRead) => ({ ok: true, data: { plan: 'starter', blocked: { reads: false, writes: false }, paymentFailing: false, unpaidInvoices: 0,
+    meters: { rowsRead: mon.meter(rowsRead, 100), rowsWritten: mon.meter(0, 100), storage: mon.meter(0, 100), databases: mon.meter(1, 100) } } });
+  const site = { online: true, ms: 200, data: { metrics: { jobs: { lastRun: require('../../src/time').stamp() }, mail: { failed: 0, today: { recipients: 2, failed: 0 } } } } };
+  const snap = (rowsRead, down) => ({
+    clients: [{ slug: 'a', name: 'אתר א' }, { slug: 'b', name: 'אתר ב' }],
+    statuses: [site, down ? { online: false, error: 'timeout' } : site],
+    acc: { turso: turso(rowsRead), vercel: { ok: false, error: 'not_configured' } }, own: null,
+  });
+  const again = () => db.prepare("UPDATE job_state SET value = '0' WHERE key = 'alerts_at'").run(); // past the 5-minute spacing
+  process.env.ALERT_EMAIL = 'ops@master.test';
+  try {
+    // Nothing wrong: nothing sent.
+    assert.equal((await alerts.run({ snap: snap(10), send })).sent, false);
+    assert.equal(sent.length, 0);
+    // Two problems: one e-mail with both.
+    again();
+    await alerts.run({ snap: snap(85, true), send });
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].to, ['ops@master.test']);
+    assert.match(sent[0].subject, /2 בעיות \(אחת דחופה\)/);
+    assert.match(sent[0].body, /אתר ב: האתר לא עונה/);
+    assert.match(sent[0].body, /Turso: שורות שנקראו החודש ב־85%/);
+    // Run again at once: skipped; a while later with the same problems: nothing new, nothing sent.
+    assert.equal((await alerts.run({ snap: snap(85, true), send })).skipped, 'recent');
+    again();
+    await alerts.run({ snap: snap(86, true), send });
+    assert.equal(sent.length, 1, 'the same problems are not sent again');
+    assert.match(alerts.open().find((a) => a.key === 'turso:rowsRead').text, /86%/, 'the page shows the latest numbers');
+    // Worse (warn → bad): sent.
+    again();
+    await alerts.run({ snap: snap(97, true), send });
+    assert.equal(sent.length, 2);
+    assert.match(sent[1].body, /החמירו[\s\S]*97%/);
+    // A day later, still open: a reminder.
+    db.prepare('UPDATE alerts SET sent_at = sent_at - ?').run(25 * 3600000);
+    again();
+    await alerts.run({ snap: snap(97, true), send });
+    assert.equal(sent.length, 3);
+    assert.match(sent[2].body, /עדיין פתוח/);
+    // Fixed: said once, and forgotten.
+    again();
+    await alerts.run({ snap: snap(10), send });
+    assert.equal(sent.length, 4);
+    assert.match(sent[3].subject, /כל הבעיות נפתרו/);
+    assert.match(sent[3].body, /נפתר:[\s\S]*אתר ב/);
+    assert.equal(alerts.open().length, 0);
+    // A failed e-mail is not remembered, so the next run tries again.
+    again();
+    await alerts.run({ snap: snap(10, true), send: async () => false });
+    assert.equal(alerts.open().length, 0);
+    again();
+    await alerts.run({ snap: snap(10, true), send });
+    assert.equal(sent.length, 5);
+    // ALERT_EMAIL=off: nobody is told.
+    process.env.ALERT_EMAIL = 'off';
+    assert.deepEqual(alerts.recipients(), []);
+  } finally {
+    delete process.env.ALERT_EMAIL;
+    db.prepare('DELETE FROM alerts').run();
+  }
+});
+
+test('alerts on the monitoring page, and from the scheduled run', async () => {
+  db.prepare("INSERT OR REPLACE INTO alerts (key, level, text, since, sent_at) VALUES ('site:x:online', 'bad', 'אתר בדיקה: האתר לא עונה.', '2026-11-20 10:00:00', ?)").run(Date.now());
+  const c = new Client(srv.base);
+  createUser({ role: 'admin', email: 'alerts-page@master.test' });
+  await c.login('alerts-page@master.test');
+  const page = (await c.get('/master/metrics')).text;
+  assert.match(page, /התראות במייל[\s\S]*אתר בדיקה: האתר לא עונה[\s\S]*מאז/);
+  assert.match(page, /נשלחות אל [^<]*alerts-page@master\.test/);
+  db.prepare('DELETE FROM alerts').run();
+  db.prepare("DELETE FROM job_state WHERE key = 'alerts_at'").run();
+  process.env.CRON_SECRET = 's'.repeat(32);
+  try {
+    const r = await fetch(srv.base + '/internal/cron', { headers: { authorization: `Bearer ${'s'.repeat(32)}` } });
+    const out = await r.json();
+    assert.ok(out.monitoring && typeof out.monitoring.open === 'number', JSON.stringify(out.monitoring));
+  } finally {
+    delete process.env.CRON_SECRET;
+  }
+});

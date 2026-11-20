@@ -777,6 +777,9 @@ mark.placeholder { background: var(--warning-soft); color: var(--warning); paddi
 .mon-overall { margin: 0 0 1rem; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .mon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem; margin-bottom: 1rem; }
 .mon-card { margin: 0; }
+.mon-alerts { margin-bottom: 1rem; }
+.mon-alert-list { list-style: none; margin: 0 0 .6rem; padding: 0; display: grid; gap: .45rem; }
+.mon-alert-list li { line-height: 1.5; }
 .mon-card .dl { margin-bottom: .8rem; }
 .mon-meter { margin: .7rem 0; }
 .mon-meter-head { display: flex; justify-content: space-between; gap: .5rem; font-size: .92rem; }

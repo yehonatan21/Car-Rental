@@ -36,8 +36,11 @@ jobs:
             echo "::error::Set the CONSOLE_URL variable and the CONSOLE_CRON_SECRET secret (see the top of this file)."
             exit 1
           fi
+          # Only the address's host counts: "car-rental-master-taupe.vercel.app", "http://…/" and "https://…/master" all
+          # become https://<host> (a redirect answers with a page, not the jobs' result).
+          HOST=$(printf '%s' "$CONSOLE_URL" | tr -d '[:space:]' | sed -E 's#^[a-zA-Z]+://##; s#[/?#].*$##')
           curl --fail-with-body --silent --show-error --retry 2 --retry-delay 10 --max-time 60 \
-            -H "Authorization: Bearer $CRON_SECRET" "$CONSOLE_URL/internal/cron" | tee result.json
+            -H "Authorization: Bearer $CRON_SECRET" "https://$HOST/internal/cron" | tee result.json
           echo
           # Every site must have answered; a site that didn't is named here and fails the run.
           node -e '

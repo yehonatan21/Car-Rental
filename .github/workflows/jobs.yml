@@ -29,7 +29,7 @@ jobs:
     steps:
       - name: Run the jobs of every site
         env:
-          CONSOLE_URL: ${{ vars.CONSOLE_URL }}
+          CONSOLE_URL: ${{ vars.CONSOLE_URL || secrets.CONSOLE_URL }} # a variable; also accepted as a secret
           CRON_SECRET: ${{ secrets.CONSOLE_CRON_SECRET }}
         run: |
           if [ -z "$CONSOLE_URL" ] || [ -z "$CRON_SECRET" ]; then

@@ -361,6 +361,9 @@ async function shareMail(client) {
  * each with its own time limit, so one slow or broken site doesn't hold up the others. Returns one line per site.
  */
 async function runAllJobs() {
+  // A new site gets its address only once its first deployment is ready: look for it here too, so a site joins the
+  // schedule without anyone opening the console.
+  await Promise.all(list().filter((c) => !c.url).map((c) => discoverUrl(c).catch(() => null)));
   const clients = list().filter((c) => c.url);
   return Promise.all(clients.map(async (c) => {
     try {

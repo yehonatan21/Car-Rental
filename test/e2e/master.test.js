@@ -183,8 +183,11 @@ test('a new client: its own database and Vercel project, with its own management
   // The deployment is ready: the site runs with the variables the console gave it, and Vercel lists its address.
   const site = await launch(Object.fromEntries(['MANAGE_TOKEN', 'APP_NAME', 'BRAND_COLOR', 'CONTACT_PHONE'].map((k) => [k, vars[k].value])));
   projects.get('car-rental-bne-adam').domains.push(`127.0.0.1:${site.port}`);
+  // The scheduled run finds the address by itself (nobody opened the console) and runs the new site's jobs.
+  const ran = await master.runAllJobs();
+  assert.equal(master.get('bne-adam').url, site.base, 'address found by the scheduled run');
+  assert.equal(ran.find((x) => x.slug === 'bne-adam')?.ok, true, 'the new site is in the schedule');
   const list = await boss.get('/master');
-  assert.equal(master.get('bne-adam').url, site.base, 'address found');
   assert.match(list.text, /badge-active">פעיל/);
   assert.match(list.text, /background:#1d4ed8/);
 

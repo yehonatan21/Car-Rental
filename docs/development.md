@@ -45,7 +45,7 @@ npm run tunnel                                 # בחלון נוסף, כשהאפ
 | `npm test` | כל הבדיקות (יחידה וקצה לקצה) |
 | `SQLD_BIN=/path/to/sqld npm run test:libsql` | כל הבדיקות מול שרת libSQL (מה ש־Turso מריץ) במקום קובץ מקומי |
 | `npm run test:race` | שני תהליכי שרת על אותו מסד נתונים: שני מנהלים מאשרים באותו רגע (רץ בנפרד, ראו להלן) |
-| `npm run test:coverage` | הבדיקות עם דוח כיסוי (נכשל מתחת ל־80% שורות) |
+| `npm run test:coverage` | הבדיקות עם דוח כיסוי (נכשל מתחת ל־100% שורות) |
 | `npm run create-admin -- --email … --password …` | יצירת מנהל או קידום משתמש קיים למנהל |
 | `npm run new-client -- …` | פתיחת לקוח חדש ב־Turso וב־Vercel ([new-client.md](new-client.md)) |
 

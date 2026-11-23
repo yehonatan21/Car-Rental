@@ -498,10 +498,22 @@ td.row-actions .decision .btn { white-space: nowrap; }
 .dp-toggle:hover { background: var(--primary-soft); color: var(--primary); }
 .dp-time { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; direction: ltr; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); padding-inline: .35rem; }
 .dp-time:focus-within { outline: 2px solid var(--primary); outline-offset: 1px; box-shadow: var(--ring); border-color: var(--primary); }
-.dp-time select { border: 0; background: transparent; padding: .55rem .2rem; width: auto; min-height: 0; font-variant-numeric: tabular-nums; box-shadow: none; appearance: none; -webkit-appearance: none; text-align: center; cursor: pointer; }
-.dp-time select:focus { outline: none; box-shadow: none; }
-.dp-time b { color: var(--muted); }
-.dp-time .icon { color: var(--muted); margin-inline-end: .15rem; }
+.dp-time { position: relative; padding: 0; }
+.dp-time-btn { border: 0; background: transparent; font: inherit; color: var(--text); font-variant-numeric: tabular-nums; cursor: pointer;
+  display: flex; align-items: center; gap: .4rem; padding: .55rem .7rem; min-height: 44px; width: 100%; justify-content: center; border-radius: 10px; font-size: 1.02rem; }
+.dp-time-btn:focus { outline: none; }
+.dp-time .icon { color: var(--muted); }
+/* All the hours and minutes at once: no scrolling list. */
+.dp-tpop {
+  position: absolute; top: calc(100% + 6px); inset-inline-end: 0; z-index: 50; width: 300px; max-width: calc(100vw - 32px); padding: .7rem .8rem .8rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 18px 44px rgba(16, 32, 27, .2); animation: dlg-in .12s ease-out; direction: ltr;
+}
+.dp-tlabel { direction: rtl; font-size: .8rem; color: var(--muted); font-weight: 600; margin: .1rem .1rem .35rem; }
+.dp-hours { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: .6rem; }
+.dp-mins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.dp-hours button, .dp-mins button { border: 0; background: var(--surface-2); border-radius: 10px; min-height: 40px; cursor: pointer; font: inherit; font-size: .95rem; color: var(--text); font-variant-numeric: tabular-nums; }
+.dp-hours button:hover, .dp-mins button:hover { background: var(--primary-soft); }
+.dp-hours button.sel, .dp-mins button.sel { background: var(--primary); color: var(--primary-ink); font-weight: 600; }
 .dp-pop {
   position: absolute; top: calc(100% + 6px); inset-inline-start: 0; z-index: 50; width: 300px; max-width: calc(100vw - 32px); padding: .8rem;
   background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 18px 44px rgba(16, 32, 27, .2); animation: dlg-in .12s ease-out;
@@ -749,7 +761,7 @@ mark.placeholder { background: var(--warning-soft); color: var(--warning); paddi
 .duration-chips .chip { min-height: 40px; padding: .35rem .9rem; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: inherit; font-size: .92rem; cursor: pointer; }
 .duration-chips .chip:hover { border-color: var(--primary); }
 .duration-chips .chip[aria-pressed="true"] { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-soft-ink); font-weight: 600; }
-.dp-time select { min-width: 3.2rem; min-height: 44px; font-size: 1.05rem; padding-inline: .5rem; }
+
 
 /* Month view: a tap anywhere in a day cell chooses it; its bookings are listed under the month (dayList). */
 .m-cell { position: relative; }

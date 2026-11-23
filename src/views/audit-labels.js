@@ -7,6 +7,7 @@ const LABELS = {
   'block.create': 'חסימת מועד',
   'booking.approve': 'אישור הזמנה',
   'booking.cancel': 'ביטול הזמנה',
+  'booking.expire': 'ביטול אוטומטי: הבקשה לא אושרה עד מועד האיסוף',
   'booking.manual': 'הזמנה ידנית',
   'booking.reject': 'דחיית בקשת הזמנה',
   'license.view': 'צפייה ברישיון נהיגה',

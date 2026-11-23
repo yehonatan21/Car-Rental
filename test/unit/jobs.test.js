@@ -88,3 +88,23 @@ test('jobs close finished bookings and purge expired sessions', async () => {
   assert.equal(getBooking(done).status, 'completed');
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE token_hash = 'old'").get().n, 0);
 });
+
+test('a request still waiting when its pickup time comes is cancelled automatically, the member and managers told once', async () => {
+  const u = createUser({ email: 'late@jobs.test' });
+  const passed = insertBooking(u.id, time.addMinutes(time.now(), -30), time.addMinutes(time.now(), 120), 'pending');
+  const future = insertBooking(u.id, inDays(2), inDays(3), 'pending');
+  const approved = insertBooking(u.id, time.addMinutes(time.now(), -30), time.addMinutes(time.now(), 120), 'approved');
+  const r = await runJobs();
+  await runJobs();
+  assert.equal(r.expired, 1);
+  assert.equal(getBooking(passed).status, 'cancelled');
+  assert.equal(getBooking(future).status, 'pending', 'its time has not come');
+  assert.equal(getBooking(approved).status, 'approved', 'an approved booking that started is not touched');
+  const note = db.prepare("SELECT note FROM booking_history WHERE booking_id = ? AND to_status = 'cancelled'").get(passed);
+  assert.match(note.note, /בוטלה אוטומטית/);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'booking.expire' AND target_id = ?").get(passed));
+  const toMember = outbox().filter((m) => m.subject.includes('לא אושרה בזמן'));
+  assert.equal(toMember.length, 1, 'once, even after a second run');
+  assert.match(toMember[0].to, /late@jobs\.test/);
+  assert.equal(outbox().filter((m) => m.subject.includes('לא טופלה בזמן')).length, 1);
+});

@@ -30,6 +30,10 @@ async function runJobs({ by = 'timer' } = {}) {
   // First what failed before, so a waiting reminder isn't overtaken by newer ones.
   const before = await mail.drainOutbox();
   bookings.completeFinished();
+  // Requests still waiting when their pickup time came: cancelled, and the member told (src/bookings.js).
+  const unanswered = bookings.expireUnanswered();
+  for (const b of unanswered) await mail.bookingExpired(b);
+  summary.expired = unanswered.length;
   try { require('./auth').purgeThrottle(); } catch (err) { console.error('[jobs] purging old attempt counters failed:', err.message); }
 
   const pickups = db.prepare(`${withUser} WHERE b.status = 'approved' AND b.kind = 'booking' AND b.pickup_reminded = 0

@@ -412,6 +412,16 @@ module.exports = {
       `ההזמנה של ${esc(fullName(b))} בוטלה${byAdmin ? ' על ידי מנהל' : ' על ידי המשתמש'}.`, range(b),
     ], { href: `/admin/bookings/${b.id}`, label: 'לפרטי ההזמנה' }),
   ]),
+  /** A request nobody handled before its pickup time, cancelled by the jobs: to the member, and to the managers. */
+  bookingExpired: (b) => Promise.all([
+    b.email && send(b.email, 'בקשת ההזמנה בוטלה: לא אושרה בזמן', [
+      `שלום ${esc(b.first_name)},`, 'מועד האיסוף של הבקשה הבאה הגיע והיא עדיין לא אושרה, ולכן בוטלה אוטומטית:', range(b),
+      'אם עדיין צריך את הרכב, אפשר לשלוח בקשה חדשה למועד פנוי.',
+    ], { href: '/calendar', label: 'ליומן הרכב' }, { key: `expired:${b.id}` }),
+    send(adminEmails(), 'בקשת הזמנה בוטלה: לא טופלה בזמן', [
+      `הבקשה של ${esc(fullName(b))} לא אושרה ולא נדחתה עד מועד האיסוף, ולכן בוטלה אוטומטית:`, range(b),
+    ], { href: `/admin/bookings/${b.id}`, label: 'לפרטי הבקשה' }, { key: `expired-admins:${b.id}` }),
+  ]),
   // Reminders carry a key: sent once per booking (and time), even if two job runs overlap or one is retried.
   pickupReminder: (b) => send(b.email, 'תזכורת: איסוף הרכב מתקרב', [
     `שלום ${esc(b.first_name)},`, 'תזכורת להזמנת הרכב שלך:', vehicleLine(b), range(b),
@@ -439,6 +449,7 @@ const PUSH = {
   bookingRejected: (b) => push.notify(b.user_id, { title: 'בקשת ההזמנה לא אושרה', body: when(b), url: '/calendar', tag: `booking-${b.id}` }),
   bookingCancelled: (b, byAdmin) => byAdmin
     && push.notify(b.user_id, { title: 'ההזמנה בוטלה על ידי המנהל', body: when(b), url: '/me/bookings', tag: `booking-${b.id}` }),
+  bookingExpired: (b) => push.notify(b.user_id, { title: 'בקשת ההזמנה בוטלה', body: `לא אושרה עד מועד האיסוף · ${when(b)}`, url: '/calendar', tag: `booking-${b.id}` }),
   pickupReminder: (b) => push.notify(b.user_id, { title: 'תזכורת: איסוף הרכב מתקרב', body: when(b), url: '/me/bookings', tag: `pickup-${b.id}`, urgent: true }),
   returnReminder: (b) => push.notify(b.user_id, { title: 'תזכורת: החזרת הרכב', body: `יש להחזיר את הרכב עד ${time.fmtLong(b.end_at)}`, url: '/me/bookings', tag: `return-${b.id}`, urgent: true }),
   pendingTooLong: (list, { again = false } = {}) => push.notify(push.adminIds(), {

@@ -225,6 +225,24 @@ function completeFinished() {
   return done.length;
 }
 
+/**
+ * Requests nobody approved or rejected before their pickup time: cancelled automatically (the car can't be given for
+ * a time that has passed, and the request would otherwise wait forever). Each one is taken by the run whose UPDATE
+ * changed it, so two runs at once don't both e-mail. Returns them, with the member's details, for the messages.
+ */
+function expireUnanswered() {
+  const due = db.prepare(`SELECT b.*, u.first_name, u.last_name, u.email, u.phone FROM bookings b LEFT JOIN users u ON u.id = b.user_id
+    WHERE b.status = 'pending' AND b.start_at <= ?`).all(time.now());
+  const out = [];
+  for (const b of due) {
+    if (db.prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'pending'").run(b.id).changes !== 1) continue;
+    addHistory(b.id, 'pending', 'cancelled', null, 'בוטלה אוטומטית: מועד האיסוף הגיע והבקשה לא אושרה');
+    audit(null, 'booking.expire', 'booking', b.id, `${time.fmt(b.start_at)}–${time.fmt(b.end_at)}`);
+    out.push({ ...b, status: 'cancelled' });
+  }
+  return out;
+}
+
 /** Calendar entries in a window. */
 function inRange(vehicleId, from, to, statuses = ['approved']) {
   const marks = statuses.map(() => '?').join(',');
@@ -236,6 +254,6 @@ function inRange(vehicleId, from, to, statuses = ['approved']) {
 
 module.exports = {
   BookingError, STATUS_LABELS, findConflicts, findPendingOverlaps, eligibilityProblems,
-  createRequest, validateRequestRange, durationLabel, approve, autoApprove, reject, cancel, createManual, createBlock, completeFinished,
+  createRequest, validateRequestRange, durationLabel, approve, autoApprove, reject, cancel, createManual, createBlock, completeFinished, expireUnanswered,
   getBooking, inRange, addHistory, vehicleReady,
 };

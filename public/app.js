@@ -100,7 +100,11 @@ function enhanceDateInput(input) {
   wrap.className = 'dp';
   wrap.innerHTML = `<div class="dp-field"><input type="text" inputmode="numeric" autocomplete="off" placeholder="DD/MM/YYYY" maxlength="10" aria-label="${(label?.querySelector('span')?.textContent || 'תאריך').trim()} (יום/חודש/שנה)">`
     + `<button type="button" class="dp-toggle" aria-label="בחירה מלוח שנה" aria-haspopup="dialog" aria-expanded="false">${svg(CAL_ICON)}</button></div>`
-    + (withTime ? `<div class="dp-time" title="שעה (24 שעות)">${svg(CLOCK_ICON, 16)}<select aria-label="שעה"></select><b>:</b><select aria-label="דקות"></select></div>` : '')
+    // The time: a button that opens all the hours and minutes at once (no scrolling list). The two lists stay, hidden,
+    // as what holds the chosen values.
+    + (withTime ? `<div class="dp-time"><button type="button" class="dp-time-btn" aria-haspopup="dialog" aria-expanded="false">${svg(CLOCK_ICON, 16)}<span></span></button>`
+      + '<select hidden aria-hidden="true" tabindex="-1"></select><select hidden aria-hidden="true" tabindex="-1"></select>'
+      + '<div class="dp-tpop" role="dialog" aria-label="בחירת שעה" hidden></div></div>' : '')
     + '<div class="dp-pop" role="dialog" aria-label="בחירת תאריך" hidden></div>';
   input.after(wrap);
   input.type = 'hidden';
@@ -110,6 +114,8 @@ function enhanceDateInput(input) {
   const toggle = wrap.querySelector('.dp-toggle');
   const pop = wrap.querySelector('.dp-pop');
   const [hourSel, minSel] = wrap.querySelectorAll('select');
+  const timeBtn = wrap.querySelector('.dp-time-btn');
+  const tpop = wrap.querySelector('.dp-tpop');
   text.required = required;
   if (input.id) { text.id = input.id; input.removeAttribute('id'); }
   if (input.autofocus) text.autofocus = true;
@@ -123,7 +129,13 @@ function enhanceDateInput(input) {
     hourSel.innerHTML = Array.from({ length: 24 }, (_, i) => `<option value="${p2(i)}"${i === h ? ' selected' : ''}>${p2(i)}</option>`).join('');
     const mins = new Set([0, 15, 30, 45, m]);
     minSel.innerHTML = [...mins].sort((a, b) => a - b).map((i) => `<option value="${p2(i)}"${i === m ? ' selected' : ''}>${p2(i)}</option>`).join('');
+    showTime();
   };
+  function showTime() {
+    if (!withTime) return;
+    timeBtn.querySelector('span').textContent = `${hourSel.value}:${minSel.value}`;
+    timeBtn.setAttribute('aria-label', `שעה: ${hourSel.value}:${minSel.value}. לשינוי`);
+  }
   const sync = () => { text.value = showDmy(datePart()); fillTime(); validate(); };
   const validate = () => {
     let msg = '';
@@ -241,6 +253,45 @@ function enhanceDateInput(input) {
     };
     hourSel.addEventListener('change', onTime);
     minSel.addEventListener('change', onTime);
+    // The time panel: 24 hours in a grid, then the minutes. An hour keeps it open (for the minutes); a minute closes it.
+    const renderTime = () => {
+      const btn = (kind, v, on) => `<button type="button" data-${kind}="${v}"${on ? ' class="sel" aria-pressed="true"' : ' aria-pressed="false"'}>${v}</button>`;
+      tpop.innerHTML = '<div class="dp-tlabel">שעה</div><div class="dp-hours">'
+        + [...hourSel.options].map((o) => btn('h', o.value, o.value === hourSel.value)).join('')
+        + '</div><div class="dp-tlabel">דקות</div><div class="dp-mins">'
+        + [...minSel.options].map((o) => btn('m', o.value, o.value === minSel.value)).join('') + '</div>';
+    };
+    const closeTime = (focus) => {
+      tpop.hidden = true;
+      timeBtn.setAttribute('aria-expanded', 'false');
+      if (openPicker === closeTime) openPicker = null;
+      if (focus) timeBtn.focus();
+    };
+    timeBtn.addEventListener('click', () => {
+      if (!tpop.hidden) { closeTime(); return; }
+      if (openPicker) openPicker();
+      renderTime();
+      tpop.hidden = false;
+      timeBtn.setAttribute('aria-expanded', 'true');
+      openPicker = closeTime;
+      tpop.querySelector('.sel')?.focus();
+    });
+    tpop.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.h) {
+        hourSel.value = b.dataset.h; onTime(); showTime();
+        // Mark the choice in place (redrawing would detach the clicked button, and the page's click handler would
+        // then take the click as one outside the picker and close it).
+        for (const x of tpop.querySelectorAll('[data-h]')) { const on = x === b; x.classList.toggle('sel', on); x.setAttribute('aria-pressed', String(on)); }
+        tpop.querySelector('.dp-mins .sel')?.focus();
+      }
+      if (b.dataset.m) { minSel.value = b.dataset.m; onTime(); showTime(); closeTime(true); }
+    });
+    tpop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); closeTime(true); } });
+    wrap.querySelector('.dp-time').addEventListener('focusout', () => setTimeout(() => {
+      if (!tpop.hidden && !wrap.querySelector('.dp-time').contains(document.activeElement)) closeTime();
+    }, 0));
   }
   input.addEventListener('dp-sync', sync);
   sync();

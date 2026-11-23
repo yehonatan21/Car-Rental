@@ -31,15 +31,67 @@ function cleanRow(row) {
   return out;
 }
 
-function wrapLibsql(conn) {
+// A connection that went stale: the server (Turso) or a proxy closed it while the function sat idle between requests
+// (a warm Vercel instance keeps it for minutes), or the server dropped the stream. Nothing reached the database, so
+// the step can be tried again on a new connection.
+const STALE = /connection closed before message completed|STREAM_EXPIRED|stream not found|stream has expired|connection reset|ECONNRESET|broken pipe|error sending request/i;
+// Idle longer than this: start a new connection instead of reusing one the other side has likely closed.
+const IDLE_MS = 60 * 1000;
+
+/**
+ * open() makes a connection. Steps that are safe to repeat (preparing a statement, reading) are tried once more on a
+ * new connection when the old one turns out to be stale. A write (run, exec) is not repeated: it may have reached the
+ * database before the connection broke, so it fails as before rather than risk doing it twice.
+ */
+function wrapLibsql(open) {
+  let conn = open();
+  let lastUsed = Date.now();
+  // Inside BEGIN … COMMIT the connection is never changed: the transaction lives on it, and a statement moved to a
+  // new connection would be saved outside the transaction. A stale connection there fails the transaction instead.
+  let inTransaction = false;
+  const fresh = () => {
+    if (!inTransaction && Date.now() - lastUsed > IDLE_MS) conn = open();
+    lastUsed = Date.now();
+    return conn;
+  };
+  const retry = (fn) => {
+    try {
+      return fn(fresh());
+    } catch (err) {
+      if (inTransaction || !STALE.test(String(err?.message || err))) throw err;
+      console.warn('[db] stale connection, trying again on a new one:', String(err.message).slice(0, 120));
+      conn = open();
+      lastUsed = Date.now();
+      return fn(conn);
+    }
+  };
   return {
     remote: true,
-    exec: (sql) => track(() => conn.exec(sql)),
+    exec: (sql) => {
+      const c = fresh();
+      const ends = /^\s*(COMMIT|END|ROLLBACK)\b/i.test(sql);
+      try {
+        const r = track(() => c.exec(sql));
+        if (/^\s*BEGIN\b/i.test(sql)) inTransaction = true;
+        return r;
+      } finally {
+        if (ends) inTransaction = false; // over either way, even when COMMIT itself failed
+      }
+    },
     prepare(sql) {
-      const stmt = conn.prepare(sql);
+      const stmt = retry((c) => c.prepare(sql));
+      const read = (method, p) => {
+        try {
+          return stmt[method](normalize(p));
+        } catch (err) {
+          if (inTransaction || !STALE.test(String(err?.message || err))) throw err;
+          console.warn('[db] stale connection on a read, trying again on a new one');
+          return retry((c) => c.prepare(sql))[method](normalize(p));
+        }
+      };
       return {
-        get: (...p) => track(() => cleanRow(stmt.get(normalize(p)))),
-        all: (...p) => track(() => stmt.all(normalize(p)).map(cleanRow)),
+        get: (...p) => track(() => cleanRow(read('get', p))),
+        all: (...p) => track(() => read('all', p).map(cleanRow)),
         run: (...p) => {
           const r = track(() => stmt.run(normalize(p)));
           return { changes: r.changes, lastInsertRowid: Number(r.lastInsertRowid) };
@@ -76,10 +128,12 @@ function openDatabase() {
   if (url) {
     const Database = require('libsql');
     // libsql:// is Turso's name for HTTPS; spell it out so the transport is unambiguous.
-    const conn = new Database(url.replace(/^libsql:\/\//, 'https://'), authToken ? { authToken } : {});
-    const db = wrapLibsql(conn);
-    db.exec('PRAGMA foreign_keys = ON');
-    return db;
+    const open = () => {
+      const conn = new Database(url.replace(/^libsql:\/\//, 'https://'), authToken ? { authToken } : {});
+      conn.exec('PRAGMA foreign_keys = ON');
+      return conn;
+    };
+    return wrapLibsql(open);
   }
   const { DatabaseSync } = require('node:sqlite');
   const db = wrapNodeSqlite(new DatabaseSync(config.dbFile));
@@ -87,4 +141,4 @@ function openDatabase() {
   return db;
 }
 
-module.exports = { openDatabase, normalize, cleanRow };
+module.exports = { openDatabase, normalize, cleanRow, wrapLibsql, STALE };

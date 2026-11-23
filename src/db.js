@@ -315,6 +315,19 @@ if (!schemaIsCurrent) {
     messages INTEGER NOT NULL DEFAULT 0,
     failed INTEGER NOT NULL DEFAULT 0
   );
+  -- Phone notifications (src/push.js): one row per device that allowed them. The endpoint is the push service's
+  -- address for that device; p256dh and auth are its public encryption keys (nothing secret of the user's).
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    device TEXT,
+    created_at TEXT NOT NULL,
+    last_sent_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS push_subscriptions_user ON push_subscriptions(user_id);
   -- One-time WebAuthn challenges: adding a passkey, signing in, confirming before a sensitive action.
   CREATE TABLE IF NOT EXISTS webauthn_challenges (
     token_hash TEXT PRIMARY KEY,

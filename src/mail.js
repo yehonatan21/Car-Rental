@@ -424,3 +424,30 @@ module.exports = {
     list.map((b) => `${esc(fullName(b))} – ${esc(time.fmt(b.start_at))}`).join('<br>'),
   ], { href: '/admin/bookings?status=pending', label: 'לבקשות הממתינות' }),
 };
+
+// ---------- Phone notifications next to the e-mails (src/push.js) ----------
+// The same moments, a shorter text. Sent alongside, never instead: a phone without notifications still gets the e-mail.
+const push = require('./push');
+const when = (b) => `${time.fmt(b.start_at)} – ${time.fmt(b.end_at)}`;
+const PUSH = {
+  userApproved: (u) => push.notify(u.id, { title: 'החשבון שלך אושר', body: 'מעכשיו אפשר להזמין את הרכב.', url: '/calendar', tag: 'account' }),
+  licenseRequested: (u) => push.notify(u.id, { title: 'נדרש רישיון נהיגה עדכני', body: 'יש להעלות צילום עדכני כדי להמשיך להזמין.', url: '/me/license', tag: 'license' }),
+  newRegistration: (u) => push.notify(push.adminIds(), { title: 'משתמש חדש ממתין לאישור', body: fullName(u), url: `/admin/users/${u.id}`, tag: `user-${u.id}` }),
+  bookingRequested: (b) => push.notify(push.adminIds(), { title: 'בקשת הזמנה חדשה', body: `${fullName(b)} · ${when(b)}`, url: `/admin/bookings/${b.id}`, tag: `booking-${b.id}` }),
+  bookingApproved: (b, { notifyUser = true } = {}) => notifyUser
+    && push.notify(b.user_id, { title: 'ההזמנה אושרה ✓', body: when(b), url: '/me/bookings', tag: `booking-${b.id}` }),
+  bookingRejected: (b) => push.notify(b.user_id, { title: 'בקשת ההזמנה לא אושרה', body: when(b), url: '/calendar', tag: `booking-${b.id}` }),
+  bookingCancelled: (b, byAdmin) => byAdmin
+    && push.notify(b.user_id, { title: 'ההזמנה בוטלה על ידי המנהל', body: when(b), url: '/me/bookings', tag: `booking-${b.id}` }),
+  pickupReminder: (b) => push.notify(b.user_id, { title: 'תזכורת: איסוף הרכב מתקרב', body: when(b), url: '/me/bookings', tag: `pickup-${b.id}`, urgent: true }),
+  returnReminder: (b) => push.notify(b.user_id, { title: 'תזכורת: החזרת הרכב', body: `יש להחזיר את הרכב עד ${time.fmtLong(b.end_at)}`, url: '/me/bookings', tag: `return-${b.id}`, urgent: true }),
+  pendingTooLong: (list, { again = false } = {}) => push.notify(push.adminIds(), {
+    title: again ? 'בקשות הזמנה עדיין לא טופלו' : 'בקשות הזמנה ממתינות זמן רב', body: `${list.length} בקשות ממתינות לאישור`, url: '/admin/bookings?status=pending', tag: 'pending',
+  }),
+};
+for (const [name, fn] of Object.entries(PUSH)) {
+  const mailFn = module.exports[name];
+  // The e-mail's result is what callers use; the notification goes alongside and never fails the e-mail.
+  module.exports[name] = (...args) => Promise.all([mailFn(...args), Promise.resolve().then(() => fn(...args)).catch((err) => console.error(`[push] ${name}:`, err.message))])
+    .then(([mailResult]) => mailResult);
+}

@@ -10,6 +10,7 @@ Each client site has its own database (Turso) and its own files. Nothing is shar
 | Action log | `audit_log` | Managers | **2 years** (names of deleted accounts are no longer shown) |
 | Emails waiting to be resent | `mail_outbox` | Nobody in the app; managers see the subject and the address of failed ones | Content removed once sent; rows deleted after 60 days (sent) or 90 days (failed). Login codes and password links are never stored |
 | Passkeys | `passkeys` | Nobody (only the public key, a name and dates; the private key never leaves the device) | Removed by its owner, a site owner, or with the account |
+| Phone notifications | `push_subscriptions` | Nobody in the app (managers see nothing; the person sees how many devices) | Turned off on the device, signing out on it, signing out everywhere, a device the push service no longer knows, or the account deleted. Stored: the push service's address for the device and its public keys, a device name like "Android · Chrome" |
 | Server errors | `error_log` | The console's admins (monitoring page) | **30 days** after it last happened. Only the kind of error, a shortened message with e-mail addresses, quoted values, long numbers and tokens removed, the page's path without ids or query, and where in the code. No user, no request data |
 | Login sessions, codes, reset links | `sessions`, `login_codes`, `password_resets` | Nobody (only hashes are stored) | Their expiry (the jobs remove expired ones). A session ends after 14 days without a visit; a manager's after 8 hours |
 

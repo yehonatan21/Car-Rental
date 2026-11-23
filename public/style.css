@@ -53,6 +53,9 @@
   --tabbar-h: 64px;
   color-scheme: light;
 }
+
+/* The hidden attribute always hides, even on elements whose class sets a display (.btn, .card...). */
+[hidden] { display: none !important; }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0d1513; --surface: #15201d; --surface-2: #1a2723; --text: #e6efeb; --muted: #9fb0a9;

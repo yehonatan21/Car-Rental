@@ -646,3 +646,87 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
   });
   window.addEventListener('appinstalled', () => { card.hidden = true; });
 })();
+
+// ---------- Phone notifications (src/push.js) ----------
+// The card on the personal page turns them on or off for this device. On an iPhone they work only inside the
+// installed app (Add to Home Screen), so there the card says that first.
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const b64ToBytes = (s) => {
+  const raw = atob((s + '='.repeat((4 - (s.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+};
+const bytesToB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function pushPost(url, form, fields) {
+  const body = new URLSearchParams({ _csrf: form.querySelector('[name=_csrf]').value, ...fields });
+  const r = await fetch(url, { method: 'POST', body, credentials: 'same-origin', headers: { accept: 'application/json' } });
+  return r.ok && (await r.json()).ok;
+}
+(() => {
+  const card = document.querySelector('[data-push]');
+  if (!card) return;
+  const state = card.querySelector('[data-push-state]');
+  const on = card.querySelector('[data-push-on]');
+  const off = card.querySelector('[data-push-off]');
+  const form = card.querySelector('[data-push-form]');
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const installed = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  if (!pushSupported()) {
+    if (ios && !installed) {
+      state.textContent = 'באייפון ההתראות פועלות רק מתוך האפליקציה: קודם מתקינים אותה (הוספה למסך הבית), ואז מפעילים כאן.';
+      card.hidden = false;
+    }
+    return;
+  }
+  card.hidden = false;
+  const show = (sub) => {
+    const blocked = Notification.permission === 'denied';
+    on.hidden = Boolean(sub) || blocked;
+    off.hidden = !sub;
+    state.textContent = sub ? '✓ ההתראות פעילות בטלפון הזה.'
+      : blocked ? 'ההתראות חסומות בדפדפן לאתר הזה. אפשר לאשר אותן בהגדרות האתר בדפדפן (סמל המנעול ליד הכתובת), ואז לרענן את הדף.'
+        : 'ההתראות כבויות בטלפון הזה.';
+  };
+  navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription()).then(show).catch(() => show(null));
+  on.addEventListener('click', async () => {
+    on.disabled = true;
+    try {
+      if (await Notification.requestPermission() !== 'granted') { show(null); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(card.dataset.key) });
+      const ok = await pushPost('/me/push', form, { endpoint: sub.endpoint, p256dh: bytesToB64(sub.getKey('p256dh')), auth: bytesToB64(sub.getKey('auth')) });
+      if (!ok) { await sub.unsubscribe(); state.textContent = 'לא ניתן היה להפעיל את ההתראות. נסו שוב מאוחר יותר.'; return; }
+      show(sub);
+    } catch {
+      state.textContent = 'לא ניתן היה להפעיל את ההתראות בדפדפן הזה.';
+    } finally {
+      on.disabled = false;
+    }
+  });
+  off.addEventListener('click', async () => {
+    off.disabled = true;
+    try {
+      const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+      if (sub) { await pushPost('/me/push/remove', form, { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+      show(null);
+    } finally {
+      off.disabled = false;
+    }
+  });
+})();
+
+// Signing out on a phone: its notifications stop too, so the next person to use it doesn't get them.
+document.addEventListener('submit', async (e) => {
+  const form = e.target;
+  if (!form.matches('form[action="/logout"]') || form.dataset.pushDone || !pushSupported()) return;
+  e.preventDefault();
+  form.dataset.pushDone = '1';
+  try {
+    const reg = await Promise.race([navigator.serviceWorker.getRegistration(), new Promise((r) => { setTimeout(r, 1000); })]);
+    const sub = reg && await reg.pushManager.getSubscription();
+    if (sub) {
+      await Promise.race([pushPost('/me/push/remove', form, { endpoint: sub.endpoint }), new Promise((r) => { setTimeout(r, 1500); })]);
+      await sub.unsubscribe();
+    }
+  } catch { /* sign out anyway */ }
+  form.submit();
+});

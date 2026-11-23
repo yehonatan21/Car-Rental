@@ -8,11 +8,12 @@ const bookings = require('../bookings');
 const storage = require('../storage');
 const { renderCalendar, windowFor } = require('../views/calendar');
 const { later } = require('../later');
-const { html, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
+const { html, csrfField, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
 const { normalizePhone, validPhone, safeNext, passkeyPage } = require('./public');
 const passkeys = require('../passkeys');
 const config = require('../config');
 const { brand } = require('../brand');
+const push = require('../push');
 
 const STATUS_HELP = {
   pending: 'החשבון ממתין לבדיקת המנהל. תישלח הודעה בדואר האלקטרוני לאחר האישור.',
@@ -68,6 +69,35 @@ module.exports = ({ app, requireLogin, requireRecentAuth, licenseUpload }) => {
     <button type="button" class="btn btn-light btn-sm" data-install-dismiss>לא עכשיו</button></div>
 </section>`;
 
+  /**
+   * Phone notifications (src/push.js): turned on per device. app.js shows the card where the browser can receive them
+   * (on an iPhone only inside the installed app, so there it says to install first).
+   */
+  const pushCard = (req, u) => {
+    const n = push.devices(u.id).length;
+    return html`<section class="card push-card" data-push data-key="${push.publicKey()}" hidden aria-labelledby="push-title">
+  <h2 class="section-title" id="push-title">${icon('bell')} התראות בטלפון</h2>
+  <p class="muted small">${u.role === 'admin' ? 'בקשות הזמנה ומשתמשים חדשים, ' : ''}אישור או דחייה של הזמנה, ותזכורות לאיסוף ולהחזרה. בנוסף למיילים.</p>
+  <p data-push-state class="small"></p>
+  <form data-push-form>${csrfField(req)}
+    <div class="kv-inline"><button type="button" class="btn btn-primary btn-sm" data-push-on hidden>הפעלת התראות בטלפון הזה</button>
+    <button type="button" class="btn btn-light btn-sm" data-push-off hidden>כיבוי בטלפון הזה</button></div></form>
+  ${n ? html`<p class="muted small">פעיל ב־${n === 1 ? 'מכשיר אחד' : `${n} מכשירים`}.</p>` : ''}
+</section>`;
+  };
+
+  // This device allowed notifications: keep its address (app.js, after the browser's own question).
+  app.post('/me/push', requireLogin, (req, res) => {
+    const ok = push.subscribe(req.user.id, { endpoint: req.body.endpoint, keys: { p256dh: req.body.p256dh, auth: req.body.auth } }, req.get('user-agent'));
+    if (ok) audit(req.user.id, 'user.push_on', 'user', req.user.id, push.deviceName(req.get('user-agent')));
+    res.set('Cache-Control', 'no-store').status(ok ? 200 : 400).json({ ok });
+  });
+  // Turned off on this device, or signing out on it.
+  app.post('/me/push/remove', requireLogin, (req, res) => {
+    const ok = push.unsubscribe(req.user.id, String(req.body.endpoint || '') || null);
+    res.set('Cache-Control', 'no-store').json({ ok });
+  });
+
   app.get('/me', requireLogin, (req, res) => {
     const u = req.user;
     const upcoming = upcomingFor(u.id);
@@ -112,6 +142,7 @@ ${next ? html`<section class="card next-booking">
 </nav>
 
 ${installCard()}
+${pushCard(req, u)}
 
 <div class="grid2">
   <section class="card">

@@ -103,8 +103,10 @@ function destroySession(req, res) {
   res.clearCookie(COOKIE, { path: '/', secure: req.secure });
 }
 
+/** Signs the user out everywhere (password reset or set by a manager, blocked...): their phones stop getting notifications too. */
 function destroyAllSessions(userId) {
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(userId);
 }
 
 /**

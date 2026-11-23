@@ -62,6 +62,7 @@ const LABELS = {
   'user.login_second_step': 'סיסמה נכונה, נשלח קוד אימות למנהל',
   'user.login_passkey': 'כניסה עם מפתח גישה',
   'user.passkey_add': 'הוספת מפתח גישה',
+  'user.push_on': 'הפעלת התראות בטלפון',
   'user.passkey_remove': 'הסרת מפתח גישה',
   'user.passkey_remove_all': 'הסרת כל מפתחות הגישה',
   'user.reauth': 'אישור זהות לפני פעולה רגישה',

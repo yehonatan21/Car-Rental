@@ -104,6 +104,7 @@ async function runJobs({ by = 'timer' } = {}) {
   db.prepare('DELETE FROM login_codes WHERE expires_at < ?').run(Date.now());
   db.prepare('DELETE FROM mail_daily WHERE day < ?').run(time.addDays(time.today(), -90));
   db.prepare('DELETE FROM error_log WHERE last_at < ?').run(`${time.addDays(time.today(), -30)} 00:00:00`);
+  db.prepare('DELETE FROM error_handled WHERE handled_at < ?').run(`${time.addDays(time.today(), -30)} 00:00:00`);
 
   const after = await mail.drainOutbox(); // anything that failed just now and is already due (none, normally)
   const ms = Date.now() - started;

@@ -161,6 +161,8 @@ client page shows the exact value.
 - **Server errors (24 hours):** each kind of error on every site and the console: the message, the page, where in the
   code, how many times, and the code's lines (under "מקום בקוד"). A site keeps its errors in its own database for 30
   days (`error_log`), grouped by kind; nothing about the user or the request is kept (docs/privacy.md).
+  **Mark as handled** (סמן כטופל, or סמן הכל כטופל) hides an error once it has been dealt with; it comes back, marked
+  "חזרה" and e-mailed once, if the same error happens again after that.
 
 The account numbers are read at most every 5 minutes; **Refresh** (רענון) reads them now. Sites report counts only, never
 personal data.

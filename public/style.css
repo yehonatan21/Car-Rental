@@ -820,3 +820,7 @@ mark.placeholder { background: var(--warning-soft); color: var(--warning); paddi
 .install-card .muted { margin: .2rem 0 0; }
 .offline-page { max-width: 32rem; padding-top: 12vh; text-align: center; }
 .offline-page img { border-radius: 16px; }
+.mon-errors-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.mon-errors-head .section-title { margin: 0; }
+.mon-error-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+.mon-error-top form { flex: none; }

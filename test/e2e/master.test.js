@@ -740,3 +740,58 @@ test('errors: a new kind is e-mailed once (no daily reminder, no "fixed"), and l
     db.prepare('DELETE FROM error_log').run();
   }
 });
+
+test('errors marked as handled are hidden and not alerted, until they happen again', async () => {
+  const alerts = require('../../src/alerts');
+  const errors = require('../../src/errors');
+  db.prepare('DELETE FROM alerts').run();
+  db.prepare('DELETE FROM error_log').run();
+  db.prepare('DELETE FROM error_handled').run();
+  const sent = [];
+  const send = async (to, subject, parts) => { sent.push(parts.join('\n')); return true; };
+  const again = () => db.prepare("UPDATE job_state SET value = '0' WHERE key = 'alerts_at'").run();
+  const boom = () => { try { null.x(); } catch (e) { return e; } };
+  errors.record(boom(), { req: { method: 'GET', baseUrl: '', path: '/master/thing' } });
+  const fp = db.prepare('SELECT fp FROM error_log').get().fp;
+  const snap = () => ({ clients: [], statuses: [], acc: { turso: { ok: false, error: 'not_configured' }, vercel: { ok: false, error: 'not_configured' } },
+    own: require('../../src/routes/manage').metrics() });
+  process.env.ALERT_EMAIL = 'ops@master.test';
+  createUser({ role: 'admin', email: 'handler@master.test' });
+  const c = new Client(srv.base);
+  await c.login('handler@master.test');
+  try {
+    again(); await alerts.run({ snap: snap(), send });
+    assert.equal(alerts.open().length, 1);
+    let page = (await c.get('/master/metrics')).text;
+    assert.match(page, /TypeError[\s\S]*סמן כטופל/);
+
+    // Marked: hidden on the page, its open alert dropped, nothing e-mailed about it.
+    const r = await c.post('/master/errors/handled', { site: 'console', fp }, '/master/metrics');
+    assert.equal(r.location, '/master/metrics#errors');
+    assert.match(c.flash().text, /סומנה כטופלה/);
+    assert.equal(alerts.open().length, 0);
+    page = (await c.get('/master/metrics')).text;
+    assert.doesNotMatch(page, /TypeError: Cannot read/);
+    assert.match(page, /שגיאה אחת סומנה כטופלה ומוסתרת/);
+    again(); await alerts.run({ snap: snap(), send });
+    assert.equal(sent.length, 1, 'no new e-mail for a handled error');
+    assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'master.errors_handled'").get());
+
+    // It happens again (after the mark): back on the page as "חזרה", and e-mailed once.
+    db.prepare("UPDATE error_handled SET handled_at = '2020-01-01 00:00:00'").run();
+    page = (await c.get('/master/metrics')).text;
+    assert.match(page, /TypeError[\s\S]*badge-rejected">חזרה/);
+    again(); await alerts.run({ snap: snap(), send });
+    assert.equal(sent.length, 2);
+    assert.match(sent[1], /חזרה אחרי שסומנה כטופלה/);
+    again(); await alerts.run({ snap: snap(), send });
+    assert.equal(sent.length, 2, 'once');
+
+    // Bad input is ignored.
+    await c.post('/master/errors/handled', { site: '../x', fp: 'zz' }, '/master/metrics');
+    assert.match(c.flash().text, /לא נמצאה/);
+  } finally {
+    delete process.env.ALERT_EMAIL;
+    for (const t of ['alerts', 'error_log', 'error_handled']) db.prepare(`DELETE FROM ${t}`).run();
+  }
+});

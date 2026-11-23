@@ -24,6 +24,7 @@ const LABELS = {
   'manage.suspend': 'האתר הושהה',
   'manage.unverified_password_removed': 'סיסמה לא מאומתת הוסרה',
   'master.admin_add': 'מנהל מרכז נוסף',
+  'master.errors_handled': 'שגיאות שרת סומנו כטופלו',
   'master.admin_password': 'סיסמת מנהל מרכז נקבעה',
   'master.admin_remove': 'מנהל מרכז הוסר',
   'master.client_branding': 'מיתוג לקוח עודכן',

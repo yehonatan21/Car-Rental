@@ -276,6 +276,16 @@ if (!schemaIsCurrent) {
     last_at TEXT NOT NULL
   );
 
+  -- Server errors the console's admins marked as handled (per site and kind): hidden on the monitoring page and in
+  -- the alerts until the same error happens again after that moment.
+  CREATE TABLE IF NOT EXISTS error_handled (
+    site TEXT NOT NULL,
+    fp TEXT NOT NULL,
+    handled_at TEXT NOT NULL,
+    handled_by INTEGER,
+    PRIMARY KEY (site, fp)
+  );
+
   -- The console's open alerts (src/alerts.js): what was last e-mailed about each problem, so only news is sent.
   CREATE TABLE IF NOT EXISTS alerts (
     key TEXT PRIMARY KEY,

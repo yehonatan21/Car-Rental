@@ -28,10 +28,17 @@ function problems({ clients, statuses, acc, own }) {
   const add = (key, level, text) => out.push({ key, level, text });
   let mailToday = own?.mail?.today?.recipients || 0;
   // A new kind of server error (first seen in the last 24 hours): told once, not repeated or "fixed" (src/errors.js).
+  // One marked as handled is left out, until it happens again after that: then told once more, as having come back.
   const since = time.stamp(new Date(Date.now() - 24 * 3600000));
+  const handled = handledErrors();
   const newErrors = (slug, name, e) => {
-    for (const x of (e?.recent || []).filter((r) => r.first_at >= since).slice(0, 3)) {
-      add(`error:${slug}:${x.fp}`, 'warn', `${name}: שגיאת שרת חדשה${x.count > 1 ? ` (${x.count} פעמים)` : ''}: \u2066${x.name}: ${x.message}${x.route ? ` · ${x.route}` : ''}${x.frame ? ` · ${x.frame}` : ''}\u2069`);
+    const what = (x) => `\u2066${x.name}: ${x.message}${x.route ? ` · ${x.route}` : ''}${x.frame ? ` · ${x.frame}` : ''}\u2069`;
+    let n = 0;
+    for (const x of e?.recent || []) {
+      const state = errorState(handled, slug, x);
+      if (n >= 3 || state === 'handled') continue;
+      if (state === 'again') { add(`error:${slug}:${x.fp}:again:${handled.get(`${slug}:${x.fp}`)}`, 'warn', `${name}: שגיאת שרת חזרה אחרי שסומנה כטופלה: ${what(x)}`); n++; }
+      else if (x.first_at >= since) { add(`error:${slug}:${x.fp}`, 'warn', `${name}: שגיאת שרת חדשה${x.count > 1 ? ` (${x.count} פעמים)` : ''}: ${what(x)}`); n++; }
     }
   };
   statuses.forEach((st, i) => {
@@ -79,6 +86,25 @@ function problems({ clients, statuses, acc, own }) {
   const mail = monitoring.meter(mailToday, monitoring.mailDailyLimit());
   if (mail.level !== 'ok') add('mail:daily', mail.level, `המייל המשותף: ${mailToday} נמענים היום, ${pct(mail)} מהמגבלה היומית (${mail.limit}).`);
   return out;
+}
+
+/** The errors marked as handled: "site:fp" → when. */
+const handledErrors = () => new Map(db.prepare('SELECT site, fp, handled_at FROM error_handled').all().map((r) => [`${r.site}:${r.fp}`, r.handled_at]));
+/** 'open', 'handled' (marked, and not seen since), or 'again' (seen after it was marked). */
+function errorState(handled, site, e) {
+  const at = handled.get(`${site}:${e.fp}`);
+  return !at ? 'open' : e.last_at > at ? 'again' : 'handled';
+}
+/** Marks error kinds as handled ([{ site, fp }]); their open alerts are dropped quietly. */
+function markHandled(list, userId) {
+  const stamp = time.stamp();
+  const put = db.prepare(`INSERT INTO error_handled (site, fp, handled_at, handled_by) VALUES (?, ?, ?, ?)
+    ON CONFLICT(site, fp) DO UPDATE SET handled_at = excluded.handled_at, handled_by = excluded.handled_by`);
+  for (const { site, fp } of list) {
+    put.run(site, fp, stamp, userId ?? null);
+    db.prepare("DELETE FROM alerts WHERE key = ? OR key LIKE ?").run(`error:${site}:${fp}`, `error:${site}:${fp}:again:%`);
+  }
+  return list.length;
 }
 
 /** What to tell, given the problems now and the alerts open from before. Pure: the tests drive it directly. */
@@ -162,4 +188,4 @@ async function run({ snap, send = require('./mail').send } = {}) {
 
 const escape = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
-module.exports = { run, problems, diff, open, recipients, snapshot };
+module.exports = { run, problems, diff, open, recipients, snapshot, handledErrors, errorState, markHandled };

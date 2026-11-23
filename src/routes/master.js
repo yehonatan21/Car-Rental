@@ -96,19 +96,43 @@ function accountCard(title, iconName, a, body) {
 }
 
 /** Server errors of the last 24 hours on every site (src/errors.js): what, where in the code, how often, and the stack. */
-function errorsCard(sites) {
-  const rows = sites.flatMap((s) => (s.errors?.recent || []).map((e) => ({ site: s.site, ...e }))).sort((a, b) => (a.last_at < b.last_at ? 1 : -1));
+/** A site's error kinds in the last 24 hours, each with its state: 'open', 'handled' or 'again' (src/alerts.js). */
+const siteErrors = (handled, slug, errors) => (errors?.recent || []).map((e) => ({ ...e, slug, state: alerts.errorState(handled, slug, e) }));
+
+/** Server errors of the last 24 hours on every site (src/errors.js), each to be marked as handled once dealt with. */
+function errorsCard(req, sites) {
+  const handled = alerts.handledErrors();
+  const all = sites.flatMap((s) => siteErrors(handled, s.slug, s.errors).map((e) => ({ ...e, site: s.site })))
+    .sort((a, b) => (a.last_at < b.last_at ? 1 : -1));
+  const rows = all.filter((e) => e.state !== 'handled');
+  const hidden = all.length - rows.length;
   const since = time.stamp(new Date(Date.now() - 24 * 3600000));
+  const mark = (e) => postForm(req, '/master/errors/handled', html`<input type="hidden" name="site" value="${e.slug}"><input type="hidden" name="fp" value="${e.fp}">
+    <button class="btn btn-light btn-sm">${icon('check', 16)} סמן כטופל</button>`, 'class="inline"');
   return html`<section class="card" id="errors">
-  <h3 class="section-title">${icon('alert')} שגיאות שרת (24 שעות)</h3>
+  <div class="mon-errors-head"><h3 class="section-title">${icon('alert')} שגיאות שרת (24 שעות)</h3>
+    ${rows.length > 1 ? postForm(req, '/master/errors/handled', html`${rows.map((e) => html`<input type="hidden" name="item" value="${e.slug}:${e.fp}">`)}
+      <button class="btn btn-light btn-sm">${icon('check', 16)} סמן הכל כטופל</button>`, 'class="inline"') : ''}</div>
   ${rows.length ? html`<ul class="mon-errors">${rows.map((e) => html`<li>
-    <div>${levelDot(e.first_at >= since ? 'warn' : 'ok', html`<b>${e.site}</b>: <span dir="ltr">${e.name}: ${e.message}</span>`)}
-      ${e.first_at >= since ? html`<span class="badge badge-pending">חדשה</span>` : ''}</div>
+    <div class="mon-error-top"><div>${levelDot('warn', html`<b>${e.site}</b>: <span dir="ltr">${e.name}: ${e.message}</span>`)}
+      ${e.state === 'again' ? html`<span class="badge badge-rejected">חזרה</span>` : e.first_at >= since ? html`<span class="badge badge-pending">חדשה</span>` : ''}</div>
+      ${mark(e)}</div>
     <div class="muted small">${e.count} פעמים · לאחרונה ${time.fmt(e.last_at.slice(0, 16))}${e.route ? html` · <span dir="ltr">${e.route}</span>` : ''}${e.frame ? html` · <span dir="ltr">${e.frame}</span>` : ''}</div>
     ${e.stack ? html`<details><summary class="small">מקום בקוד</summary><pre dir="ltr">${e.stack}</pre></details>` : ''}
-  </li>`)}</ul>` : html`<p>${levelDot('ok', 'לא היו שגיאות שרת ב־24 השעות האחרונות.')}</p>`}
+  </li>`)}</ul>` : html`<p>${levelDot('ok', hidden ? 'אין שגיאות פתוחות.' : 'לא היו שגיאות שרת ב־24 השעות האחרונות.')}</p>`}
+  ${hidden ? html`<p class="muted small">${hidden === 1 ? 'שגיאה אחת סומנה כטופלה ומוסתרת' : `${hidden} שגיאות סומנו כטופלו ומוסתרות`}. אם תקרה שוב, תופיע כאן עם התווית "חזרה" ותישלח עליה התראה.</p>` : ''}
   <p class="muted small">נשמר בכל אתר בלי פרטי בקשה או משתמש: סוג השגיאה, הודעה מקוצרת והמקום בקוד. על סוג חדש נשלחת התראה במייל.</p>
 </section>`;
+}
+
+/** The errors column: kinds not marked as handled (amber when new or back). */
+function errorsCell(slug, errors) {
+  if (!errors) return '—';
+  const open = siteErrors(alerts.handledErrors(), slug, errors).filter((e) => e.state !== 'handled');
+  if (!open.length) return levelDot('ok', 'אין');
+  const since = time.stamp(new Date(Date.now() - 24 * 3600000));
+  const warn = open.some((e) => e.state === 'again' || e.first_at >= since);
+  return html`<a href="#errors">${levelDot(warn ? 'warn' : 'ok', `${open.length} פתוחות`)}</a>`;
 }
 
 /** The alerts e-mailed and still open (src/alerts.js), and who gets them. */
@@ -121,14 +145,17 @@ function alertsCard(open, to) {
 </section>`;
 }
 
-function monitoringSection(clients, statuses, acc, own, ownDb) {
+function monitoringSection(req, clients, statuses, acc, own, ownDb) {
   const online = statuses.map((st, i) => ({ c: clients[i], st, d: st.online ? st.data : null }));
   const mailToday = online.reduce((t, x) => t + (x.d?.metrics?.mail?.today?.recipients || 0), 0) + (own?.mail?.today?.recipients || 0);
   const mailFailedToday = online.reduce((t, x) => t + (x.d?.metrics?.mail?.today?.failed || 0), 0);
   const outboxFailed = online.reduce((t, x) => t + (x.d?.metrics?.mail?.failed || 0), 0);
   const outboxWaiting = online.reduce((t, x) => t + (x.d?.metrics?.mail?.waiting || 0), 0);
   const mailMeter = monitoring.meter(mailToday, monitoring.mailDailyLimit());
-  const checks = online.map((x) => monitoring.siteChecks(x.st, x.st.ms));
+  // A site's errors count as something to check only while some are not marked as handled.
+  const handled = alerts.handledErrors();
+  const checks = online.map((x) => monitoring.siteChecks(x.st, x.st.ms).map((k) => (k.key !== 'errors' ? k
+    : { ...k, level: siteErrors(handled, x.c.slug, x.d?.metrics?.errors).some((e) => e.state === 'again' || (e.state === 'open' && k.level !== 'ok')) ? 'warn' : 'ok' })));
   const jobsAges = checks.map((ch) => ch.find((k) => k.key === 'jobs')).filter(Boolean);
   const jobsLevel = jobsAges.some((j) => j.level === 'bad') ? 'bad' : jobsAges.some((j) => j.level === 'warn') ? 'warn' : 'ok';
   const t = acc.turso.ok ? acc.turso.data : null;
@@ -197,7 +224,7 @@ function monitoringSection(clients, statuses, acc, own, ownDb) {
       <td data-label="שימוש ב־Turso החודש">${tu ? html`${num(tu.rows_read)} נקראו<br><span class="muted small">${num(tu.rows_written)} נכתבו · ${bytes(tu.storage_bytes)}</span>` : '—'}</td>
       <td data-label="בקשות החודש">${reqs != null ? num(reqs) : '—'}</td>
       <td data-label="מיילים היום">${ch.mail ? levelDot(ch.mail.level, num(m.mail.today.recipients)) : '—'}${m?.mail?.failed ? html`<br><span class="muted small">${m.mail.failed} נכשלו</span>` : ''}</td>
-      <td data-label="שגיאות">${ch.errors ? html`<a href="#errors">${levelDot(ch.errors.level, ch.errors.text)}</a>` : '—'}</td>
+      <td data-label="שגיאות">${errorsCell(x.c.slug, m?.errors)}</td>
       <td data-label="מפתח מסד">${ch.key ? levelDot(ch.key.level, ch.key.text) : '—'}</td>
     </tr>`;
   })}
@@ -205,11 +232,11 @@ function monitoringSection(clients, statuses, acc, own, ownDb) {
         <td data-label="שורות">${num(own.db.rows.users)} מנהלים</td><td data-label="קבצים">${num(own.files.count)}</td>
         <td data-label="שימוש ב־Turso החודש">${ownDb && t?.perDb[ownDb] ? html`${num(t.perDb[ownDb].rows_read)} נקראו` : '—'}</td>
         <td data-label="בקשות החודש">${v && process.env.VERCEL_PROJECT_ID ? num(Object.entries(v.perProject).find(([n]) => n.endsWith('master'))?.[1]) : '—'}</td><td data-label="מיילים היום">${num(own.mail.today.recipients)}</td>
-        <td data-label="שגיאות">${own.errors?.kinds24h ? html`<a href="#errors">${levelDot(own.errors.new24h ? 'warn' : 'ok', `${own.errors.kinds24h} ב־24 שעות`)}</a>` : 'אין'}</td><td data-label="מפתח מסד">—</td></tr>` : ''}
+        <td data-label="שגיאות">${errorsCell('console', own.errors)}</td><td data-label="מפתח מסד">—</td></tr>` : ''}
       </tbody>
     </table>
   </section>
-  ${errorsCard([...online.map((x) => ({ site: x.c.name, errors: x.d?.metrics?.errors })), { site: 'מרכז הניהול', errors: own?.errors }])}
+  ${errorsCard(req, [...online.map((x) => ({ slug: x.c.slug, site: x.c.name, errors: x.d?.metrics?.errors })), { slug: 'console', site: 'מרכז הניהול', errors: own?.errors }])}
 </section>`;
 }
 
@@ -357,7 +384,18 @@ ${pageHead('ניטור', {
     actions: html`<a class="btn btn-light" href="/master/metrics?fresh=1">${icon('clock')} רענון</a>`,
   })}
 ${alertsCard(alerts.open(), alerts.recipients())}
-${monitoringSection(clients, statuses, acc, own, ownDb)}`);
+${monitoringSection(req, clients, statuses, acc, own, ownDb)}`);
+  });
+
+  // Errors dealt with (src/alerts.js markHandled): one (site + fp) or several (item = "site:fp").
+  app.post('/master/errors/handled', requireAdmin, (req, res) => {
+    const ok = (x) => /^[a-z0-9-]{1,63}$/.test(x.site) && /^[0-9a-f]{12}$/.test(x.fp);
+    const list = [].concat(req.body.item || []).map((v) => { const [site, fp] = String(v).split(':'); return { site, fp }; })
+      .concat(req.body.site ? [{ site: String(req.body.site), fp: String(req.body.fp || '') }] : []).filter(ok).slice(0, 100);
+    const n = alerts.markHandled(list, req.user.id);
+    if (n) audit(req.user.id, 'master.errors_handled', 'master', null, list.map((x) => `${x.site}:${x.fp}`).join(', ').slice(0, 300));
+    res.flash(n ? 'success' : 'error', n ? (n === 1 ? 'השגיאה סומנה כטופלה.' : `${n} שגיאות סומנו כטופלו.`) : 'לא נמצאה שגיאה לסימון.');
+    res.redirect(303, '/master/metrics#errors');
   });
 
   // ---------- A new client ----------

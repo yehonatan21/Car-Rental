@@ -91,6 +91,25 @@ app.get('/healthz', (req, res) => {
 //     (.github/workflows/jobs.yml), and the console runs the jobs of every client site (master.runAllJobs);
 //   - Vercel Cron also calls /internal/cron once a day (vercel.json), as a backup;
 //   - a visit runs them only when no scheduled run happened for 30 minutes (the schedule is broken).
+/**
+ * HEALTHCHECK_URL (e.g. a healthchecks.io check): the console checks in after each scheduled run, so a schedule that
+ * stopped (GitHub turns schedules off after 60 days without activity) is noticed by someone outside. A run where a site
+ * did not answer reports "fail" with the sites' names. Never delays or breaks the run by more than 5 seconds.
+ */
+async function heartbeat(sites = []) {
+  const url = String(process.env.HEALTHCHECK_URL || '').trim().replace(/\/+$/, '');
+  if (!/^https:\/\/|^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)) return; // https only (a local address for the tests)
+  const bad = sites.filter((s) => !s.ok);
+  try {
+    await fetch(bad.length ? `${url}/fail` : url, {
+      method: 'POST', signal: AbortSignal.timeout(5000),
+      body: bad.length ? `Sites that did not run their jobs: ${bad.map((s) => s.slug).join(', ')}` : `${sites.length} sites ran their jobs`,
+    });
+  } catch (err) {
+    console.warn('[jobs] could not check in at HEALTHCHECK_URL:', err.message);
+  }
+}
+
 app.get('/internal/cron', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || !sameSecret(req.get('authorization') || '', `Bearer ${secret}`)) return res.status(401).json({ error: 'unauthorized' });
@@ -102,6 +121,7 @@ app.get('/internal/cron', async (req, res) => {
     config.master ? require('./alerts').run().catch((err) => { console.error('[alerts]', err); return { error: err.message }; }) : undefined,
   ]) : [];
   if (sites) console.log(`[jobs] cron: ${sites.filter((s) => s.ok).length}/${sites.length} sites ran their jobs`);
+  if (config.master) await heartbeat(sites);
   res.json({ status: 'ok', ...own, sites, monitoring: alerts });
 });
 // A client's site suspended from the master console shows only a notice (routes/manage.js).

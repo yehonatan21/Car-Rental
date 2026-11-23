@@ -165,6 +165,16 @@ client page shows the exact value.
 The account numbers are read at most every 5 minutes; **Refresh** (רענון) reads them now. Sites report counts only, never
 personal data.
 
+### Watched from outside
+
+The alerts come from the console, so two things need someone outside to notice them:
+
+- **A site or the console is down:** an uptime service (UptimeRobot, Better Stack) checks each site's `/healthz`,
+  which also queries the database, every 5 minutes.
+- **The schedule stopped** (GitHub turns schedules off after 60 days without activity in the repository): with
+  `HEALTHCHECK_URL` set, the console checks in after every scheduled run, and healthchecks.io e-mails when the check-ins
+  stop. A run where a site did not answer checks in as "fail".
+
 ### Alerts by e-mail
 
 On each scheduled run (`/internal/cron`: every 10 minutes from the GitHub schedule, and once a day from Vercel Cron)

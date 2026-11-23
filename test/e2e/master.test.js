@@ -378,6 +378,11 @@ test('a site that does not answer does not break the list', async () => {
 
 test('the scheduled run: the console runs every site\'s jobs, and names a site that did not answer', async () => {
   process.env.CRON_SECRET = 's'.repeat(32);
+  // HEALTHCHECK_URL: the console checks in after the run ("fail" when a site did not answer).
+  const pings = [];
+  const hc = http.createServer((req, res) => { let b = ''; req.on('data', (d) => { b += d; }); req.on('end', () => { pings.push({ path: req.url, body: b }); res.end('OK'); }); });
+  await new Promise((r) => hc.listen(0, '127.0.0.1', r));
+  process.env.HEALTHCHECK_URL = `http://127.0.0.1:${hc.address().port}/ping/abc/`;
   try {
     const r = await fetch(srv.base + '/internal/cron', { headers: { authorization: `Bearer ${'s'.repeat(32)}` } });
     assert.equal(r.status, 200);
@@ -388,8 +393,13 @@ test('the scheduled run: the console runs every site\'s jobs, and names a site t
     const gone = sites.find((x) => x.slug === 'gone');
     assert.equal(gone.ok, false, 'a site that does not answer is reported, and does not stop the others');
     assert.ok(gone.error);
+    assert.equal(pings.length, 1);
+    assert.equal(pings[0].path, '/ping/abc/fail');
+    assert.match(pings[0].body, /did not run their jobs: .*gone/);
   } finally {
     delete process.env.CRON_SECRET;
+    delete process.env.HEALTHCHECK_URL;
+    hc.close();
   }
 });
 

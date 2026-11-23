@@ -385,7 +385,8 @@ app.use((err, req, res, next) => {
 async function start({ port = config.port, host, jobs = true } = {}) {
   const server = config.https.enabled
     ? await listenHttps(app, port, host)
-    : await new Promise((resolve, reject) => { const s = app.listen(port, host, () => resolve(s)).once('error', reject); });
+    // Express 5 calls the listen callback with the error too (e.g. EADDRINUSE), so it is not always "listening".
+    : await new Promise((resolve, reject) => { const s = app.listen(port, host, (err) => (err ? reject(err) : resolve(s))); });
   const scheme = config.https.enabled ? 'https' : 'http';
   const p = server.address().port;
   const lines = [`${config.appName} is running`, `  Local:      ${scheme}://localhost:${p}`];

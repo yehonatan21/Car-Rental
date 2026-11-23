@@ -15,7 +15,7 @@
     "test": "node --no-warnings --test --test-concurrency=4 \"test/**/*.test.js\"",
     "test:unit": "node --no-warnings --test \"test/unit/*.test.js\"",
     "test:e2e": "node --no-warnings --test \"test/e2e/*.test.js\"",
-    "test:coverage": "node --no-warnings --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=80 \"test/**/*.test.js\"",
+    "test:coverage": "node --no-warnings --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=100 \"test/**/*.test.js\"",
     "test:libsql": "node --no-warnings --test --test-concurrency=4 \"test/**/*.test.js\"",
     "test:race": "node --no-warnings --test --test-concurrency=1 \"test/race/*.race.js\""
   },

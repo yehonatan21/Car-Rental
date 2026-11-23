@@ -69,6 +69,9 @@ const sameSecret = (a, b) => {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 };
 
+// The installable app (PWA): manifest, icons, service worker, the "no connection" page. Open to everyone.
+require('./routes/pwa')(app);
+
 app.get('/healthz', (req, res) => {
   db.prepare('SELECT 1').get();
   // In production the details (version, where the data lives) only with the cron secret; anyone else gets "ok" (SEC-014).

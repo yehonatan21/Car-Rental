@@ -12,6 +12,7 @@ const { html, markdown, postForm, actionButton, decisionButtons, field, fieldErr
 const { normalizePhone, validPhone, safeNext, passkeyPage } = require('./public');
 const passkeys = require('../passkeys');
 const config = require('../config');
+const { brand } = require('../brand');
 
 const STATUS_HELP = {
   pending: 'החשבון ממתין לבדיקת המנהל. תישלח הודעה בדואר האלקטרוני לאחר האישור.',
@@ -54,6 +55,19 @@ const consoleAdmin = (u) => u.role === 'admin' && (config.master
   || (config.masterConsole && String(u.email).toLowerCase() === require('../bootstrap').mainAdminEmail()));
 
 module.exports = ({ app, requireLogin, requireRecentAuth, licenseUpload }) => {
+  /**
+   * "Install the app" (PWA): hidden until app.js finds the phone can install it (Android's install prompt, or an
+   * iPhone's Safari, where it is done from the Share menu), and never shown inside the installed app.
+   */
+  const installCard = () => html`<section class="card install-card" data-install hidden aria-labelledby="install-title">
+  <div class="install-head"><img src="/icons/any-192.png?v=${brand().color.replace('#', '')}" alt="" width="48" height="48">
+    <div><h2 class="section-title" id="install-title">התקנה כאפליקציה בטלפון</h2>
+    <p class="muted small">אייקון במסך הבית, פתיחה מהירה במסך מלא, בלי לחפש את האתר.</p></div></div>
+  <p data-install-ios hidden>באייפון: לוחצים על כפתור השיתוף <span aria-hidden="true">(ריבוע עם חץ למעלה)</span> בתחתית Safari, ואז על <b>"הוספה למסך הבית"</b>.</p>
+  <div class="kv-inline"><button type="button" class="btn btn-primary btn-sm" data-install-button hidden>התקנת האפליקציה</button>
+    <button type="button" class="btn btn-light btn-sm" data-install-dismiss>לא עכשיו</button></div>
+</section>`;
+
   app.get('/me', requireLogin, (req, res) => {
     const u = req.user;
     const upcoming = upcomingFor(u.id);
@@ -96,6 +110,8 @@ ${next ? html`<section class="card next-booking">
   ${u.status === 'active' && require('./documents').visibleDocumentCount(defaultVehicle().id)
     ? html`<a href="/vehicle/documents">${icon('file')}מסמכי הרכב<small>רישיון רכב וביטוח</small></a>` : ''}
 </nav>
+
+${installCard()}
 
 <div class="grid2">
   <section class="card">

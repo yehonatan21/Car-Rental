@@ -601,3 +601,48 @@ for (const b of document.querySelectorAll('[data-reveal]')) {
 
 // Phones: a list's filters start folded (unless one is on), so the list comes first.
 if (window.innerWidth <= 680) for (const d of document.querySelectorAll('details.filter-box:not([data-active])')) d.open = false;
+
+// ---------- The installable app (PWA, src/routes/pwa.js) ----------
+// The service worker keeps only the shared files (stylesheet, script, icons) and the "no connection" page; pages
+// themselves always come from the network.
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+}
+
+// "Install the app" on the personal page: Android's install prompt, or the steps on an iPhone. Not in the installed
+// app itself, and not again for a month after "Not now".
+(() => {
+  const card = document.querySelector('[data-install]');
+  if (!card) return;
+  const installed = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  let snoozed = false;
+  try { snoozed = Date.now() < Number(localStorage.getItem('install-snooze') || 0); } catch { /* private mode */ }
+  if (installed || snoozed) return;
+  card.querySelector('[data-install-dismiss]').addEventListener('click', () => {
+    try { localStorage.setItem('install-snooze', String(Date.now() + 30 * 86400000)); } catch { /* private mode */ }
+    card.hidden = true;
+  });
+  // iPhone / iPad Safari: no install prompt, the Share menu instead (other iOS browsers can't install).
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios && /safari/i.test(navigator.userAgent) && !/crios|fxios|edgios/i.test(navigator.userAgent)) {
+    card.querySelector('[data-install-ios]').hidden = false;
+    card.hidden = false;
+    return;
+  }
+  let prompt = null;
+  const button = card.querySelector('[data-install-button]');
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    prompt = e;
+    button.hidden = false;
+    card.hidden = false;
+  });
+  button.addEventListener('click', async () => {
+    if (!prompt) return;
+    prompt.prompt();
+    const { outcome } = await prompt.userChoice;
+    prompt = null;
+    if (outcome === 'accepted') card.hidden = true;
+  });
+  window.addEventListener('appinstalled', () => { card.hidden = true; });
+})();

@@ -153,7 +153,8 @@ function layout(req, title, body, { bare = false } = {}) {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="${b.color}">
 ${b.logoFile ? html`<link rel="icon" href="/brand/logo?v=${b.logoFile}">` : html`<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">`}
-<link rel="apple-touch-icon" href="${b.logoFile ? `/brand/logo?v=${b.logoFile}` : '/static/apple-touch-icon.png'}">
+<link rel="apple-touch-icon" href="${b.logoFile ? `/brand/logo?v=${b.logoFile}` : `/icons/maskable-180.png?v=${b.color.replace('#', '')}`}">
+${raw(require('../routes/pwa').headTags())}
 <title>${title} · ${b.name}</title>
 <link rel="preload" href="/static/fonts/rubik-hebrew-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="${asset('style.css')}">

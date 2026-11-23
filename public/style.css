@@ -797,3 +797,11 @@ mark.placeholder { background: var(--warning-soft); color: var(--warning); paddi
 .mon-dot.mon-bad { background: var(--danger); }
 .mon-table td { vertical-align: top; }
 .mon-own td { color: var(--muted); }
+
+/* ---------- The installable app (PWA) ---------- */
+.install-card .install-head { display: flex; gap: .8rem; align-items: center; margin-bottom: .6rem; }
+.install-card .install-head img { border-radius: 12px; flex: none; }
+.install-card .section-title { margin: 0; }
+.install-card .muted { margin: .2rem 0 0; }
+.offline-page { max-width: 32rem; padding-top: 12vh; text-align: center; }
+.offline-page img { border-radius: 16px; }

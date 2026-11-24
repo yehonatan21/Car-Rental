@@ -2,7 +2,7 @@
 
 *Reviewed 23/11/2026 on top of commit `9dc4ed5`.* Three parts: what has to be checked before a release (with this
 code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report:
-only the N+1 query on `/me/bookings` (item 2) has been fixed since.
+only `/me/bookings` (item 2: the N+1 query, and paging) has been fixed since.
 
 ## 1. What to address before a release
 
@@ -78,8 +78,8 @@ Ordered by expected impact:
    Release plan R5.4 already plans to measure it and then move to `@libsql/client`.
 2. ~~**N+1 query on `/me/bookings`**~~ **Fixed:** the settings are now read once per page instead of once per row
    (`src/routes/user.js` `bookingTable()`). The page makes 5 queries however many bookings there are, where it made 43
-   for 40 bookings. A test in `test/e2e/performance.test.js` checks this. Still open: the list has no paging, so every
-   booking the user ever made is loaded and rendered.
+   for 40 bookings. A test in `test/e2e/performance.test.js` checks this. The history is now also paged, 50 to a page in SQL
+   (`LIMIT`/`OFFSET`), so a member's old bookings are no longer all loaded on each visit (`test/e2e/paging.test.js`).
 3. **Scheduled jobs send mail one message at a time** (`src/jobs.js` reminder loops, and `mail.drainOutbox()`). Each SMTP
    send takes 0.5–2 s and is awaited inside the loop. A morning with 20 reminders can take 10–40 s, against a 30 s
    `maxDuration` (`vercel.json`) and the console's 20 s timeout per site (`master.runAllJobs`). When a run is cut off,

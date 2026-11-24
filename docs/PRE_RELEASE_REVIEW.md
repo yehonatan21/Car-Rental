@@ -3,7 +3,8 @@
 *Reviewed 23/11/2026 on top of commit `9dc4ed5`.* Three parts: what has to be checked before a release (with this
 code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report:
 since then `/me/bookings` (item 2: the N+1 query, and paging), the one-at-a-time e-mails of the
-scheduled jobs (item 3) and the visit waiting for a job run (item 4) have been fixed.
+scheduled jobs (item 3), the visit waiting for a job run (item 4) and the remaining blocking password hashing
+(item 7) have been fixed.
 
 ## 1. What to address before a release
 
@@ -102,9 +103,12 @@ Ordered by expected impact:
 6. **Stored files are read whole into memory** (`src/storage.js` `read()`). On the hosted database that means up to
    4–8 MB of 1 MB chunk rows, joined with `Buffer.concat`, for every view of a license or vehicle document. That
    costs memory, latency and Turso rows read.
-7. **Synchronous scrypt remains in three handlers**: `routes/admin.js:854`, `routes/manage.js:358` and
-   `routes/master.js:1064` (setting someone's password). The lazy dummy hash in `auth.verifyPasswordAsync()` is also
-   synchronous. Each blocks the instance for about 35 ms.
+7. ~~**Synchronous scrypt remains in three handlers**~~ **Fixed:** setting someone's password (`routes/admin.js`,
+   `routes/manage.js`, `routes/master.js`) and the one-time dummy hash for an unknown sign-in address
+   (`auth.verifyPasswordAsync()`) now use `hashPasswordAsync()` (same format, off the main thread). Each used to block
+   the instance for about 35 ms. Only startup (`bootstrap.js`) and the command-line scripts still hash synchronously,
+   where nothing waits on them. Tests: a blocking `crypto.scryptSync` during these requests now fails them
+   (`test/e2e/account-gaps.test.js`, `manage.test.js`, `master-gaps.test.js`).
 8. **Periodic cleanups with no index** (`src/jobs.js`). `DELETE FROM audit_log WHERE at < ?` scans the whole table on
    every run, and `sessions`, `login_codes` and `password_resets` are scanned by `expires_at` the same way. The
    `users` status and `license_expiry` checks are also full scans. All of this runs every 10 minutes per site.

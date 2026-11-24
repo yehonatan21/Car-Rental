@@ -8,6 +8,7 @@ const config = require('./config');
 const { db, audit } = require('./db');
 const { brand } = require('./brand');
 const time = require('./time');
+const { mapLimit, mailConcurrency } = require('./pool');
 
 // Built from the current config (re-created if it changes, e.g. in tests).
 let transport, transportFor;
@@ -136,8 +137,9 @@ async function drainOutbox({ limit = 25 } = {}) {
   const due = db.prepare("SELECT * FROM mail_outbox WHERE status = 'pending' AND next_attempt_at <= ? ORDER BY next_attempt_at LIMIT ?").all(now, limit);
   let sent = 0;
   let failed = 0;
-  for (const m of due) {
-    if (db.prepare("UPDATE mail_outbox SET status = 'sending', next_attempt_at = ? WHERE id = ? AND status = 'pending'").run(now, m.id).changes !== 1) continue;
+  // Claimed one by one (an instance running at the same moment skips what this one took), then sent a few at a time.
+  const mine = due.filter((m) => db.prepare("UPDATE mail_outbox SET status = 'sending', next_attempt_at = ? WHERE id = ? AND status = 'pending'").run(now, m.id).changes === 1);
+  await mapLimit(mine, mailConcurrency(), async (m) => {
     const recipients = JSON.parse(m.recipients);
     try {
       await deliver(recipients, m.subject, JSON.parse(m.message));
@@ -151,7 +153,7 @@ async function drainOutbox({ limit = 25 } = {}) {
         .run(done ? 'failed' : 'pending', attempts, Date.now() + (RETRY_MINUTES[attempts - 1] || 0) * 60000, String(err.message).slice(0, 500), m.id);
       if (done) failed += 1;
     }
-  }
+  });
   // Keep the outbox small: sent ones (their keys) for 60 days, failed ones for 90.
   db.prepare("DELETE FROM mail_outbox WHERE (status = 'sent' AND sent_at < ?) OR (status = 'failed' AND created_at < ?)")
     .run(time.stamp(new Date(now - 60 * 86400000)), time.stamp(new Date(now - 90 * 86400000)));

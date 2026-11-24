@@ -2,7 +2,8 @@
 
 *Reviewed 23/11/2026 on top of commit `9dc4ed5`.* Three parts: what has to be checked before a release (with this
 code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report:
-only `/me/bookings` (item 2: the N+1 query, and paging) has been fixed since.
+since then `/me/bookings` (item 2: the N+1 query, and paging) and the one-at-a-time e-mails of the
+scheduled jobs (item 3) have been fixed.
 
 ## 1. What to address before a release
 
@@ -80,10 +81,14 @@ Ordered by expected impact:
    (`src/routes/user.js` `bookingTable()`). The page makes 5 queries however many bookings there are, where it made 43
    for 40 bookings. A test in `test/e2e/performance.test.js` checks this. The history is now also paged, 50 to a page in SQL
    (`LIMIT`/`OFFSET`), so a member's old bookings are no longer all loaded on each visit (`test/e2e/paging.test.js`).
-3. **Scheduled jobs send mail one message at a time** (`src/jobs.js` reminder loops, and `mail.drainOutbox()`). Each SMTP
-   send takes 0.5–2 s and is awaited inside the loop. A morning with 20 reminders can take 10–40 s, against a 30 s
-   `maxDuration` (`vercel.json`) and the console's 20 s timeout per site (`master.runAllJobs`). When a run is cut off,
-   the claimed reminders still go out through the outbox, but late.
+3. ~~**Scheduled jobs send mail one message at a time**~~ **Fixed:** the reminder, expiry and license-warning e-mails
+   and the outbox retries (`src/jobs.js`, `mail.drainOutbox()`) now go out 4 at a time (`src/pool.js`;
+   `MAIL_CONCURRENCY`, 1–10). Before, each 0.5–2 s SMTP send was awaited in turn, so 20 reminders could take 10–40 s,
+   against Vercel's 30 s `maxDuration` and the console's 20 s timeout per site. Now that is about a quarter of the time.
+   Each reminder is still claimed just before its own e-mail, so a run that is cut off leaves the reminders it didn't
+   reach for the next run. (A reminder claimed but not yet sent when the run is cut off is still lost: it reaches the
+   outbox only once its send is tried. That was already the case, for one reminder at a time.) Tests:
+   `test/unit/jobs-concurrency.test.js`, `test/unit/pool.test.js`.
 4. **A visit can wait for the whole job run** (`src/server.js`, the Vercel middleware). When no scheduled run happened
    for 30 minutes, the visitor's request awaits `runJobs()`, including its e-mails.
 5. **The site status endpoint is heavy and called often** (`src/routes/manage.js` `status()` and `metrics()`). It runs

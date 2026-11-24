@@ -851,7 +851,9 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
     const password = String(req.body.password || '');
     const problem = passwordProblem(password, u);
     if (problem) return passwordFor(req, res, u, problem);
-    db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(auth.hashPassword(password), time.stamp(), u.id);
+    // Off the main thread (~35 ms of CPU): other requests on the instance don't wait.
+    const passwordHash = await auth.hashPasswordAsync(password);
+    db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(passwordHash, time.stamp(), u.id);
     db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(u.id);
     auth.destroyAllSessions(u.id);
     audit(req.user.id, 'user.password_set', 'user', u.id, u.email);

@@ -219,3 +219,15 @@ test('guessing the token is cut off', async () => {
   for (let i = 0; i < 22; i++) last = await api('GET', '/api/manage/status', null, 'wrong-token');
   assert.equal(last.status, 429);
 });
+
+test('a password set through the API is hashed off the main thread (no blocking scrypt)', async (t) => {
+  process.env.MANAGE_TOKEN = TOKEN;
+  const u = createUser({ email: 'async-hash@manage.test' });
+  const crypto = require('node:crypto');
+  t.mock.method(crypto, 'scryptSync', () => { throw new Error('blocking scrypt during a request'); });
+  const r = await api('POST', `/api/manage/users/${u.id}/password`, { password: 'Quiet-River-Stone-8', by: 'test' });
+  assert.equal(r.status, 200);
+  crypto.scryptSync.mock.restore();
+  const auth = require('../../src/auth');
+  assert.equal(await auth.verifyPasswordAsync('Quiet-River-Stone-8', db.prepare('SELECT password_hash FROM users WHERE id = ?').get(u.id).password_hash), true);
+});

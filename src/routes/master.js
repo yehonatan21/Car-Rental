@@ -1061,7 +1061,9 @@ ${r.users.map((u) => html`<tr>
     const password = String(req.body.password || '');
     const problem = passwordProblem(password, a);
     if (problem) return consolePasswordPage(req, res, a, problem);
-    db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(auth.hashPassword(password), time.stamp(), a.id);
+    // Off the main thread (~35 ms of CPU): other requests on the instance don't wait.
+    const passwordHash = await auth.hashPasswordAsync(password);
+    db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(passwordHash, time.stamp(), a.id);
     db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(a.id);
     // Everyone signed in with this account is signed out, except the person doing it on their own account.
     if (a.id === req.user.id) db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(a.id, req.session.token_hash);

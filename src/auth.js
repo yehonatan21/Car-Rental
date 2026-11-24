@@ -38,7 +38,7 @@ let dummyHash = null;
 
 async function verifyPasswordAsync(password, stored) {
   if (!stored) {
-    dummyHash ||= hashPassword(crypto.randomBytes(16).toString('hex'));
+    dummyHash ||= await hashPasswordAsync(crypto.randomBytes(16).toString('hex'));
     await verifyPasswordAsync(password, dummyHash);
     return false;
   }

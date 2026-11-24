@@ -151,3 +151,18 @@ test('managers: the ADMIN_EMAIL account can\'t be deleted; only the owner sets a
     delete process.env.ADMIN_EMAIL;
   }
 });
+
+test('setting a password and signing in hash off the main thread (no blocking scrypt), the unknown-address sign-in too', async (t) => {
+  const { u: ownerUser, c: owner } = await signedIn({ role: 'admin' });
+  db.prepare("UPDATE users SET admin_level = 'owner' WHERE id = ?").run(ownerUser.id);
+  const member = createUser({ email: 'async-hash@gaps.test' });
+  const crypto = require('node:crypto');
+  t.mock.method(crypto, 'scryptSync', () => { throw new Error('blocking scrypt during a request'); });
+  const set = await owner.post(`/admin/users/${member.id}/password`, { password: 'Silver-Fox-Lane-42' }, `/admin/users/${member.id}`);
+  assert.equal(set.status, 303);
+  assert.match(owner.flash().text, /נקבעה סיסמה חדשה/);
+  // An address nobody registered: the same work as a real account, without blocking (S-03).
+  const unknown = await new Client(srv.base).post('/login', { email: 'nobody-here@gaps.test', password: 'Whatever-123' });
+  assert.notEqual(unknown.status, 500);
+  await new Client(srv.base).login(member.email, 'Silver-Fox-Lane-42');
+});

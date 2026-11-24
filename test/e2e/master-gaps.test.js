@@ -220,3 +220,13 @@ test('the console requires a passkey: its admin can\'t remove the last one', asy
   assert.match(flash(), /זה מפתח הגישה האחרון/);
   assert.ok(db.prepare("SELECT 1 FROM passkeys WHERE id = 'only'").get());
 });
+
+test('a console admin\'s new password is hashed off the main thread (no blocking scrypt)', async (t) => {
+  const other = db.prepare("SELECT id FROM users WHERE email = 'existing@gaps.test'").get();
+  const crypto = require('node:crypto');
+  t.mock.method(crypto, 'scryptSync', () => { throw new Error('blocking scrypt during a request'); });
+  const r = await boss.post(`/master/admins/${other.id}/password`, { password: 'Amber-Hill-Road-9' }, `/master/admins/${other.id}/password`);
+  assert.equal(r.status, 303);
+  crypto.scryptSync.mock.restore();
+  assert.equal(await auth.verifyPasswordAsync('Amber-Hill-Road-9', db.prepare('SELECT password_hash FROM users WHERE id = ?').get(other.id).password_hash), true);
+});

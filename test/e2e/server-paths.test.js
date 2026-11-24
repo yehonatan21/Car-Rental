@@ -5,6 +5,15 @@ process.env.VERCEL = '1'; // DATA_DIR is set by the helpers, so this is not a te
 const { db, createUser, startServer, Client } = require('../helpers');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const mail = require('../../src/mail');
+
+const tick = (ms) => new Promise((r) => setTimeout(r, ms));
+/** The per-instance "look at most every 15 minutes" has passed (Date.now moved on by `minutes`). */
+function later(t, minutes) {
+  const now = Date.now;
+  const offset = minutes * 60000;
+  t.mock.method(Date, 'now', () => now.call(Date) + offset);
+}
 
 let srv;
 before(async () => { srv = await startServer(); });
@@ -23,6 +32,32 @@ test('on Vercel a visit runs the overdue jobs; when that fails the visit still g
   db.prepare.mock.restore();
   assert.ok(errors.mock.calls.some((c) => c.arguments[0] === '[jobs]'));
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM error_log WHERE where_ = 'jobs'").get().n, 1);
+});
+
+test('the overdue jobs run after the visit\'s page is sent: the visitor does not wait for them', async (t) => {
+  later(t, 20);
+  t.mock.method(console, 'warn', () => {});
+  let finished = false;
+  t.mock.method(mail, 'drainOutbox', async () => { await tick(1500); finished = true; return { sent: 0, failed: 0, waiting: 0 }; });
+  const started = Date.now();
+  const r = await new Client(srv.base).get('/login');
+  assert.equal(r.status, 200);
+  assert.ok(Date.now() - started < 1000, `the page came at once (${Date.now() - started} ms)`);
+  assert.equal(finished, false, 'the jobs were still running');
+  for (let i = 0; i < 50 && !db.prepare("SELECT 1 FROM job_state WHERE key = 'last_run_by' AND value = 'visit'").get(); i++) await tick(100);
+  assert.equal(finished, true);
+  assert.equal(db.prepare("SELECT value FROM job_state WHERE key = 'last_run_by'").get().value, 'visit', 'and they did finish');
+});
+
+test('a job run that fails after the visit is logged and recorded', async (t) => {
+  later(t, 60 * 24); // also more than 30 minutes since the run above
+  t.mock.method(console, 'warn', () => {});
+  const errors = t.mock.method(console, 'error', () => {});
+  t.mock.method(mail, 'drainOutbox', async () => { throw new Error('smtp exploded'); });
+  assert.equal((await new Client(srv.base).get('/login')).status, 200);
+  for (let i = 0; i < 50 && !db.prepare("SELECT 1 FROM error_log WHERE message = 'smtp exploded'").get(); i++) await tick(20);
+  assert.equal(db.prepare("SELECT where_ FROM error_log WHERE message = 'smtp exploded'").get().where_, 'jobs');
+  assert.ok(errors.mock.calls.some((c) => c.arguments[0] === '[jobs]'));
 });
 
 test('an unexpected error in a page: a 500 page without details, and the error is recorded with its route', async (t) => {

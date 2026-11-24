@@ -2,8 +2,8 @@
 
 *Reviewed 23/11/2026 on top of commit `9dc4ed5`.* Three parts: what has to be checked before a release (with this
 code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report:
-since then `/me/bookings` (item 2: the N+1 query, and paging) and the one-at-a-time e-mails of the
-scheduled jobs (item 3) have been fixed.
+since then `/me/bookings` (item 2: the N+1 query, and paging), the one-at-a-time e-mails of the
+scheduled jobs (item 3) and the visit waiting for a job run (item 4) have been fixed.
 
 ## 1. What to address before a release
 
@@ -89,8 +89,11 @@ Ordered by expected impact:
    reach for the next run. (A reminder claimed but not yet sent when the run is cut off is still lost: it reaches the
    outbox only once its send is tried. That was already the case, for one reminder at a time.) Tests:
    `test/unit/jobs-concurrency.test.js`, `test/unit/pool.test.js`.
-4. **A visit can wait for the whole job run** (`src/server.js`, the Vercel middleware). When no scheduled run happened
-   for 30 minutes, the visitor's request awaits `runJobs()`, including its e-mails.
+4. ~~**A visit can wait for the whole job run**~~ **Fixed:** when no scheduled run has happened for 30 minutes, a
+   visit on Vercel still starts the jobs, but now through `waitUntil` (`inBackground()` in `src/later.js`). The page
+   is sent at once, the function is kept alive until the jobs finish, and a failure is still logged and recorded. Before,
+   the visitor waited for the whole run, e-mails included. Tests: `test/e2e/server-paths.test.js` (in the test, the page
+   took 3 s before the fix).
 5. **The site status endpoint is heavy and called often** (`src/routes/manage.js` `status()` and `metrics()`). It runs
    about 25 queries one after another. It also scans the whole `files` table (`COUNT(DISTINCT name)`,
    `SUM(length(data))`), or runs `readdir` + `stat` on every upload. It is called for **every** client on every

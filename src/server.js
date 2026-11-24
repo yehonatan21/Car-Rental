@@ -93,7 +93,8 @@ app.get('/healthz', (req, res) => {
 //   - a GitHub Actions schedule calls the console's /internal/cron every 10 minutes
 //     (.github/workflows/jobs.yml), and the console runs the jobs of every client site (master.runAllJobs);
 //   - Vercel Cron also calls /internal/cron once a day (vercel.json), as a backup;
-//   - a visit runs them only when no scheduled run happened for 30 minutes (the schedule is broken).
+//   - a visit starts them only when no scheduled run happened for 30 minutes (the schedule is broken); they finish
+//     after the page is sent (waitUntil), so the visitor does not wait for them.
 /**
  * HEALTHCHECK_URL (e.g. a healthchecks.io check): the console checks in after each scheduled run, so a schedule that
  * stopped (GitHub turns schedules off after 60 days without activity) is noticed by someone outside. A run where a site
@@ -140,7 +141,11 @@ if (config.onVercel) {
         const age = last ? Date.now() - new Date(last.at.replace(' ', 'T')).getTime() : Infinity;
         if (age > 30 * 60000) {
           console.warn(`[jobs] no scheduled run for ${last ? Math.round(age / 60000) + ' minutes' : 'ever'}: running them on this visit`);
-          await runJobs({ by: 'visit' });
+          // After the response (waitUntil): the visitor gets the page at once, not after the jobs and their e-mails.
+          await require('./later').inBackground(() => runJobs({ by: 'visit' }).catch((err) => {
+            console.error('[jobs]', err);
+            require('./errors').record(err, { where: 'jobs' });
+          }), 'jobs on a visit');
         }
       } catch (err) {
         console.error('[jobs]', err);

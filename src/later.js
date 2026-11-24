@@ -10,12 +10,15 @@ try {
   ({ waitUntil } = require('@vercel/functions'));
 } catch { /* not installed: everything runs inline */ }
 
+/** fn's promise; a failure is logged and resolves to undefined (never thrown at the request). */
+const settle = (fn, label) => Promise.resolve().then(fn).catch((err) => { console.error(`[later] ${label}:`, err); return undefined; });
+
 /**
  * Runs fn. Resolves to its result when it ran inline, or to undefined when it was left to finish after the response
  * (only on Vercel with SMTP: without SMTP the messages are only written locally, which is quick).
  */
 async function later(fn, label = 'background work') {
-  const p = Promise.resolve().then(fn).catch((err) => { console.error(`[later] ${label}:`, err); return undefined; });
+  const p = settle(fn, label);
   if (config.onVercel && config.smtp && waitUntil) {
     waitUntil(p);
     return undefined;
@@ -23,4 +26,17 @@ async function later(fn, label = 'background work') {
   return p;
 }
 
-module.exports = { later };
+/**
+ * Like later(), for work that is slow with or without SMTP (the scheduled jobs run on a visit): on Vercel it always
+ * finishes after the response, and the function is kept alive for it. Elsewhere it is awaited as before.
+ */
+async function inBackground(fn, label = 'background work') {
+  const p = settle(fn, label);
+  if (config.onVercel && waitUntil) {
+    waitUntil(p);
+    return undefined;
+  }
+  return p;
+}
+
+module.exports = { later, inBackground };

@@ -38,6 +38,19 @@ test('later(): on Vercel with SMTP the work is handed to waitUntil and the answe
   assert.match(errors.mock.calls[0].arguments[0], /\[later\] test e-mails/);
 });
 
+test('inBackground(): awaited off Vercel; on Vercel left to waitUntil even without SMTP; a failure is only logged', async (t) => {
+  const { inBackground } = require('../../src/later');
+  assert.equal(await inBackground(async () => 'done'), 'done', 'off Vercel: awaited');
+  setConfig(t, { onVercel: true, smtp: null });
+  let done = false;
+  assert.equal(await inBackground(async () => { await new Promise((ok) => setTimeout(ok, 20)); done = true; }), undefined);
+  assert.equal(done, false, 'resolved before the work finished');
+  const errors = t.mock.method(console, 'error', () => {});
+  config.onVercel = false;
+  assert.equal(await inBackground(() => { throw new Error('nope'); }, 'jobs on a visit'), undefined);
+  assert.match(errors.mock.calls[0].arguments[0], /\[later\] jobs on a visit/);
+});
+
 test('errors: no frame for an error from outside the app; recording never throws, even when the database fails', (t) => {
   const errors = require('../../src/errors');
   const outside = new Error('x');

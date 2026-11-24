@@ -8,7 +8,7 @@ const bookings = require('../bookings');
 const storage = require('../storage');
 const { renderCalendar, windowFor } = require('../views/calendar');
 const { later } = require('../later');
-const { html, csrfField, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
+const { html, csrfField, markdown, postForm, actionButton, decisionButtons, field, fieldError, errorSummary, pageOf, pager, badge, icon, pageHead, licenseInput, uploadLimitLabel, USER_STATUS } = require('../views/html');
 const { normalizePhone, validPhone, safeNext, passkeyPage } = require('./public');
 const passkeys = require('../passkeys');
 const config = require('../config');
@@ -226,9 +226,14 @@ ${pushCard(req, u)}
 
   app.get('/me/bookings', requireLogin, (req, res) => {
     const now = time.now();
-    const all = db.prepare("SELECT * FROM bookings WHERE user_id = ? AND kind = 'booking' ORDER BY start_at DESC").all(req.user.id);
-    const future = all.filter((b) => b.end_at > now && ['pending', 'approved'].includes(b.status)).reverse();
-    const past = all.filter((b) => !future.includes(b));
+    // Upcoming: every open one (few, capped by max_open_bookings). History: 50 to a page, newest first, so a member
+    // with years of bookings doesn't load them all on every visit.
+    const future = db.prepare(`SELECT * FROM bookings WHERE user_id = ? AND kind = 'booking' AND end_at > ?
+      AND status IN ('pending','approved') ORDER BY start_at`).all(req.user.id, now);
+    const pastWhere = `user_id = ? AND kind = 'booking' AND NOT (end_at > ? AND status IN ('pending','approved'))`;
+    const p = pageOf(req, db.prepare(`SELECT COUNT(*) AS n FROM bookings WHERE ${pastWhere}`).get(req.user.id, now).n);
+    const past = db.prepare(`SELECT * FROM bookings WHERE ${pastWhere} ORDER BY start_at DESC LIMIT ? OFFSET ?`)
+      .all(req.user.id, now, p.limit, p.offset);
     const s = getSettings();
     res.page('ההזמנות שלי', html`
 ${pageHead('ההזמנות שלי', {
@@ -240,9 +245,10 @@ ${pageHead('ההזמנות שלי', {
   ${bookingTable(req, future, { showCancel: true, settings: s })}
   <p class="muted small">ניתן לבטל בקשה שממתינה לאישור בכל עת, והזמנה מאושרת עד ${s.cancel_hours_before} שעות לפני תחילתה.</p>
 </section>
-<section class="card">
+<section class="card" id="history">
   <h2 class="section-title">${icon('clock')} היסטוריית הזמנות</h2>
   ${bookingTable(req, past, { showCancel: false, settings: s })}
+  ${pager(req, p)}
 </section>`);
   });
 

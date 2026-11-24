@@ -88,3 +88,35 @@ test('calendar month: no window for a request hidden behind "+N"; the chosen day
   assert.equal(ids.filter((id) => day1.text.includes(`id="bk-${id}"`)).length, 5, 'the day view shows all of them');
   db.prepare(`DELETE FROM bookings WHERE id IN (${ids.join(',')})`).run();
 });
+
+test('"my bookings": the history comes 50 to a page, newest first; the upcoming ones are on every page', async () => {
+  const member = createUser({ email: 'history@page.test' });
+  const c = new Client(srv.base);
+  await c.login(member.email);
+  const add = (status, day) => db.prepare(`INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, status, purpose, kind)
+    VALUES (1, ?, ?, ?, ?, ?, 'booking')`).run(member.id, inDays(day), inDays(day, '12:00'), status, `day ${day}`);
+  for (let d = -60; d < -5; d++) add(d % 7 ? 'completed' : 'cancelled', d); // 55 past ones
+  add('approved', 3);
+  add('pending', 4);
+  add('cancelled', 5); // in the future but not open: history
+  const history = (text) => text.split('id="history"')[1];
+  const upcoming = (text) => text.split('id="history"')[0];
+
+  const first = await c.get('/me/bookings');
+  assert.equal((history(first.text).match(/<tr id="b-/g) || []).length, 50);
+  assert.equal((upcoming(first.text).match(/<tr id="b-/g) || []).length, 2, 'the approved and the pending one');
+  assert.match(first.text, /עמוד 1 מתוך 2 · 56 רשומות/);
+  assert.match(history(first.text), /day 5</, 'newest first: the cancelled future booking leads the history');
+  assert.match(first.text, /href="\?page=2" rel="next"/);
+
+  const second = await c.get('/me/bookings?page=2');
+  assert.equal((history(second.text).match(/<tr id="b-/g) || []).length, 6);
+  assert.match(history(second.text), /day -60</, 'the oldest is on the last page');
+  assert.equal((upcoming(second.text).match(/<tr id="b-/g) || []).length, 2, 'upcoming bookings stay on every page');
+  assert.match(second.text, /rel="prev"/);
+
+  // Someone else's bookings never count.
+  const other = new Client(srv.base);
+  await other.login('owner@page.test');
+  assert.doesNotMatch((await other.get('/me/bookings')).text, /day -?\d+</);
+});

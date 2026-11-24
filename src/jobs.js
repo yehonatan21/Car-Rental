@@ -5,6 +5,7 @@ const bookings = require('./bookings');
 const mail = require('./mail');
 const time = require('./time');
 const storage = require('./storage');
+const { mapLimit, mailConcurrency } = require('./pool');
 
 const withUser = `SELECT b.*, u.first_name, u.last_name, u.email, v.plate, v.make, v.model
   FROM bookings b JOIN users u ON u.id = b.user_id JOIN vehicles v ON v.id = b.vehicle_id`;
@@ -14,6 +15,20 @@ const withUser = `SELECT b.*, u.first_name, u.last_name, u.email, v.plate, v.mak
  * same moment; only the one whose UPDATE changed the row sends the e-mail, so nobody gets a reminder twice.
  */
 const claim = (sql, id) => db.prepare(sql).run(id).changes === 1;
+
+/**
+ * Sends an e-mail for each item, a few at a time (src/pool.js), not one after another. With `claimSql`, each item is
+ * claimed just before its own e-mail (see claim() above), not all of them first: a run cut off midway (Vercel's
+ * time limit) then leaves the ones it didn't get to for the next run. Resolves to how many were sent by this run.
+ */
+async function sendEach(items, fn, claimSql) {
+  const done = await mapLimit(items, mailConcurrency(), async (x) => {
+    if (claimSql && !claim(claimSql, x.id)) return false;
+    await fn(x);
+    return true;
+  });
+  return done.filter(Boolean).length;
+}
 
 /** When the jobs last ran and from where ('cron', 'visit', 'timer'): for the settings page and the visit fallback. */
 function lastRun() {
@@ -32,21 +47,17 @@ async function runJobs({ by = 'timer' } = {}) {
   bookings.completeFinished();
   // Requests still waiting when their pickup time came: cancelled, and the member told (src/bookings.js).
   const unanswered = bookings.expireUnanswered();
-  for (const b of unanswered) await mail.bookingExpired(b);
+  await sendEach(unanswered, mail.bookingExpired);
   summary.expired = unanswered.length;
   try { require('./auth').purgeThrottle(); } catch (err) { console.error('[jobs] purging old attempt counters failed:', err.message); }
 
   const pickups = db.prepare(`${withUser} WHERE b.status = 'approved' AND b.kind = 'booking' AND b.pickup_reminded = 0
     AND b.start_at > ? AND b.start_at <= ?`).all(now, time.addMinutes(now, s.pickup_reminder_hours * 60));
-  for (const b of pickups) {
-    if (claim('UPDATE bookings SET pickup_reminded = 1 WHERE id = ? AND pickup_reminded = 0', b.id)) { await mail.pickupReminder(b); summary.reminders += 1; }
-  }
+  summary.reminders += await sendEach(pickups, mail.pickupReminder, 'UPDATE bookings SET pickup_reminded = 1 WHERE id = ? AND pickup_reminded = 0');
 
   const returns = db.prepare(`${withUser} WHERE b.status = 'approved' AND b.kind = 'booking' AND b.return_reminded = 0
     AND b.start_at <= ? AND b.end_at > ? AND b.end_at <= ?`).all(now, now, time.addMinutes(now, s.return_reminder_hours * 60));
-  for (const b of returns) {
-    if (claim('UPDATE bookings SET return_reminded = 1 WHERE id = ? AND return_reminded = 0', b.id)) { await mail.returnReminder(b); summary.reminders += 1; }
-  }
+  summary.reminders += await sendEach(returns, mail.returnReminder, 'UPDATE bookings SET return_reminded = 1 WHERE id = ? AND return_reminded = 0');
 
   const staleBefore = time.addMinutes(now, -s.pending_alert_hours * 60).replace('T', ' ');
   const stale = db.prepare(`${withUser} WHERE b.status = 'pending' AND b.pending_alerted = 0 AND b.created_at <= ?`).all(staleBefore)
@@ -66,11 +77,8 @@ async function runJobs({ by = 'timer' } = {}) {
 
   const expiring = db.prepare(`SELECT * FROM users WHERE status = 'active' AND license_expiry >= ? AND license_expiry <= ?
     AND (license_warned_for IS NULL OR license_warned_for != license_expiry)`).all(today, time.addDays(today, s.license_warn_days));
-  for (const u of expiring) {
-    const claimed = claim(`UPDATE users SET license_warned_for = license_expiry WHERE id = ?
-      AND (license_warned_for IS NULL OR license_warned_for != license_expiry)`, u.id);
-    if (claimed) await mail.licenseExpiring(u);
-  }
+  await sendEach(expiring, mail.licenseExpiring, `UPDATE users SET license_warned_for = license_expiry WHERE id = ?
+    AND (license_warned_for IS NULL OR license_warned_for != license_expiry)`);
 
   // Rejected registrations: their license photos are deleted 30 days after the rejection (docs/privacy.md).
   const cutoff = time.stamp(new Date(Date.now() - 30 * 86400000));

@@ -1,8 +1,8 @@
 # Pre-release review
 
 *Reviewed 23/11/2026 on top of commit `9dc4ed5`.* Three parts: what has to be checked before a release (with this
-code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report
-only: nothing in it was changed.
+code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report:
+only the N+1 query on `/me/bookings` (item 2) has been fixed since.
 
 ## 1. What to address before a release
 
@@ -65,7 +65,7 @@ query is a network round trip of about **8 ms** from Vercel `fra1` to Turso (see
 
 | Page | Queries | | Page | Queries |
 |---|---|---|---|---|
-| `/me/bookings` (30 bookings) | **33** | | `/admin/settings?tab=reports` | 13 |
+| `/me/bookings` (30 bookings) | **33** (now 5, fixed) | | `/admin/settings?tab=reports` | 13 |
 | `/me` | 12 | | `/admin`, `/admin/settings` | 10 |
 | `/bookings/new` | 5 | | `/admin/users`, `/admin/bookings`, month calendar | 4–5 |
 | Scheduled job run | 23 + mail | | `/login`, `/healthz` | 1 |
@@ -76,9 +76,10 @@ Ordered by expected impact:
    blocks the Node event loop for a whole network round trip. A page waits *queries × ~8 ms*, and with Vercel Fluid
    concurrency every other request on the same instance waits as well. This is the root cause of most points below.
    Release plan R5.4 already plans to measure it and then move to `@libsql/client`.
-2. **N+1 query on `/me/bookings`** (`src/routes/user.js:28`). `bookingRow()` calls `getSettings()` once per row, so
-   the database is queried once per booking the user ever made, and the list has no paging (`user.js:228` loads every
-   booking). That's about 0.26 s of database time in production for 30 bookings, and it keeps growing.
+2. ~~**N+1 query on `/me/bookings`**~~ **Fixed:** the settings are now read once per page instead of once per row
+   (`src/routes/user.js` `bookingTable()`). The page makes 5 queries however many bookings there are, where it made 43
+   for 40 bookings. A test in `test/e2e/performance.test.js` checks this. Still open: the list has no paging, so every
+   booking the user ever made is loaded and rendered.
 3. **Scheduled jobs send mail one message at a time** (`src/jobs.js` reminder loops, and `mail.drainOutbox()`). Each SMTP
    send takes 0.5–2 s and is awaited inside the loop. A morning with 20 reminders can take 10–40 s, against a 30 s
    `maxDuration` (`vercel.json`) and the console's 20 s timeout per site (`master.runAllJobs`). When a run is cut off,

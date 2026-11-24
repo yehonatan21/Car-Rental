@@ -35,3 +35,22 @@ test('one query loads the session and its user; expired and unknown sessions are
   assert.equal(gone.status, 401, 'an expired session is signed out: the login form is shown in place');
   assert.match(gone.headers.get('set-cookie') || '', /sid=;/, 'and the stale cookie is cleared');
 });
+
+test('"my bookings" makes the same number of queries for 1 booking and for 40 (no query per row)', async () => {
+  const { inDays } = require('../helpers');
+  const u = createUser({ email: 'many-bookings@test.org' });
+  const c = new Client(srv.base);
+  await c.login(u.email);
+  const queries = async () => Number(/desc="(\d+) quer/.exec((await c.get('/me/bookings')).headers.get('server-timing'))[1]);
+  const add = (n, from) => {
+    for (let i = 0; i < n; i++) {
+      db.prepare("INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, status) VALUES (1, ?, ?, ?, 'approved')")
+        .run(u.id, inDays(from + i), inDays(from + i, '12:00'));
+    }
+  };
+  add(1, -50); // one past booking
+  const one = await queries();
+  add(20, -40); // more history
+  add(19, 2); // and upcoming ones, with their cancel buttons
+  assert.equal(await queries(), one);
+});

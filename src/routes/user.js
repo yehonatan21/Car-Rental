@@ -25,9 +25,9 @@ const STATUS_HELP = {
 
 const bookingBadge = (status) => badge(status, bookings.STATUS_LABELS[status]);
 
-function bookingRow(req, b, { showCancel }) {
-  const s = getSettings();
-  const lateApproved = b.status === 'approved' && time.hoursBetween(time.now(), b.start_at) < s.cancel_hours_before;
+/** One row of a user's bookings. `settings`: read once for the whole table (it used to be one query per row). */
+function bookingRow(req, b, { showCancel, settings }) {
+  const lateApproved = b.status === 'approved' && time.hoursBetween(time.now(), b.start_at) < settings.cancel_hours_before;
   return html`<tr id="b-${b.id}">
     <td data-label="איסוף">${time.fmt(b.start_at)}</td>
     <td data-label="החזרה">${time.fmt(b.end_at)}</td>
@@ -41,10 +41,11 @@ function bookingRow(req, b, { showCancel }) {
   </tr>`;
 }
 
-const bookingTable = (req, list, opts) => list.length
-  ? html`<table class="table"><thead><tr><th>איסוף</th><th>החזרה</th><th>מטרה</th><th>סטטוס</th><th><span class="sr-only">פעולות</span></th></tr></thead>
-      <tbody>${list.map((b) => bookingRow(req, b, opts))}</tbody></table>`
-  : html`<p class="empty">${icon('calendar', 28)}<span>אין הזמנות להצגה.</span></p>`;
+function bookingTable(req, list, { settings, ...opts }) {
+  if (!list.length) return html`<p class="empty">${icon('calendar', 28)}<span>אין הזמנות להצגה.</span></p>`;
+  return html`<table class="table"><thead><tr><th>איסוף</th><th>החזרה</th><th>מטרה</th><th>סטטוס</th><th><span class="sr-only">פעולות</span></th></tr></thead>
+      <tbody>${list.map((b) => bookingRow(req, b, { ...opts, settings }))}</tbody></table>`;
+}
 
 function upcomingFor(userId) {
   return db.prepare(`SELECT * FROM bookings WHERE user_id = ? AND kind = 'booking' AND end_at > ?
@@ -236,12 +237,12 @@ ${pageHead('ההזמנות שלי', {
   })}
 <section class="card">
   <h2 class="section-title">${icon('calendar')} הזמנות עתידיות</h2>
-  ${bookingTable(req, future, { showCancel: true })}
+  ${bookingTable(req, future, { showCancel: true, settings: s })}
   <p class="muted small">ניתן לבטל בקשה שממתינה לאישור בכל עת, והזמנה מאושרת עד ${s.cancel_hours_before} שעות לפני תחילתה.</p>
 </section>
 <section class="card">
   <h2 class="section-title">${icon('clock')} היסטוריית הזמנות</h2>
-  ${bookingTable(req, past, { showCancel: false })}
+  ${bookingTable(req, past, { showCancel: false, settings: s })}
 </section>`);
   });
 

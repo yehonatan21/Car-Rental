@@ -82,3 +82,14 @@ test('inside a transaction the connection never changes: a stale one fails the t
   // Over (even though ROLLBACK itself failed): the next step may use a new connection again.
   assert.deepEqual(db.prepare('SELECT 3').get(), { n: 2 });
 });
+
+test('a write read back through get() (INSERT … RETURNING) is never repeated on a stale connection', () => {
+  const { made, open } = fakeConnections();
+  const db = wrapLibsql(open);
+  const stmt = db.prepare("INSERT INTO throttle (key, count) VALUES ('k', 1) RETURNING count");
+  made[0].broken = true;
+  assert.throws(() => stmt.get(), /connection closed/);
+  assert.equal(made.length, 1, 'no second connection, so the counter is not bumped twice');
+  // An ordinary read on the same broken connection is still tried again.
+  assert.deepEqual(db.prepare('SELECT 1').get(), { n: 2 });
+});

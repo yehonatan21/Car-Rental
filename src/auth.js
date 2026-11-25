@@ -236,12 +236,13 @@ function distrustUnverified(user) {
 /** Adds one to the counter of `key` in the current window (a new window starts after `windowMs`); returns the count. */
 function bump(key, windowMs) {
   const now = Date.now();
-  db.prepare(`INSERT INTO throttle (key, count, window_start) VALUES (?, 1, ?)
+  // One round trip: the new count comes back with the write (RETURNING), not from a second query.
+  return db.prepare(`INSERT INTO throttle (key, count, window_start) VALUES (?, 1, ?)
     ON CONFLICT(key) DO UPDATE SET
       count = CASE WHEN throttle.window_start < ? THEN 1 ELSE throttle.count + 1 END,
-      window_start = CASE WHEN throttle.window_start < ? THEN ? ELSE throttle.window_start END`)
-    .run(key, now, now - windowMs, now - windowMs, now);
-  return db.prepare('SELECT count FROM throttle WHERE key = ?').get(key).count;
+      window_start = CASE WHEN throttle.window_start < ? THEN ? ELSE throttle.window_start END
+    RETURNING count`)
+    .get(key, now, now - windowMs, now - windowMs, now).count;
 }
 /** Counts this attempt first (so parallel requests cannot all slip under the limit); true when over `max`. */
 const throttled = (key, max = 10, windowMs = 15 * 60000) => bump(key, windowMs) > max;

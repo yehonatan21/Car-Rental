@@ -35,6 +35,8 @@ function cleanRow(row) {
 // (a warm Vercel instance keeps it for minutes), or the server dropped the stream. Nothing reached the database, so
 // the step can be tried again on a new connection.
 const STALE = /connection closed before message completed|STREAM_EXPIRED|stream not found|stream has expired|connection reset|ECONNRESET|broken pipe|error sending request/i;
+// Statements that change data. Preparing one can be retried; running it can't (it may have reached the database).
+const WRITE = /^\s*(INSERT|UPDATE|DELETE|REPLACE|UPSERT)\b/i;
 // Idle longer than this: start a new connection instead of reusing one the other side has likely closed.
 const IDLE_MS = 60 * 1000;
 
@@ -80,11 +82,13 @@ function wrapLibsql(open) {
     },
     prepare(sql) {
       const stmt = retry((c) => c.prepare(sql));
+      // A write read back through get()/all() (INSERT … RETURNING) is still a write: never repeated, like run().
+      const writes = WRITE.test(sql);
       const read = (method, p) => {
         try {
           return stmt[method](normalize(p));
         } catch (err) {
-          if (inTransaction || !STALE.test(String(err?.message || err))) throw err;
+          if (inTransaction || writes || !STALE.test(String(err?.message || err))) throw err;
           console.warn('[db] stale connection on a read, trying again on a new one');
           return retry((c) => c.prepare(sql))[method](normalize(p));
         }

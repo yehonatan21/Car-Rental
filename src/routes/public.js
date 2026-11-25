@@ -626,12 +626,13 @@ module.exports = ({ app, licenseUpload }) => {
 
   // The client's logo (Settings → Organization). Public: it is shown on the login page too. The address carries the
   // file name (?v=…), so a new logo is a new address and the old one can be cached for long.
-  app.get('/brand/logo', (req, res) => {
+  app.get('/brand/logo', async (req, res) => {
     const file = brand().logoFile;
-    const data = file && storage.read(file);
-    if (!data) return res.status(404).type('text/plain').send('Not found');
+    const stored = await storage.open(file);
+    if (!stored) return res.status(404).type('text/plain').send('Not found');
     res.set('Cache-Control', 'public, max-age=86400');
-    res.type(require('node:path').extname(file)).send(data);
+    res.type(require('node:path').extname(file));
+    await stored.pipe(res);
   });
 
   app.get('/policy', (req, res) => {

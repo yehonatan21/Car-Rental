@@ -77,3 +77,45 @@ test('the status counts the files kept in the database, in the same few round tr
     delete process.env.MANAGE_TOKEN;
   }
 });
+
+test('a file kept in the database is sent a chunk at a time; a one-chunk file is still one query', async (t) => {
+  const big = Buffer.alloc(2 * storage.CHUNK + 123);
+  for (let i = 0; i < big.length; i++) big[i] = i % 251;
+  putStoredFile('three.png', big);
+  putStoredFile('one.png', Buffer.from('small'));
+  const u = createUser({ license_file: 'three.png' });
+  const v = createUser({ license_file: 'one.png' });
+  const queries = []; // every round trip to the files table: a list, or one chunk
+  const prepare = db.prepare;
+  t.mock.method(db, 'prepare', function recording(sql) {
+    const stmt = prepare.call(this, sql);
+    if (!/FROM files/.test(sql)) return stmt;
+    return { ...stmt, all: (...a) => { queries.push('list'); return stmt.all(...a); }, get: (...a) => { queries.push('chunk'); return stmt.get(...a); } };
+  });
+
+  const r = await admin.req('GET', `/admin/users/${u.id}/license`);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-length'), String(big.length));
+  const got = Buffer.from(await (await fetch(`${srv.base}/admin/users/${u.id}/license`, { headers: { cookie: `sid=${admin.cookies.sid}` } })).arrayBuffer());
+  assert.ok(got.equals(big), 'the whole file, in order');
+  // Per request: the list with the first chunk, then the two other chunks one by one.
+  assert.deepEqual(queries, ['list', 'chunk', 'chunk', 'list', 'chunk', 'chunk']);
+
+  queries.length = 0;
+  const one = await fetch(`${srv.base}/admin/users/${v.id}/license`, { headers: { cookie: `sid=${admin.cookies.sid}` } });
+  assert.equal(await one.text(), 'small');
+  assert.equal(queries.length, 1, 'one round trip for a file of one chunk');
+});
+
+test('a chunk missing from the database breaks the download (never a wrong file) and is recorded', async (t) => {
+  putStoredFile('broken.pdf', Buffer.alloc(storage.CHUNK + 50, 3));
+  db.prepare("DELETE FROM files WHERE name = 'broken.pdf' AND seq = 1").run();
+  db.prepare("INSERT INTO files (name, seq, data) VALUES ('broken.pdf', 2, x'00')").run(); // a gap: seq 1 is missing
+  const u = createUser({ license_file: 'broken.pdf' });
+  t.mock.method(console, 'error', () => {});
+  await assert.rejects((async () => {
+    const res = await fetch(`${srv.base}/admin/users/${u.id}/license`, { headers: { cookie: `sid=${admin.cookies.sid}` } });
+    await res.arrayBuffer();
+  })(), 'the connection is cut before the file is complete');
+  assert.match(db.prepare("SELECT message FROM error_log WHERE message LIKE 'stored file broken.pdf%'").get().message, /chunk 1 is missing/);
+});

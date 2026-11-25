@@ -81,6 +81,46 @@ test('schema upgrade while another instance upgrades the same database: its colu
   }
 });
 
+test('a setup statement the database interrupts is tried again; the start goes on', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'car-interrupt-'));
+  const load = (how, extra = '') => execFileSync(process.execPath, ['--no-warnings', '-r', fixture('interrupted-schema.js'), '-e',
+    `const { db } = require('./src/db'); console.log('READY'); ${extra}`],
+  { cwd: root, env: baseEnv(dir, { INTERRUPT: how }), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    // A new database: every table, index and app_meta row is interrupted once.
+    const out = load('once', "console.log(JSON.stringify(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)));"
+      + "console.log('version ' + db.prepare(\"SELECT value FROM app_meta WHERE key = 'schema_version'\").get().value);");
+    assert.match(out, /READY/);
+    assert.match(out, /"admin_level"/);
+    assert.match(out, /version [0-9a-f]{16}/);
+    // An older version set it up: the column changes are interrupted once each, and are made.
+    const { DatabaseSync } = require('node:sqlite');
+    const file = new DatabaseSync(path.join(dir, 'app.db'));
+    file.exec("ALTER TABLE users DROP COLUMN admin_level; UPDATE app_meta SET value = 'older' WHERE key = 'schema_version'");
+    file.close();
+    assert.match(load('once', "console.log(db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'admin_level'));"),
+      /READY\ntrue/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a setup statement interrupted every time, or failing for another reason: the start fails with that error', () => {
+  for (const [how, message, tries] of [['always', /SQLite error: interrupted/, 2], ['other', /no such table: nowhere/, 0]]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'car-interrupt-'));
+    try {
+      const r = require('node:child_process').spawnSync(process.execPath, ['--no-warnings', '-r', fixture('interrupted-schema.js'), '-e',
+        "require('./src/db'); console.log('READY')"], { cwd: root, env: baseEnv(dir, { INTERRUPT: how }), encoding: 'utf8' });
+      assert.notEqual(r.status, 0, how);
+      assert.doesNotMatch(r.stdout, /READY/);
+      assert.match(r.stderr, message);
+      assert.equal((r.stderr.match(/setup step interrupted, trying again/g) || []).length, tries, how); // gives up after 3 attempts
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 test('starting the app does not load the passkey library (≈40% of a cold start); the first passkey use does', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'car-lazy-'));
   try {

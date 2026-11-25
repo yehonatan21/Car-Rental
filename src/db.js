@@ -38,8 +38,34 @@ function readMeta() {
 meta = readMeta();
 const schemaIsCurrent = meta?.schema_version === SCHEMA_VERSION;
 
+// A setup step the database interrupted or found locked (seen on the hosted database while other instances start on
+// it: "SQLite error: interrupted") is tried again after a short wait, instead of failing the whole start (a visitor's
+// 503 page on Vercel). Safe here only: an interrupted statement is rolled back, and every setup step can be repeated
+// (IF NOT EXISTS, a column checked before it is added, updates and inserts that skip what is already done). Writes
+// elsewhere are never repeated (driver.js).
+const TRANSIENT = /\binterrupted\b|SQLITE_BUSY|database is locked/i;
+const SETUP_RETRY_MS = [100, 400];
+function again(step) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return step();
+    } catch (err) {
+      if (attempt >= SETUP_RETRY_MS.length || !TRANSIENT.test(String(err?.message || err))) throw err;
+      console.warn('[db] setup step interrupted, trying again:', String(err.message).slice(0, 120));
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SETUP_RETRY_MS[attempt]); // startup is synchronous
+    }
+  }
+}
+const setup = {
+  exec: (sql) => again(() => db.exec(sql)),
+  prepare: (sql) => ({
+    run: (...p) => again(() => db.prepare(sql).run(...p)),
+    all: (...p) => again(() => db.prepare(sql).all(...p)),
+  }),
+};
+
 if (!schemaIsCurrent) {
-  db.exec(`
+  setup.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     first_name TEXT NOT NULL,
@@ -364,9 +390,9 @@ if (!schemaIsCurrent) {
   // Columns added after the first release (existing databases are upgraded in place). On Vercel several instances can
   // start at the same moment on a new database, so everything below must also work when another one got there first.
   function addColumn(table, column, type) {
-    if (db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) return;
+    if (setup.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) return;
     try {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+      setup.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
     } catch (err) {
       if (!/duplicate column/i.test(err.message)) throw err;
     }
@@ -384,24 +410,24 @@ if (!schemaIsCurrent) {
   addColumn('users', 'admin_level', 'TEXT');
   // When this session last proved who it is (signing in, or confirming again before a sensitive action).
   addColumn('sessions', 'auth_at', 'INTEGER');
-  db.prepare(`UPDATE users SET rejected_at = COALESCE((SELECT MAX(a.at) FROM audit_log a WHERE a.action = 'user.reject' AND a.target_type = 'user'
+  setup.prepare(`UPDATE users SET rejected_at = COALESCE((SELECT MAX(a.at) FROM audit_log a WHERE a.action = 'user.reject' AND a.target_type = 'user'
     AND a.target_id = users.id), updated_at) WHERE status = 'rejected' AND rejected_at IS NULL`).run();
   // Accounts already linked to Google had their address proven by Google.
-  db.prepare('UPDATE users SET email_verified_at = ? WHERE email_verified_at IS NULL AND google_sub IS NOT NULL').run(new Date().toISOString());
+  setup.prepare('UPDATE users SET email_verified_at = ? WHERE email_verified_at IS NULL AND google_sub IS NOT NULL').run(new Date().toISOString());
   // The columns of the two-step verification removed long ago (no version still running reads them): dropped.
   for (const [table, column] of [['users', 'totp_secret'], ['users', 'totp_enabled'], ['sessions', 'needs_2fa']]) {
-    if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) continue;
+    if (!setup.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) continue;
     try {
-      db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+      setup.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
     } catch (err) {
       if (!/no such column/i.test(err.message)) throw err; // another instance got there first
     }
   }
-  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
+  setup.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
   // For the scheduled clean-ups and checks (src/jobs.js, every 10 minutes): without these each one read its whole
   // table, the action log (two years of it) and the sessions above all. One statement, so a hosted database's first
   // start after a deploy makes one round trip for them.
-  db.exec(`
+  setup.exec(`
   CREATE INDEX IF NOT EXISTS audit_log_at ON audit_log(at);
   CREATE INDEX IF NOT EXISTS sessions_expires ON sessions(expires_at);
   CREATE INDEX IF NOT EXISTS throttle_window ON throttle(window_start);
@@ -416,13 +442,13 @@ if (!schemaIsCurrent) {
 
 
 
-  const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+  const insertSetting = setup.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertSetting.run(k, v);
 
   // First start only. One statement each, so two instances starting together cannot both insert.
   // The car's row exists from the start, without details: booking stays closed until a manager enters them (R3).
-  db.prepare("INSERT INTO vehicles (plate, make, model) SELECT '', '', '' WHERE NOT EXISTS (SELECT 1 FROM vehicles)").run();
-  db.prepare('INSERT OR IGNORE INTO policies (version, content, created_at) SELECT 1, ?, ? WHERE NOT EXISTS (SELECT 1 FROM policies)')
+  setup.prepare("INSERT INTO vehicles (plate, make, model) SELECT '', '', '' WHERE NOT EXISTS (SELECT 1 FROM vehicles)").run();
+  setup.prepare('INSERT OR IGNORE INTO policies (version, content, created_at) SELECT 1, ?, ? WHERE NOT EXISTS (SELECT 1 FROM policies)')
     .run(fs.readFileSync(path.join(__dirname, 'default-policy.md'), 'utf8'), time.stamp());
 }
 
@@ -489,9 +515,9 @@ function defaultVehicle() {
 }
 
 if (!schemaIsCurrent) {
-  db.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('db_id', require('node:crypto').randomBytes(4).toString('hex'));
-  db.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('created_at', time.stamp());
-  db.prepare('INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('schema_version', SCHEMA_VERSION);
+  setup.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('db_id', require('node:crypto').randomBytes(4).toString('hex'));
+  setup.prepare('INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)').run('created_at', time.stamp());
+  setup.prepare('INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('schema_version', SCHEMA_VERSION);
   meta = readMeta();
 }
 

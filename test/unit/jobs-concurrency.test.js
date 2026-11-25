@@ -37,13 +37,11 @@ test('pickup reminders go out 4 at a time, each claimed just before its own e-ma
     sent.push(b.id);
     return true;
   });
-  const started = Date.now();
   const r = await runJobs();
-  const ms = Date.now() - started;
   assert.equal(r.reminders, 10);
+  // In parallel, never more than 4 at once. Counted, not timed: a wall-clock limit fails on a busy CI runner.
   assert.equal(most, 4, 'never more than 4 e-mails at once');
   assert.deepEqual([...sent].sort((a, b) => a - b), ids, 'every booking once');
-  assert.ok(ms < 10 * 40, `faster than one after another (${ms} ms)`);
   assert.ok(claimedAtFirstSend[0] <= 4, 'not every reminder is claimed up front');
   assert.ok(ids.every((id) => getBooking(id).pickup_reminded === 1));
 

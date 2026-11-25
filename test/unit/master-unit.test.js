@@ -3,7 +3,7 @@
 // management token goes out in production, the address guessed for a site whose project is unknown, and the mailbox
 // shared on its own when that fails.
 process.env.APP_MODE = 'master';
-require('../helpers');
+const { db } = require('../helpers');
 const { test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const dns = require('node:dns');
@@ -73,4 +73,63 @@ test('a site that sends no mail gets the console\'s mailbox; when that fails it 
   const before = fetch.mock.callCount();
   await master.statusOf(master.get('nomail'));
   assert.equal(fetch.mock.callCount(), before + 1, 'within the hour only the status is asked, nothing is shared');
+});
+
+test('the client list reuses a status seen in the last 30 seconds; a change, a new address or "fresh" asks again', async (t) => {
+  const asked = []; // the sites' addresses, one per request they got
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    asked.push(new URL(url).host);
+    if (String(url).startsWith('https://down.example.com')) throw new TypeError('fetch failed');
+    return json(200, STATUS);
+  });
+  master.add({ slug: 'one', name: 'One', url: 'https://one.example.com' });
+  master.add({ slug: 'two', name: 'Two', url: 'https://two.example.com' });
+  master.add({ slug: 'down', name: 'Down', url: 'https://down.example.com' });
+  const list = () => master.statusAll(master.list());
+  const count = (host) => asked.filter((h) => h === host).length;
+
+  const first = await list();
+  assert.deepEqual(first.map((s) => s.online), [false, true, true], 'Down, One, Two (by name)');
+  await list();
+  assert.equal(asked.length, 3, 'the second list asked nobody, the site that did not answer included');
+
+  // A change sent to a site: only that site is asked again.
+  await master.call(master.get('one'), 'POST', '/api/manage/suspend', { suspended: true });
+  await list();
+  assert.equal(count('one.example.com'), 3, 'its first status, the change, and a fresh status');
+  assert.equal(count('two.example.com'), 1);
+
+  // A client's own page always asks, and the list then uses that answer.
+  await master.statusOf(master.get('two'));
+  await list();
+  assert.equal(count('two.example.com'), 2);
+
+  // A new address: what the old one answered is not this site's.
+  master.update('two', { url: 'https://two-new.example.com' });
+  await list();
+  assert.equal(count('two-new.example.com'), 1);
+
+  // "Refresh" (and the alerts): every site.
+  const before = asked.length;
+  await master.statusAll(master.list(), { maxAgeMs: 0 });
+  assert.equal(asked.length, before + 3);
+
+  // After 30 seconds the list asks again.
+  const now = Date.now;
+  t.mock.method(Date, 'now', () => now.call(Date) + master.STATUS_CACHE_MS + 1);
+  await list();
+  assert.equal(asked.length, before + 6);
+});
+
+test('the alerts never use a status the client list cached', async (t) => {
+  config.smtp = null;
+  const asked = [];
+  t.mock.method(globalThis, 'fetch', async (url) => { asked.push(String(url)); return json(200, STATUS); });
+  master.add({ slug: 'watched', name: 'Watched', url: 'https://watched.example.com' });
+  await master.statusAll(master.list()); // the list page, a moment ago
+  const alerts = require('../../src/alerts');
+  t.mock.method(console, 'log', () => {});
+  db.prepare("DELETE FROM job_state WHERE key = 'alerts_at'").run();
+  await alerts.run();
+  assert.equal(asked.filter((u) => u.startsWith('https://watched.example.com/api/manage/status')).length, 2, 'asked again for the alerts');
 });

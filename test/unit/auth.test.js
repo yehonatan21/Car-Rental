@@ -81,3 +81,19 @@ test('cookie parsing', () => {
   assert.deepEqual(auth.parseCookies('a=1; sid=abc%3D; empty='), { a: '1', sid: 'abc=', empty: '' });
   assert.deepEqual(auth.parseCookies(undefined), {});
 });
+
+test('an attempt counter is one statement: the new count comes back with the write (RETURNING)', (t) => {
+  const { db } = require('../../src/db');
+  const seen = [];
+  const prepare = db.prepare;
+  t.mock.method(db, 'prepare', function recording(sql) { if (/throttle/.test(sql)) seen.push(sql); return prepare.call(this, sql); });
+  assert.equal(auth.throttled('rt:once', 2), false);
+  assert.equal(seen.length, 1);
+  assert.match(seen[0], /RETURNING count/);
+  assert.equal(auth.throttled('rt:once', 2), false);
+  assert.equal(auth.throttled('rt:once', 2), true, 'the third attempt is over the limit');
+  // A new window starts from 1 again.
+  const now = Date.now;
+  t.mock.method(Date, 'now', () => now.call(Date) + 16 * 60000);
+  assert.equal(auth.throttled('rt:once', 2), false);
+});

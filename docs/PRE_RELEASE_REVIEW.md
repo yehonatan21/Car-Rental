@@ -4,8 +4,8 @@
 code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report:
 since then `/me/bookings` (item 2: the N+1 query, and paging), the one-at-a-time e-mails of the
 scheduled jobs (item 3), the visit waiting for a job run (item 4), the remaining blocking password hashing
-(item 7), the clean-ups without an index (item 8), the status endpoint's cost and the console's repeated status calls (item 5) and the stored files
-read whole into memory (item 6) have been fixed.
+(item 7), the clean-ups without an index (item 8), the status endpoint's cost and the console's repeated status calls (item 5), the stored files
+read whole into memory (item 6) and the extra round trips per request (item 9) have been fixed.
 
 ## 1. What to address before a release
 
@@ -132,9 +132,17 @@ Ordered by expected impact:
    statement they prepared, and fails on any other full-table scan. The indexes are built once, at the first start
    after the deploy. Still open: `forgetIdentifiers()` (`src/db.js`) makes four `instr()` scans of `audit_log` for
    each deleted user. That runs only when an account is deleted, and an index can't help a search inside text.
-9. **The same data is read again within one request**. `getSettings()` and the policy lookups run several times on
-   one page (`/me` makes 12 queries). Login and code throttling (`auth.bump()`) takes two round trips (an upsert, then
-   a select) where one `RETURNING` would do.
+9. ~~**The same data is read again within one request**~~ **Fixed, and corrected.** Measured statement by statement,
+   no page reads the same data twice: the first version of this report was wrong that `getSettings()` and the policy
+   lookups repeat. (The push-notification keys looked repeated on `/me`, but `push.js` keeps them in memory after the
+   first read in a process.) What was real:
+   - **Attempt counters** (`auth.bump()`): an upsert, then a select for the new count. Now one statement with
+     `RETURNING count`, so a sign-in makes 8 queries instead of 10.
+   - **"Has this user accepted the current policy?"** (`userAcceptedPolicy()`, on `/me`, the booking form and every
+     eligibility check): two queries, now one. The behaviour is unchanged, including when no policy demands re-acceptance.
+   - **The hosted driver:** a write read back through `get()` (as `RETURNING` is) is never retried on a stale
+     connection, the same rule as for `run()`. Retrying could count an attempt twice.
+   Tests: `test/unit/auth.test.js`, `test/unit/driver-reconnect.test.js`, `test/unit/bookings.test.js`.
 10. **Error recording writes to the database for each error** (`src/errors.js`). During an error storm (for example
     when the database is slow) this adds a write to every failing request.
 11. **Cold start**: `src/db.js` reads and hashes its own source file to decide whether the schema is current, and the

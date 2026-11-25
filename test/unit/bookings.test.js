@@ -271,3 +271,20 @@ test('durationLabel shows whole days when possible', () => {
   assert.equal(bookings.durationLabel(36), '36 שעות');
   assert.equal(bookings.durationLabel(5), '5 שעות');
 });
+
+test('accepted policy: none, an outdated one after a version that must be accepted again, and a newer one that need not be', () => {
+  const { db, userAcceptedPolicy, currentPolicy } = require('../../src/db');
+  const u = createUser({ acceptPolicy: false });
+  assert.equal(userAcceptedPolicy(u.id), false, 'never accepted');
+  const v = currentPolicy().version;
+  db.prepare('INSERT INTO policy_acceptances (user_id, policy_version) VALUES (?, ?)').run(u.id, v);
+  assert.equal(userAcceptedPolicy(u.id), true);
+  db.prepare("INSERT INTO policies (version, content, requires_reaccept, created_at) VALUES (?, 'minor wording', 0, '2026-11-25 10:00:00')").run(v + 1);
+  assert.equal(userAcceptedPolicy(u.id), true, 'a change that does not ask for it again');
+  db.prepare("INSERT INTO policies (version, content, requires_reaccept, created_at) VALUES (?, 'new rules', 1, '2026-11-25 11:00:00')").run(v + 2);
+  assert.equal(userAcceptedPolicy(u.id), false, 'the rules changed: accept again');
+  db.prepare('INSERT INTO policy_acceptances (user_id, policy_version) VALUES (?, ?)').run(u.id, v + 2);
+  assert.equal(userAcceptedPolicy(u.id), true);
+  db.prepare('DELETE FROM policy_acceptances WHERE policy_version > ?').run(v); // the policies the test added, and their acceptances
+  db.prepare('DELETE FROM policies WHERE version > ?').run(v);
+});

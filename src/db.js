@@ -460,15 +460,10 @@ function currentPolicy() {
   return db.prepare('SELECT * FROM policies ORDER BY version DESC LIMIT 1').get();
 }
 
-/** The latest policy version the user must have accepted (latest one that demanded re-acceptance). */
-function requiredPolicyVersion() {
-  const row = db.prepare('SELECT MAX(version) AS v FROM policies WHERE requires_reaccept = 1 OR version = 1').get();
-  return row.v;
-}
-
+/** Has the user accepted the policy version they must have accepted? One query (it runs on most booking pages). */
 function userAcceptedPolicy(userId) {
-  const row = db.prepare('SELECT MAX(policy_version) AS v FROM policy_acceptances WHERE user_id = ?').get(userId);
-  return (row.v ?? 0) >= requiredPolicyVersion();
+  return Boolean(db.prepare(`SELECT COALESCE((SELECT MAX(policy_version) FROM policy_acceptances WHERE user_id = ?), 0)
+    >= COALESCE((SELECT MAX(version) FROM policies WHERE requires_reaccept = 1 OR version = 1), 0) AS ok`).get(userId).ok);
 }
 
 function defaultVehicle() {
@@ -513,5 +508,5 @@ function storageInfo() {
 module.exports = {
   forgetIdentifiers,
   db, transaction, audit, getSettings, setSetting, DEFAULT_SETTINGS, storageInfo, isPerDeploymentHost,
-  currentPolicy, requiredPolicyVersion, userAcceptedPolicy, defaultVehicle,
+  currentPolicy, userAcceptedPolicy, defaultVehicle,
 };

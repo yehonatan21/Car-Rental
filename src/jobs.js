@@ -114,6 +114,7 @@ async function runJobs({ by = 'timer' } = {}) {
   db.prepare('DELETE FROM error_log WHERE last_at < ?').run(`${time.addDays(time.today(), -30)} 00:00:00`);
   db.prepare('DELETE FROM error_handled WHERE handled_at < ?').run(`${time.addDays(time.today(), -30)} 00:00:00`);
 
+  require('./errors').flush(); // repeats of an error held back in this process (errors.js), so the counts catch up
   const after = await mail.drainOutbox(); // anything that failed just now and is already due (none, normally)
   const ms = Date.now() - started;
   const set = db.prepare('INSERT INTO job_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');

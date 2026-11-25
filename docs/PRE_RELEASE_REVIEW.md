@@ -5,7 +5,8 @@ code's own open points), the tests added to reach 100% line coverage, and where 
 since then `/me/bookings` (item 2: the N+1 query, and paging), the one-at-a-time e-mails of the
 scheduled jobs (item 3), the visit waiting for a job run (item 4), the remaining blocking password hashing
 (item 7), the clean-ups without an index (item 8), the status endpoint's cost and the console's repeated status calls (item 5), the stored files
-read whole into memory (item 6) and the extra round trips per request (item 9) have been fixed.
+read whole into memory (item 6), the extra round trips per request (item 9) and the write per error (item 10) have been
+fixed.
 
 ## 1. What to address before a release
 
@@ -143,8 +144,13 @@ Ordered by expected impact:
    - **The hosted driver:** a write read back through `get()` (as `RETURNING` is) is never retried on a stale
      connection, the same rule as for `run()`. Retrying could count an attempt twice.
    Tests: `test/unit/auth.test.js`, `test/unit/driver-reconnect.test.js`, `test/unit/bookings.test.js`.
-10. **Error recording writes to the database for each error** (`src/errors.js`). During an error storm (for example
-    when the database is slow) this adds a write to every failing request.
+10. ~~**Error recording writes to the database for each error**~~ **Fixed** (`src/errors.js`): the first occurrence
+    of a kind is written at once, so the console still sees every new kind immediately. The same error again within
+    10 seconds is counted in memory, and written with that kind's next write, or by `flush()`, which the scheduled jobs
+    call. A storm of 50 identical errors is one write instead of 50. When the write itself fails (the database being
+    the problem), the repeats aren't retried each time: they wait, and nothing is lost once the database answers. The
+    trade-off: occurrences held in a process that ends before the next write or flush are lost, so during a storm the
+    counts can come out a little low, never a kind of error. Tests: `test/unit/errors.test.js`.
 11. **Cold start**: `src/db.js` reads and hashes its own source file to decide whether the schema is current, and the
     icons and asset hashes are read synchronously on first use. The first start after a deploy also runs about 27
     setup queries (already known and measured in `PERFORMANCE_REPORT.md`).

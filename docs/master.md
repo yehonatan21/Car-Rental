@@ -158,6 +158,11 @@ client page shows the exact value.
 - **Scheduled jobs:** when each site last ran them (amber after 30 minutes: the GitHub schedule is not running).
 - **Per site:** response time, database size and rows, stored files, its Turso usage and Vercel requests this month,
   e-mails today, server errors in the last 24 hours, and the database key's expiry.
+- **Requests in the last 24 hours** (בקשות ב־24 שעות), per site, measured by the site itself: how long 95% of its
+  visitors' requests took, the median, how much of that time was the database, and how many requests. Files, the
+  health check and the console's own calls are not counted. Kept per hour for 30 days (`request_stats`, counts only:
+  no addresses, users or pages). These are the numbers behind the database-driver decision in
+  [PRE_RELEASE_REVIEW.md](PRE_RELEASE_REVIEW.md) (item 1).
 - **Server errors (24 hours):** each kind of error on every site and the console: the message, the page, where in the
   code, how many times, and the code's lines (under "מקום בקוד"). A site keeps its errors in its own database for 30
   days (`error_log`), grouped by kind; nothing about the user or the request is kept (docs/privacy.md).

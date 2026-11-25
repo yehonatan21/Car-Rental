@@ -230,3 +230,19 @@ test('a console admin\'s new password is hashed off the main thread (no blocking
   crypto.scryptSync.mock.restore();
   assert.equal(await auth.verifyPasswordAsync('Amber-Hill-Road-9', db.prepare('SELECT password_hash FROM users WHERE id = ?').get(other.id).password_hash), true);
 });
+
+test('monitoring: each site\'s own request times in the last 24 hours (95th percentile, median, database share)', async () => {
+  try {
+    patchStatus = (s) => { s.metrics.requests = { requests: 1234, p50: 25, p95: 250, dbP95: 100, dbShare: 40, queries: 4.2 }; };
+    let page = await boss.get('/master/metrics?fresh=1');
+    assert.equal(page.status, 200);
+    assert.match(page.text, /בקשות ב־24 שעות/);
+    assert.match(page.text, /95%: עד 250 ms/);
+    assert.match(page.text, /חציון עד 25 ms · מסד הנתונים 40% מהזמן · 1,234 בקשות/);
+    patchStatus = (s) => { s.metrics.requests = { requests: 3, p50: null, p95: null, dbP95: null, dbShare: 90, queries: 9 }; };
+    page = await boss.get('/master/metrics?fresh=1');
+    assert.match(page.text, /95%: מעל 5 ש׳/, 'the top bucket has no upper bound');
+  } finally {
+    patchStatus = null;
+  }
+});

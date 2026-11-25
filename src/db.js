@@ -262,6 +262,18 @@ if (!schemaIsCurrent) {
     value TEXT NOT NULL
   );
 
+  -- How long visitors' requests took, per hour (src/request-stats.js): totals and counts per time bucket, for the
+  -- console's monitoring (median, 95th percentile, the database's share). No addresses, users or pages.
+  CREATE TABLE IF NOT EXISTS request_stats (
+    hour TEXT PRIMARY KEY,
+    requests INTEGER NOT NULL DEFAULT 0,
+    total_ms REAL NOT NULL DEFAULT 0,
+    db_ms REAL NOT NULL DEFAULT 0,
+    queries INTEGER NOT NULL DEFAULT 0,
+    t0 INTEGER NOT NULL DEFAULT 0, t1 INTEGER NOT NULL DEFAULT 0, t2 INTEGER NOT NULL DEFAULT 0, t3 INTEGER NOT NULL DEFAULT 0, t4 INTEGER NOT NULL DEFAULT 0, t5 INTEGER NOT NULL DEFAULT 0, t6 INTEGER NOT NULL DEFAULT 0, t7 INTEGER NOT NULL DEFAULT 0, t8 INTEGER NOT NULL DEFAULT 0, t9 INTEGER NOT NULL DEFAULT 0, t10 INTEGER NOT NULL DEFAULT 0,
+    d0 INTEGER NOT NULL DEFAULT 0, d1 INTEGER NOT NULL DEFAULT 0, d2 INTEGER NOT NULL DEFAULT 0, d3 INTEGER NOT NULL DEFAULT 0, d4 INTEGER NOT NULL DEFAULT 0, d5 INTEGER NOT NULL DEFAULT 0, d6 INTEGER NOT NULL DEFAULT 0, d7 INTEGER NOT NULL DEFAULT 0, d8 INTEGER NOT NULL DEFAULT 0, d9 INTEGER NOT NULL DEFAULT 0, d10 INTEGER NOT NULL DEFAULT 0
+  );
+
   -- Server errors, one row per kind (src/errors.js): no request data or user, only where in the code and how often.
   CREATE TABLE IF NOT EXISTS error_log (
     fp TEXT PRIMARY KEY,

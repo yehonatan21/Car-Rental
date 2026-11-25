@@ -113,6 +113,7 @@ async function runJobs({ by = 'timer' } = {}) {
   db.prepare('DELETE FROM mail_daily WHERE day < ?').run(time.addDays(time.today(), -90));
   db.prepare('DELETE FROM error_log WHERE last_at < ?').run(`${time.addDays(time.today(), -30)} 00:00:00`);
   db.prepare('DELETE FROM error_handled WHERE handled_at < ?').run(`${time.addDays(time.today(), -30)} 00:00:00`);
+  db.prepare('DELETE FROM request_stats WHERE hour < ?').run(`${time.addDays(time.today(), -30)} 00`); // a month of request times
 
   require('./errors').flush(); // repeats of an error held back in this process (errors.js), so the counts catch up
   const after = await mail.drainOutbox(); // anything that failed just now and is already due (none, normally)

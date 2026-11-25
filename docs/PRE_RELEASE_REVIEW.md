@@ -80,6 +80,11 @@ Ordered by expected impact:
    blocks the Node event loop for a whole network round trip. A page waits *queries × ~8 ms*, and with Vercel Fluid
    concurrency every other request on the same instance waits as well. This is the root cause of most points below.
    Release plan R5.4 already plans to measure it and then move to `@libsql/client`.
+   **Now measured:** each site counts its visitors' request times and database time (`src/request-stats.js`, saved
+   per hour, 30 days), and the console's monitoring page shows the last 24 hours per site: the 95th percentile, the
+   median, and the database's share of the time. A suggested reading after a few weeks: when the 95th percentile is
+   above about 500 ms *and* the database is most of that time, the asynchronous driver is worth the change; when the
+   database is a small share, or the 95th percentile is well under that, it isn't (yet).
 2. ~~**N+1 query on `/me/bookings`**~~ **Fixed:** the settings are now read once per page instead of once per row
    (`src/routes/user.js` `bookingTable()`). The page makes 5 queries however many bookings there are, where it made 43
    for 40 bookings. A test in `test/e2e/performance.test.js` checks this. The history is now also paged, 50 to a page in SQL

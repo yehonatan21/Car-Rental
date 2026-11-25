@@ -25,6 +25,7 @@ const time = require('../time');
 const config = require('../config');
 const storage = require('../storage');
 const google = require('../google');
+const requestStats = require('../request-stats');
 const { brand, saveBrand, validColor, DEFAULT_COLOR } = require('../brand');
 const { html, layout } = require('../views/html');
 const { validEmail } = require('./public');
@@ -120,8 +121,10 @@ function numbers() {
     -- Files kept in the hosted database (empty with a local one, whose files are on disk). length() of a stored chunk
     -- comes from its row header: the file contents themselves are not read.
     (SELECT COUNT(DISTINCT name) FROM files) AS file_count,
-    (SELECT COALESCE(SUM(length(data)), 0) FROM files) AS file_bytes`)
-    .get(now, now, Date.now(), today, today, today, time.addDays(today, -7), time.addDays(today, -7), since24h, since24h);
+    (SELECT COALESCE(SUM(length(data)), 0) FROM files) AS file_bytes,
+    -- Visitors' request times in the last 24 hours, as JSON (src/request-stats.js).
+    ${requestStats.summarySql} AS request_stats`)
+    .get(now, now, Date.now(), today, today, today, time.addDays(today, -7), time.addDays(today, -7), since24h, since24h, requestStats.since());
 }
 
 function counts(n = numbers()) {
@@ -180,6 +183,8 @@ function metrics(n = numbers()) {
       waiting: n.mail_waiting,
       failed: n.mail_failed,
     },
+    // How long visitors waited, and how much of it was the database: decides whether the driver is worth replacing.
+    requests: requestStats.summarize(n.request_stats),
     runtime: { node: process.version, region: process.env.VERCEL_REGION || null },
     errors: { kinds24h: n.error_kinds, new24h: n.error_new, recent: require('../errors').recent() },
   };

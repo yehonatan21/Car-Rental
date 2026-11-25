@@ -207,17 +207,18 @@ function monitoringSection(req, clients, statuses, acc, own, ownDb) {
   <section class="card">
     <h3 class="section-title">${icon('list')} לפי אתר</h3>
     <table class="table mon-table">
-      <thead><tr><th>אתר</th><th>זמן תגובה</th><th>מסד נתונים</th><th>שורות</th><th>קבצים</th><th>שימוש ב־Turso החודש</th><th>בקשות החודש</th><th>מיילים היום</th><th>שגיאות</th><th>מפתח מסד</th></tr></thead>
+      <thead><tr><th>אתר</th><th>זמן תגובה</th><th>בקשות ב־24 שעות</th><th>מסד נתונים</th><th>שורות</th><th>קבצים</th><th>שימוש ב־Turso החודש</th><th>בקשות החודש</th><th>מיילים היום</th><th>שגיאות</th><th>מפתח מסד</th></tr></thead>
       <tbody>${online.map((x, i) => {
     const m = x.d?.metrics;
     const ch = Object.fromEntries(checks[i].map((k) => [k.key, k]));
     const dbName = x.d?.storage?.host ? master.databaseName(x.c, x.d.storage.host) : x.c.turso_db;
     const tu = t && dbName ? t.perDb[dbName] : null;
     const reqs = v && x.c.vercel_project ? v.perProject[x.c.vercel_project] ?? 0 : null;
-    if (!x.d) return html`<tr><td data-label="אתר"><b>${x.c.name}</b></td><td data-label="מצב" colspan="9">${levelDot('bad', x.st.error || 'לא עונה')}</td></tr>`;
+    if (!x.d) return html`<tr><td data-label="אתר"><b>${x.c.name}</b></td><td data-label="מצב" colspan="10">${levelDot('bad', x.st.error || 'לא עונה')}</td></tr>`;
     return html`<tr>
       <td data-label="אתר"><a href="/master/clients/${encodeURIComponent(x.c.slug)}"><b>${x.c.name}</b></a><br><span class="muted small">${versionLabel(x.d) || ''}</span></td>
       <td data-label="זמן תגובה">${levelDot(ch.response.level, ch.response.text)}${m ? html`<br><span class="muted small">שאילתה ${m.db.queryMs} ms</span>` : ''}</td>
+      <td data-label="בקשות ב־24 שעות">${requestsCell(m?.requests)}</td>
       <td data-label="מסד נתונים">${m ? bytes(m.db.sizeBytes) : '—'}</td>
       <td data-label="שורות">${m ? html`${num(m.db.rows.users)} משתמשים<br><span class="muted small">${num(m.db.rows.bookings)} הזמנות · ${num(m.db.rows.audit)} פעולות · ${num(m.db.rows.sessions)} חיבורים</span>` : '—'}</td>
       <td data-label="קבצים">${m ? html`${num(m.files.count)}<br><span class="muted small">${bytes(m.files.bytes)}</span>` : '—'}</td>
@@ -228,7 +229,7 @@ function monitoringSection(req, clients, statuses, acc, own, ownDb) {
       <td data-label="מפתח מסד">${ch.key ? levelDot(ch.key.level, ch.key.text) : '—'}</td>
     </tr>`;
   })}
-      ${own ? html`<tr class="mon-own"><td data-label="אתר"><b>מרכז הניהול</b></td><td data-label="זמן תגובה">—</td><td data-label="מסד נתונים">${bytes(own.db.sizeBytes)}</td>
+      ${own ? html`<tr class="mon-own"><td data-label="אתר"><b>מרכז הניהול</b></td><td data-label="זמן תגובה">—</td><td data-label="בקשות ב־24 שעות">${requestsCell(own.requests)}</td><td data-label="מסד נתונים">${bytes(own.db.sizeBytes)}</td>
         <td data-label="שורות">${num(own.db.rows.users)} מנהלים</td><td data-label="קבצים">${num(own.files.count)}</td>
         <td data-label="שימוש ב־Turso החודש">${ownDb && t?.perDb[ownDb] ? html`${num(t.perDb[ownDb].rows_read)} נקראו` : '—'}</td>
         <td data-label="בקשות החודש">${v && process.env.VERCEL_PROJECT_ID ? num(Object.entries(v.perProject).find(([n]) => n.endsWith('master'))?.[1]) : '—'}</td><td data-label="מיילים היום">${num(own.mail.today.recipients)}</td>
@@ -249,6 +250,19 @@ function keyExpiry(at) {
   if (days < 0) return html`${badge('rejected', 'פג תוקף')} ${date}: האתר לא יכול לפתוח את מסד הנתונים. החליפו את המפתח עכשיו.`;
   if (days <= 30) return html`${badge('pending', `פג בעוד ${days} ימים`)} ${date}. החליפו את המפתח לפני כן.`;
   return html`תקף עד ${date}`;
+}
+
+/** An upper bound from the request-time buckets (src/request-stats.js): "עד 250 ms", or "מעל 5 ש׳" for the last. */
+const msBound = (v) => (v == null ? 'מעל 5 ש׳' : `עד ${v} ms`);
+
+/**
+ * The site's own request times in the last 24 hours: the 95th percentile, then the median, the database's share of the
+ * time and how many requests. The numbers that decide whether the database driver is worth replacing.
+ */
+function requestsCell(r) {
+  if (!r) return '—';
+  return html`<span title="95% מהבקשות הסתיימו תוך">95%: ${msBound(r.p95)}</span>
+    <br><span class="muted small">חציון ${msBound(r.p50)} · מסד הנתונים ${r.dbShare}% מהזמן · ${num(r.requests)} בקשות</span>`;
 }
 
 /** Short version label, and whether it differs from the console's own code. */

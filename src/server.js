@@ -30,6 +30,8 @@ app.set('trust proxy', 1); // in production HTTPS is terminated by the reverse p
 app.disable('x-powered-by');
 
 app.use(require('./timing').middleware); // Server-Timing header + a log line for slow requests
+// This process's request times go to the console's monitoring, saved at most once a minute (src/request-stats.js).
+app.use((req, res, next) => { res.once('finish', () => require('./request-stats').maybeSave()); next(); });
 
 // HTTPS only: redirect plain-HTTP requests that reach the app behind a proxy in production.
 app.use((req, res, next) => {

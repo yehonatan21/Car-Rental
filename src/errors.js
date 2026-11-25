@@ -55,15 +55,22 @@ function record(err, { where = 'request', req } = {}) {
   }
 }
 
-/** For the site's status (the console): kinds seen in the last 24 hours, the newest first, and the totals. */
-function summary({ limit = 5 } = {}) {
+const since24h = () => time.stamp(new Date(Date.now() - 24 * 3600000));
+
+/** The kinds seen in the last 24 hours, the newest first (the site's status carries them to the console). */
+function recent({ limit = 5 } = {}) {
   const { db } = require('./db');
-  const since = time.stamp(new Date(Date.now() - 24 * 3600000));
-  const recent = db.prepare('SELECT fp, name, message, frame, stack, where_ AS "where", route, count, first_at, last_at FROM error_log WHERE last_at >= ? ORDER BY last_at DESC LIMIT ?')
-    .all(since, limit);
-  const kinds = db.prepare('SELECT COUNT(*) AS n FROM error_log WHERE last_at >= ?').get(since).n;
-  const fresh = db.prepare('SELECT COUNT(*) AS n FROM error_log WHERE first_at >= ?').get(since).n;
-  return { kinds24h: kinds, new24h: fresh, recent };
+  return db.prepare('SELECT fp, name, message, frame, stack, where_ AS "where", route, count, first_at, last_at FROM error_log WHERE last_at >= ? ORDER BY last_at DESC LIMIT ?')
+    .all(since24h(), limit);
 }
 
-module.exports = { record, summary, clean, frame };
+/** recent() and the totals: kinds seen in the last 24 hours, and how many of them are new. */
+function summary({ limit = 5 } = {}) {
+  const { db } = require('./db');
+  const since = since24h();
+  const n = db.prepare(`SELECT (SELECT COUNT(*) FROM error_log WHERE last_at >= ?) AS kinds,
+    (SELECT COUNT(*) FROM error_log WHERE first_at >= ?) AS fresh`).get(since, since);
+  return { kinds24h: n.kinds, new24h: n.fresh, recent: recent({ limit }) };
+}
+
+module.exports = { record, summary, recent, clean, frame };

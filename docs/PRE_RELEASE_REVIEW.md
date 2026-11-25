@@ -4,7 +4,7 @@
 code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report:
 since then `/me/bookings` (item 2: the N+1 query, and paging), the one-at-a-time e-mails of the
 scheduled jobs (item 3), the visit waiting for a job run (item 4), the remaining blocking password hashing
-(item 7) and the clean-ups without an index (item 8) have been fixed.
+(item 7), the clean-ups without an index (item 8) and most of the status endpoint's cost (item 5) have been fixed.
 
 ## 1. What to address before a release
 
@@ -95,11 +95,16 @@ Ordered by expected impact:
    is sent at once, the function is kept alive until the jobs finish, and a failure is still logged and recorded. Before,
    the visitor waited for the whole run, e-mails included. Tests: `test/e2e/server-paths.test.js` (in the test, the page
    took 3 s before the fix).
-5. **The site status endpoint is heavy and called often** (`src/routes/manage.js` `status()` and `metrics()`). It runs
-   about 25 queries one after another. It also scans the whole `files` table (`COUNT(DISTINCT name)`,
-   `SUM(length(data))`), or runs `readdir` + `stat` on every upload. It is called for **every** client on every
-   `/master` page load (`routes/master.js:334`, which waits for the slowest site, up to 6 s), on each client page,
-   and on every 10-minute alert run (`alerts.js:134`).
+5. ~~**The site status endpoint is heavy and called often**~~ **Fixed** (`src/routes/manage.js`): every number in
+   the status (counts, table sizes, last job run, today's and the week's mail, the outbox, the errors' totals, the
+   stored files) now comes from **one** statement. That brings the endpoint from 26 queries to 6, about 0.2 s less per site
+   on Turso, the same in both database modes. The action log's size comes from its first and last id, since it only loses its
+   oldest rows, so it reads 2 rows instead of all of them on every call (Turso bills rows read). The database size uses
+   the PRAGMA functions in one query, with the plain PRAGMAs and then "no size" as fallbacks. The answer is
+   unchanged: compared field by field against the old code. Tests in `test/e2e/manage.test.js` and
+   `test/e2e/hosted-fake.test.js` check the query count, the files total and the fallbacks. Still open: the console
+   asks every site for its status on each `/master` page load and on each client page (`routes/master.js`), and
+   waits for the slowest site. Each call is now much cheaper, but the console still makes all of them.
 6. **Stored files are read whole into memory** (`src/storage.js` `read()`). On the hosted database that means up to
    4–8 MB of 1 MB chunk rows, joined with `Buffer.concat`, for every view of a license or vehicle document. That
    costs memory, latency and Turso rows read.

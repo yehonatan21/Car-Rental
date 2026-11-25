@@ -81,37 +81,85 @@ function suspendedGate(req, res, next) {
 }
 
 // ---------- What the console sees ----------
-function counts() {
-  const n = (sql, ...a) => db.prepare(sql).get(...a).n;
+/**
+ * Every number the status reports, in ONE statement: on a hosted database each statement is a round trip (~8 ms from
+ * Vercel to Turso), and the console asks every site for its status on each page and every 10 minutes. They used to
+ * be about 20 separate queries.
+ */
+function numbers() {
   const now = time.now();
+  const today = time.today();
+  const since24h = time.stamp(new Date(Date.now() - 24 * 3600000));
+  return db.prepare(`SELECT
+    (SELECT COUNT(*) FROM users WHERE role = 'user') AS users,
+    (SELECT COUNT(*) FROM users WHERE role = 'user' AND status = 'active') AS active_users,
+    (SELECT COUNT(*) FROM users WHERE status = 'pending' OR (status = 'license_update' AND pending_license_file IS NOT NULL)) AS pending_users,
+    (SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active') AS admins,
+    (SELECT COUNT(*) FROM users) AS all_users,
+    (SELECT COUNT(*) FROM bookings WHERE kind = 'booking') AS bookings,
+    (SELECT COUNT(*) FROM bookings) AS all_bookings,
+    (SELECT COUNT(*) FROM bookings WHERE kind = 'booking' AND status = 'pending' AND end_at > ?) AS pending_bookings,
+    (SELECT COUNT(*) FROM bookings WHERE kind = 'booking' AND status = 'approved' AND start_at > ?) AS upcoming_bookings,
+    (SELECT MAX(created_at) FROM bookings WHERE kind = 'booking') AS last_booking_at,
+    (SELECT COUNT(*) FROM vehicles) AS vehicles,
+    -- The action log only loses its oldest rows (jobs.js), so its ids are contiguous: two rows read instead of all.
+    (SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM audit_log) AS audit,
+    (SELECT COUNT(*) FROM sessions WHERE expires_at > ?) AS sessions,
+    (SELECT value FROM job_state WHERE key = 'last_run') AS last_run,
+    (SELECT value FROM job_state WHERE key = 'last_run_by') AS last_run_by,
+    (SELECT value FROM job_state WHERE key = 'last_run_ms') AS last_run_ms,
+    (SELECT recipients FROM mail_daily WHERE day = ?) AS today_recipients,
+    (SELECT messages FROM mail_daily WHERE day = ?) AS today_messages,
+    (SELECT failed FROM mail_daily WHERE day = ?) AS today_failed,
+    (SELECT COALESCE(SUM(recipients), 0) FROM mail_daily WHERE day > ?) AS week_recipients,
+    (SELECT COALESCE(SUM(failed), 0) FROM mail_daily WHERE day > ?) AS week_failed,
+    (SELECT COUNT(*) FROM mail_outbox WHERE status IN ('pending', 'sending')) AS mail_waiting,
+    (SELECT COUNT(*) FROM mail_outbox WHERE status = 'failed' AND message != '{}') AS mail_failed,
+    (SELECT COUNT(*) FROM error_log WHERE last_at >= ?) AS error_kinds,
+    (SELECT COUNT(*) FROM error_log WHERE first_at >= ?) AS error_new,
+    -- Files kept in the hosted database (empty with a local one, whose files are on disk). length() of a stored chunk
+    -- comes from its row header: the file contents themselves are not read.
+    (SELECT COUNT(DISTINCT name) FROM files) AS file_count,
+    (SELECT COALESCE(SUM(length(data)), 0) FROM files) AS file_bytes`)
+    .get(now, now, Date.now(), today, today, today, time.addDays(today, -7), time.addDays(today, -7), since24h, since24h);
+}
+
+function counts(n = numbers()) {
   return {
-    users: n("SELECT COUNT(*) AS n FROM users WHERE role = 'user'"),
-    activeUsers: n("SELECT COUNT(*) AS n FROM users WHERE role = 'user' AND status = 'active'"),
+    users: n.users,
+    activeUsers: n.active_users,
     // New accounts and new license photos the managers still have to approve.
-    pendingUsers: n("SELECT COUNT(*) AS n FROM users WHERE status = 'pending' OR (status = 'license_update' AND pending_license_file IS NOT NULL)"),
-    admins: n("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active'"),
-    bookings: n("SELECT COUNT(*) AS n FROM bookings WHERE kind = 'booking'"),
-    pendingBookings: n("SELECT COUNT(*) AS n FROM bookings WHERE kind = 'booking' AND status = 'pending' AND end_at > ?", now),
-    upcomingBookings: n("SELECT COUNT(*) AS n FROM bookings WHERE kind = 'booking' AND status = 'approved' AND start_at > ?", now),
-    vehicles: n('SELECT COUNT(*) AS n FROM vehicles'),
+    pendingUsers: n.pending_users,
+    admins: n.admins,
+    bookings: n.bookings,
+    pendingBookings: n.pending_bookings,
+    upcomingBookings: n.upcoming_bookings,
+    vehicles: n.vehicles,
   };
+}
+
+/** The database's size in bytes, or null where the hosted database doesn't answer PRAGMAs. */
+function databaseSize() {
+  try {
+    return db.prepare('SELECT page_count * page_size AS bytes FROM pragma_page_count(), pragma_page_size()').get().bytes;
+  } catch {
+    try {
+      return db.prepare('PRAGMA page_count').get().page_count * db.prepare('PRAGMA page_size').get().page_size;
+    } catch { return null; }
+  }
 }
 
 /**
  * How this site is doing, for the console's monitoring: database size and rows, stored files, how long a query takes,
  * when the scheduled jobs last ran, and the e-mails sent today. Counts only, no personal data.
  */
-function metrics() {
-  const n = (sql, ...a) => db.prepare(sql).get(...a)?.n ?? 0;
+function metrics(n = numbers()) {
   const t0 = process.hrtime.bigint();
-  db.prepare('SELECT 1').get();
+  db.prepare('SELECT 1').get(); // one round trip, measured on its own: the database's latency as this site sees it
   const queryMs = Number(process.hrtime.bigint() - t0) / 1e6;
-  let sizeBytes = null;
-  try {
-    sizeBytes = db.prepare('PRAGMA page_count').get().page_count * db.prepare('PRAGMA page_size').get().page_size;
-  } catch { /* not every hosted database answers PRAGMAs */ }
+  const sizeBytes = databaseSize();
   const files = storage.inDatabase()
-    ? db.prepare('SELECT COUNT(DISTINCT name) AS n, COALESCE(SUM(length(data)), 0) AS bytes FROM files').get()
+    ? { n: n.file_count, bytes: n.file_bytes }
     : (() => {
       try {
         const dir = config.uploadsDir;
@@ -119,34 +167,28 @@ function metrics() {
         return { n: names.length, bytes: names.reduce((t, f) => t + fs.statSync(path.join(dir, f)).size, 0) };
       } catch { return { n: 0, bytes: 0 }; }
     })();
-  const job = Object.fromEntries(db.prepare("SELECT key, value FROM job_state WHERE key IN ('last_run', 'last_run_by', 'last_run_ms')").all().map((r) => [r.key, r.value]));
-  const today = db.prepare('SELECT recipients, messages, failed FROM mail_daily WHERE day = ?').get(time.today()) || { recipients: 0, messages: 0, failed: 0 };
-  const week = db.prepare('SELECT COALESCE(SUM(recipients), 0) AS recipients, COALESCE(SUM(failed), 0) AS failed FROM mail_daily WHERE day > ?').get(time.addDays(time.today(), -7));
   return {
     db: {
       sizeBytes, queryMs: Math.round(queryMs * 10) / 10,
-      rows: {
-        users: n('SELECT COUNT(*) AS n FROM users'), bookings: n('SELECT COUNT(*) AS n FROM bookings'),
-        audit: n('SELECT COUNT(*) AS n FROM audit_log'), sessions: n('SELECT COUNT(*) AS n FROM sessions WHERE expires_at > ?', Date.now()),
-      },
+      rows: { users: n.all_users, bookings: n.all_bookings, audit: n.audit, sessions: n.sessions },
     },
     files: { count: files.n, bytes: files.bytes },
-    jobs: { lastRun: job.last_run || null, by: job.last_run_by || null, ms: job.last_run_ms ? Number(job.last_run_ms) : null },
+    jobs: { lastRun: n.last_run || null, by: n.last_run_by || null, ms: n.last_run_ms ? Number(n.last_run_ms) : null },
     mail: {
-      today: { recipients: today.recipients, messages: today.messages, failed: today.failed },
-      week: { recipients: week.recipients, failed: week.failed },
-      waiting: n("SELECT COUNT(*) AS n FROM mail_outbox WHERE status IN ('pending', 'sending')"),
-      failed: n("SELECT COUNT(*) AS n FROM mail_outbox WHERE status = 'failed' AND message != '{}'"),
+      today: { recipients: n.today_recipients ?? 0, messages: n.today_messages ?? 0, failed: n.today_failed ?? 0 },
+      week: { recipients: n.week_recipients, failed: n.week_failed },
+      waiting: n.mail_waiting,
+      failed: n.mail_failed,
     },
     runtime: { node: process.version, region: process.env.VERCEL_REGION || null },
-    errors: require('../errors').summary(),
+    errors: { kinds24h: n.error_kinds, new24h: n.error_new, recent: require('../errors').recent() },
   };
 }
 
 function status() {
   const b = brand();
   const s = storageInfo();
-  const last = db.prepare("SELECT MAX(created_at) AS at FROM bookings WHERE kind = 'booking'").get().at;
+  const n = numbers();
   return {
     app: 'car-rental',
     api: 1,
@@ -157,13 +199,13 @@ function status() {
       welcomeText: b.welcomeText, logo: Boolean(b.logoFile), stored: b.stored,
     },
     suspended: suspension(),
-    counts: counts(),
-    lastBookingAt: last || null,
+    counts: counts(n),
+    lastBookingAt: n.last_booking_at || null,
     storage: { kind: s.kind, id: s.id, createdAt: s.createdAt, perDeployment: s.perDeployment, host: s.host, keyExpiresAt: s.keyExpiresAt },
     mail: { configured: Boolean(config.smtp), from: config.mailFrom },
     google: google.enabled(),
     googleRelay: google.status().relay,
-    metrics: metrics(),
+    metrics: metrics(n),
   };
 }
 

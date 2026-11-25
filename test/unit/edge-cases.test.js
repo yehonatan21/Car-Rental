@@ -197,6 +197,8 @@ test('storage.open(): a visitor who leaves midway stops the reading; on disk a c
   const { Writable } = require('node:stream');
   const fs = require('node:fs');
   const path = require('node:path');
+  // Files on disk, also when the suite runs against a hosted database (SQLD_BIN), where they'd be in the database.
+  t.mock.property(require('../../src/db').db, 'remote', false);
 
   // Disk: streamed with its size.
   fs.writeFileSync(path.join(config.uploadsDir, 'edge.bin'), Buffer.alloc(300000, 5));

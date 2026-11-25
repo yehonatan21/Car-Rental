@@ -90,8 +90,9 @@ async function open(name) {
           if (r.seq !== i) throw new Error(`stored file ${name}: chunk ${i} is missing`);
           const data = r.seq === 0 && r.data != null ? r.data : chunk.get(name, r.seq)?.data;
           if (data == null) throw new Error(`stored file ${name}: chunk ${r.seq} is missing`);
-          // A view of the row's bytes, not a copy of them.
-          const buf = Buffer.isBuffer(data) ? data : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+          // A view of the row's bytes, not a copy: libsql gives an ArrayBuffer, node:sqlite a Uint8Array.
+          const buf = Buffer.isBuffer(data) ? data
+            : ArrayBuffer.isView(data) ? Buffer.from(data.buffer, data.byteOffset, data.byteLength) : Buffer.from(data);
           if (!res.write(buf)) await drained(res);
           if (res.destroyed) return; // the visitor went away: stop reading
           r.data = null; // the first chunk too: never more than one in memory

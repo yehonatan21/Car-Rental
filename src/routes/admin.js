@@ -693,15 +693,16 @@ ${isSelf ? '' : deleteUserCard(req, u, list)}
   });
 
   // License images are never public: served only here, to admins, with no caching.
-  app.get('/admin/users/:id/license', requireAdmin, (req, res) => {
+  app.get('/admin/users/:id/license', requireAdmin, async (req, res) => {
     const u = getUser(req.params.id);
     const file = u && (req.query.pending ? u.pending_license_file : u.license_file);
-    const data = storage.read(file);
-    if (!data) return res.sendStatus(404);
+    const stored = await storage.open(file);
+    if (!stored) return res.sendStatus(404);
     audit(req.user.id, 'license.view', 'user', u.id);
     res.set('Cache-Control', 'private, no-store');
     res.set('Content-Disposition', 'inline');
-    res.type(path.extname(file)).send(data);
+    res.type(path.extname(file));
+    await stored.pipe(res);
   });
 
   const SELF_ALLOWED = new Set(['note', 'license/approve', 'license/reject', 'send-reset']);

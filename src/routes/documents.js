@@ -129,17 +129,18 @@ module.exports = ({ app, requireLogin, requireAdmin, documentUpload }) => {
   });
 
   // The file itself: any document for admins; for active users only documents marked visible to drivers.
-  app.get('/vehicle/documents/:id', requireLogin, (req, res) => {
+  app.get('/vehicle/documents/:id', requireLogin, async (req, res) => {
     const d = db.prepare('SELECT * FROM vehicle_documents WHERE id = ?').get(Number(req.params.id));
     const isAdmin = req.user.role === 'admin' && req.user.status === 'active';
     const allowed = d && (isAdmin || (d.visible_to_drivers && req.user.status === 'active'));
-    const data = allowed && storage.read(d.file);
-    if (!data) return res.redirect(isAdmin ? '/admin/vehicle#documents' : '/vehicle/documents');
+    const stored = allowed && await storage.open(d.file);
+    if (!stored) return res.redirect(isAdmin ? '/admin/vehicle#documents' : '/vehicle/documents');
     audit(req.user.id, 'vehicle.document_view', 'vehicle', d.vehicle_id, `#${d.id}`);
     const name = d.original_name || `${DOC_KINDS[d.kind]}${path.extname(d.file)}`;
     res.set('Cache-Control', 'private, no-store');
     res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(name)}`);
-    res.type(path.extname(d.file)).send(data);
+    res.type(path.extname(d.file));
+    await stored.pipe(res);
   });
 
   // Drivers: the documents to have at hand while using the car.

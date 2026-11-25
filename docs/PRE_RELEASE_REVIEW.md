@@ -4,7 +4,8 @@
 code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report:
 since then `/me/bookings` (item 2: the N+1 query, and paging), the one-at-a-time e-mails of the
 scheduled jobs (item 3), the visit waiting for a job run (item 4), the remaining blocking password hashing
-(item 7), the clean-ups without an index (item 8) and most of the status endpoint's cost (item 5) have been fixed.
+(item 7), the clean-ups without an index (item 8), most of the status endpoint's cost (item 5) and the stored files
+read whole into memory (item 6) have been fixed.
 
 ## 1. What to address before a release
 
@@ -105,9 +106,14 @@ Ordered by expected impact:
    `test/e2e/hosted-fake.test.js` check the query count, the files total and the fallbacks. Still open: the console
    asks every site for its status on each `/master` page load and on each client page (`routes/master.js`), and
    waits for the slowest site. Each call is now much cheaper, but the console still makes all of them.
-6. **Stored files are read whole into memory** (`src/storage.js` `read()`). On the hosted database that means up to
-   4–8 MB of 1 MB chunk rows, joined with `Buffer.concat`, for every view of a license or vehicle document. That
-   costs memory, latency and Turso rows read.
+6. ~~**Stored files are read whole into memory**~~ **Fixed** (`storage.open()` in `src/storage.js`): license photos,
+   vehicle documents and the logo are now streamed. From disk the file is a read stream. From the hosted database it
+   goes one 1 MB chunk at a time, each read only after the one before has left, so at most one chunk is in memory
+   (before: every chunk, plus a joined copy of all of them). The first query also brings the first chunk, so a file of
+   one chunk is still a single round trip; a 4 MB file is 4. A visitor who leaves midway stops the reading. A failure
+   after the first byte closes the connection and is recorded, never a 500 page on top of a half-sent file. A chunk
+   missing from the database now breaks the download instead of quietly sending the file with a piece cut out.
+   Tests: `test/e2e/hosted-fake.test.js`, `test/unit/edge-cases.test.js`.
 7. ~~**Synchronous scrypt remains in three handlers**~~ **Fixed:** setting someone's password (`routes/admin.js`,
    `routes/manage.js`, `routes/master.js`) and the one-time dummy hash for an unknown sign-in address
    (`auth.verifyPasswordAsync()`) now use `hashPasswordAsync()` (same format, off the main thread). Each used to block

@@ -191,3 +191,76 @@ test('hosted driver: a read that fails on a stale connection after the statement
   assert.throws(() => hosted.prepare('SELECT 1').get(), /STREAM_EXPIRED/);
   hosted.exec('ROLLBACK');
 });
+
+test('storage.open(): a visitor who leaves midway stops the reading; on disk a closed connection is no error, a broken one is', async (t) => {
+  const storage = require('../../src/storage');
+  const { Writable } = require('node:stream');
+  const fs = require('node:fs');
+  const path = require('node:path');
+  // Files on disk, also when the suite runs against a hosted database (SQLD_BIN), where they'd be in the database.
+  t.mock.property(require('../../src/db').db, 'remote', false);
+
+  // Disk: streamed with its size.
+  fs.writeFileSync(path.join(config.uploadsDir, 'edge.bin'), Buffer.alloc(300000, 5));
+  const stored = await storage.open('edge.bin');
+  assert.equal(stored.size, 300000);
+  assert.equal(await storage.open('nope.bin'), null);
+  assert.equal(await storage.open(null), null);
+  const chunks = [];
+  const sink = new Writable({ write(c, e, cb) { chunks.push(c); cb(); } });
+  sink.setHeader = (k, v) => { sink.length = v; };
+  await stored.pipe(sink);
+  assert.equal(sink.length, 300000);
+  assert.equal(Buffer.concat(chunks).length, 300000);
+
+  const logged = t.mock.method(console, 'error', () => {});
+  // The visitor closed the tab: the stream ends early, nothing is reported.
+  const gone = new Writable({ write(c, e, cb) { this.destroy(); cb(); } });
+  gone.setHeader = () => {};
+  await (await storage.open('edge.bin')).pipe(gone);
+  assert.equal(logged.mock.callCount(), 0);
+  // A real failure while writing: reported, and the connection closed.
+  const broken = new Writable({ write(c, e, cb) { cb(new Error('EPIPE-like failure')); } });
+  broken.setHeader = () => {};
+  await (await storage.open('edge.bin')).pipe(broken);
+  assert.match(logged.mock.calls[0].arguments[0], /\[storage\] sending edge\.bin failed/);
+  assert.equal(broken.destroyed, true);
+});
+
+test('storage.open() from the database: waits for drain, and stops reading when the visitor leaves', async (t) => {
+  const { db } = require('../../src/db');
+  const { EventEmitter } = require('node:events');
+  // A hosted database in miniature: open() asks db.remote, then reads the rows.
+  t.mock.property(db, 'remote', true);
+  const chunk = Buffer.alloc(10, 1);
+  const reads = [];
+  const prepare = db.prepare;
+  t.mock.method(db, 'prepare', function fake(sql) {
+    if (/length\(data\)/.test(sql)) return { all: () => [0, 1, 2].map((seq) => ({ seq, size: 10, data: seq === 0 ? new Uint8Array(chunk) : null })) };
+    if (/seq = \?/.test(sql)) return { get: (name, seq) => { reads.push(seq); return { data: new Uint8Array(chunk) }; } };
+    return prepare.call(this, sql);
+  });
+  const storage = require('../../src/storage');
+  const make = () => {
+    const res = new EventEmitter();
+    Object.assign(res, { destroyed: false, written: 0, setHeader(k, v) { res[k] = v; }, end() { res.ended = true; }, destroy() { res.destroyed = true; } });
+    return res;
+  };
+  // Slow visitor: each write fills the buffer; 'drain' lets the next chunk go.
+  const slow = make();
+  slow.write = (b) => { slow.written += b.length; setImmediate(() => slow.emit('drain')); return false; };
+  await (await storage.open('x')).pipe(slow);
+  assert.equal(slow['Content-Length'], 30);
+  assert.equal(slow.written, 30);
+  assert.equal(slow.ended, true);
+  assert.deepEqual(reads, [1, 2]);
+
+  // The visitor leaves after the first chunk: the connection closes instead of draining, nothing more is read.
+  reads.length = 0;
+  const leaving = make();
+  leaving.write = (b) => { leaving.written += b.length; setImmediate(() => { leaving.destroyed = true; leaving.emit('close'); }); return false; };
+  await (await storage.open('x')).pipe(leaving);
+  assert.equal(leaving.written, 10);
+  assert.deepEqual(reads, []);
+  assert.notEqual(leaving.ended, true);
+});

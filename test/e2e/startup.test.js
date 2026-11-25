@@ -80,3 +80,22 @@ test('schema upgrade while another instance upgrades the same database: its colu
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('starting the app does not load the passkey library (≈40% of a cold start); the first passkey use does', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'car-lazy-'));
+  try {
+    const out = execFileSync(process.execPath, ['--no-warnings', '-e', `
+      require('./src/server');
+      const loaded = () => Object.keys(require.cache).some((k) => k.includes('@simplewebauthn'));
+      console.log('after start: ' + loaded());
+      const { db } = require('./src/db');
+      const id = Number(db.prepare("INSERT INTO users (first_name, last_name, id_number, phone, email, role, status) VALUES ('a', 'b', 'lazy-1', '', 'a@lazy.test', 'admin', 'active')").run().lastInsertRowid);
+      require('./src/passkeys').registrationOptions({ hostname: 'localhost', protocol: 'http', get: () => 'localhost' },
+        { id, email: 'a@lazy.test', first_name: 'a', last_name: 'b' }).then(() => console.log('after use: ' + loaded()));`],
+    { cwd: root, env: baseEnv(dir), encoding: 'utf8' });
+    assert.match(out, /after start: false/);
+    assert.match(out, /after use: true/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

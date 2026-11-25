@@ -63,3 +63,17 @@ test('files are kept inside the database in chunks, read back whole, and removed
   assert.equal(storedFile('big.pdf'), null);
   assert.equal(storedFile('nothing.png'), null);
 });
+
+test('the status counts the files kept in the database, in the same few round trips', async () => {
+  process.env.MANAGE_TOKEN = 'h'.repeat(20) + '-hosted-manage-token-0123';
+  try {
+    putStoredFile('a.png', Buffer.alloc(10, 1));
+    putStoredFile('b.pdf', Buffer.alloc(storage.CHUNK + 5, 2)); // two chunks, one file
+    const r = await fetch(`${srv.base}/api/manage/status`, { headers: { authorization: `Bearer ${process.env.MANAGE_TOKEN}` } });
+    const data = await r.json();
+    assert.deepEqual(data.metrics.files, { count: 2, bytes: 10 + storage.CHUNK + 5 });
+    assert.ok(Number(/desc="(\d+) quer/.exec(r.headers.get('server-timing'))[1]) <= 6);
+  } finally {
+    delete process.env.MANAGE_TOKEN;
+  }
+});

@@ -231,3 +231,41 @@ test('a password set through the API is hashed off the main thread (no blocking 
   const auth = require('../../src/auth');
   assert.equal(await auth.verifyPasswordAsync('Quiet-River-Stone-8', db.prepare('SELECT password_hash FROM users WHERE id = ?').get(u.id).password_hash), true);
 });
+
+test('the status is a few round trips, however much data the site has (one statement for all the numbers)', async () => {
+  process.env.MANAGE_TOKEN = TOKEN;
+  const queries = async () => {
+    const r = await api('GET', '/api/manage/status');
+    assert.equal(r.status, 200);
+    return { n: Number(/desc="(\d+) quer/.exec(r.headers.get('server-timing'))[1]), data: r.data };
+  };
+  const before = await queries();
+  const u = createUser();
+  for (let i = 0; i < 30; i++) {
+    db.prepare("INSERT INTO bookings (vehicle_id, user_id, start_at, end_at, status) VALUES (1, ?, ?, ?, 'approved')").run(u.id, inDays(i + 1), inDays(i + 1, '12:00'));
+    db.prepare("INSERT INTO audit_log (action, at) VALUES ('test', '2026-01-01 10:00:00')").run();
+  }
+  const after = await queries();
+  assert.ok(after.n <= 6, `${after.n} queries`);
+  assert.equal(after.n, before.n);
+  assert.equal(after.data.counts.upcomingBookings, before.data.counts.upcomingBookings + 30);
+  // The action log's size from its first and last id: the same as counting its rows.
+  assert.equal(after.data.metrics.db.rows.audit, db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n);
+  assert.ok(after.data.metrics.db.sizeBytes > 0);
+});
+
+test('database size: the plain PRAGMAs when the PRAGMA functions are refused, and none when both are', async (t) => {
+  process.env.MANAGE_TOKEN = TOKEN;
+  const prepare = db.prepare;
+  let refuse = /pragma_page_count\(\)/;
+  t.mock.method(db, 'prepare', function maybeRefusing(sql) {
+    if (refuse.test(sql)) throw new Error('SQLite error: not authorized');
+    return prepare.call(this, sql);
+  });
+  const viaPragmas = (await api('GET', '/api/manage/status')).data.metrics.db.sizeBytes;
+  assert.ok(viaPragmas > 0);
+  refuse = /pragma_page_count\(\)|^PRAGMA page_/;
+  const r = await api('GET', '/api/manage/status');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.metrics.db.sizeBytes, null, 'no size, and the rest of the status still answers');
+});

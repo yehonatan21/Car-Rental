@@ -4,7 +4,7 @@
 code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report:
 since then `/me/bookings` (item 2: the N+1 query, and paging), the one-at-a-time e-mails of the
 scheduled jobs (item 3), the visit waiting for a job run (item 4), the remaining blocking password hashing
-(item 7), the clean-ups without an index (item 8), most of the status endpoint's cost (item 5) and the stored files
+(item 7), the clean-ups without an index (item 8), the status endpoint's cost and the console's repeated status calls (item 5) and the stored files
 read whole into memory (item 6) have been fixed.
 
 ## 1. What to address before a release
@@ -103,9 +103,13 @@ Ordered by expected impact:
    oldest rows, so it reads 2 rows instead of all of them on every call (Turso bills rows read). The database size uses
    the PRAGMA functions in one query, with the plain PRAGMAs and then "no size" as fallbacks. The answer is
    unchanged: compared field by field against the old code. Tests in `test/e2e/manage.test.js` and
-   `test/e2e/hosted-fake.test.js` check the query count, the files total and the fallbacks. Still open: the console
-   asks every site for its status on each `/master` page load and on each client page (`routes/master.js`), and
-   waits for the slowest site. Each call is now much cheaper, but the console still makes all of them.
+   `test/e2e/hosted-fake.test.js` check the query count, the files total and the fallbacks. Then the console's side
+   (`src/master.js`): the client list reuses a site's status seen in the last 30 seconds, offline sites included (those
+   are the ones that cost up to 6 s each), so going from the list to a client and back no longer asks every site and
+   waits for the slowest. A client's own page always asks its site fresh. Any change sent to a site, a new address, or
+   removing the client drops its cached status. The alerts and the monitoring page's "refresh" always ask every site.
+   The cache is per console process: on Vercel it helps while the instance stays warm, which is when someone is
+   clicking through the console. Tests: `test/unit/master-unit.test.js`.
 6. ~~**Stored files are read whole into memory**~~ **Fixed** (`storage.open()` in `src/storage.js`): license photos,
    vehicle documents and the logo are now streamed. From disk the file is a read stream. From the hosted database it
    goes one 1 MB chunk at a time, each read only after the one before has left, so at most one chunk is in memory

@@ -128,10 +128,13 @@ function diff(now, open, at = Date.now()) {
 /** The alerts open now, for the monitoring page. */
 const open = () => db.prepare('SELECT * FROM alerts ORDER BY level DESC, since').all();
 
-/** One snapshot of everything the monitoring page shows (the page and the alerts read the same). */
-async function snapshot({ fresh = false } = {}) {
+/**
+ * One snapshot of everything the monitoring page shows (the page and the alerts read the same). `live`: every site is
+ * asked now, never a status the client list saw a few seconds ago (the alerts, and the page's "refresh").
+ */
+async function snapshot({ fresh = false, live = fresh } = {}) {
   const clients = master.list();
-  const statuses = await master.statusAll(clients);
+  const statuses = await master.statusAll(clients, live ? { maxAgeMs: 0 } : {});
   const ownDb = master.databaseName({}, require('./db').storageInfo().host);
   const dbNames = statuses.map((st, i) => master.databaseName(clients[i], (st.online ? st.data : st.last)?.storage?.host)).concat(ownDb);
   const acc = await monitoring.accounts({ fresh, databases: dbNames });
@@ -153,7 +156,7 @@ async function run({ snap, send = require('./mail').send } = {}) {
     : db.prepare("INSERT INTO job_state (key, value) VALUES ('alerts_at', ?) ON CONFLICT(key) DO NOTHING").run(String(now)).changes;
   if (!claimed) return { skipped: 'running' };
 
-  const list = problems(snap || await snapshot());
+  const list = problems(snap || await snapshot({ live: true }));
   const d = diff(list, open(), now);
   const to = recipients();
   const news = d.fresh.length + d.worse.length + d.still.length + d.fixed.length;

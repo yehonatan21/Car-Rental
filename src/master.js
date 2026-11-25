@@ -51,6 +51,15 @@ function masterSecret() {
 const manageToken = (slug) => crypto.createHmac('sha256', masterSecret()).update(`manage:${slug}`).digest('base64url');
 
 // ---------- Hosting services ----------
+/**
+ * The statuses the client list showed, kept for a short while (STATUS_CACHE_MS) in this console process: going from
+ * the list to a client and back, or reloading the list, does not ask every site again and wait for the slowest one
+ * (up to 6 s for a site that does not answer, which is cached too). A client's own page always asks its site; a change
+ * sent to a site drops its entry (call()), and so does a new address (update()).
+ */
+const STATUS_CACHE_MS = 30000;
+const statusCache = new Map(); // slug → { at, url, result }
+
 const env = () => process.env;
 const fetchImpl = (...a) => globalThis.fetch(...a);
 const providers = () => provision.providers(env());
@@ -80,12 +89,13 @@ function add(c) {
 function update(slug, fields) {
   const keys = Object.keys(fields).filter((k) => COLUMNS.includes(k));
   if (!keys.length) return get(slug);
+  if ('url' in fields) statusCache.delete(slug); // another address: what the old one answered is not this site's
   db.prepare(`UPDATE master_clients SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE slug = ?`)
     .run(...keys.map((k) => (fields[k] === '' ? null : fields[k] ?? null)), slug);
   return get(slug);
 }
 
-const remove = (slug) => db.prepare('DELETE FROM master_clients WHERE slug = ?').run(slug);
+const remove = (slug) => { statusCache.delete(slug); return db.prepare('DELETE FROM master_clients WHERE slug = ?').run(slug); };
 
 /**
  * A site address as typed: scheme added when missing, only the origin kept. https only, except a local test address.
@@ -159,6 +169,8 @@ const INSTANCE_ERRORS = {
 
 /** Calls the client's management API; resolves with its JSON, or throws InstanceError with a Hebrew message. */
 async function call(client, method, path, body, { timeoutMs = 8000 } = {}) {
+  // Anything but a read changes the site (suspending it, its branding, managers, passwords…): its cached status is old.
+  if (method !== 'GET') statusCache.delete(client.slug);
   if (!client.url) throw new InstanceError('no_url', INSTANCE_ERRORS.no_url);
   if (normalizeUrl(client.url) !== client.url) throw new InstanceError('unsafe_url', 'כתובת האתר אינה כתובת ציבורית תקינה (https), ולכן מפתח הניהול לא נשלח אליה.');
   await assertPublicDestination(client.url);
@@ -185,8 +197,15 @@ async function call(client, method, path, body, { timeoutMs = 8000 } = {}) {
   return data;
 }
 
+
 /** Live status of one client: { online, data } or { online: false, error, kind, last } (the last status seen). */
 async function statusOf(client, opts) {
+  const result = await liveStatus(client, opts);
+  statusCache.set(client.slug, { at: Date.now(), url: client.url, result });
+  return result;
+}
+
+async function liveStatus(client, opts) {
   const t0 = Date.now();
   try {
     const data = await call(client, 'GET', '/api/manage/status', null, opts);
@@ -220,8 +239,15 @@ async function autoShareMail(client) {
   }
 }
 
-/** Statuses of all clients at once (each with its own short timeout). */
-const statusAll = (clients) => Promise.all(clients.map((c) => statusOf(c, { timeoutMs: 6000 })));
+/**
+ * Statuses of all clients at once (each with its own short timeout). One seen in the last `maxAgeMs` is reused (see
+ * STATUS_CACHE_MS); maxAgeMs: 0 asks every site (the alerts, the monitoring page's "refresh").
+ */
+const statusAll = (clients, { maxAgeMs = STATUS_CACHE_MS } = {}) => Promise.all(clients.map((c) => {
+  const hit = statusCache.get(c.slug);
+  if (hit && hit.url === c.url && Date.now() - hit.at < maxAgeMs) return hit.result;
+  return statusOf(c, { timeoutMs: 6000 });
+}));
 
 /**
  * Finds the address of a client whose address is not known yet (a new deployment gets its *.vercel.app address only
@@ -411,7 +437,7 @@ async function checkConnections() {
 
 module.exports = {
   manageToken, masterSecret, providers, clientRepo, clientBranch, list, get, add, update, remove, normalizeUrl,
-  call, statusOf, statusAll, discoverUrl, createClient, redeploy, installToken, shareMail, runAllJobs, deleteClient, checkConnections,
+  call, statusOf, statusAll, STATUS_CACHE_MS, discoverUrl, createClient, redeploy, installToken, shareMail, runAllJobs, deleteClient, checkConnections,
   rotateDatabaseKey, databaseName,
   sharedMailVars, sharedGoogleVars, InstanceError, INSTANCE_ERRORS,
 };

@@ -125,3 +125,45 @@ test('the columns of the removed two-step verification are dropped from an exist
     console.log(JSON.stringify([has('users', 'totp_secret'), has('users', 'totp_enabled'), has('sessions', 'needs_2fa')]));`));
   assert.deepEqual(out, [false, false, false]);
 });
+
+test('deleting a user forgets their details in the action log in one pass, with the same result as one pass per value', (t) => {
+  const { db, forgetIdentifiers } = require('../../src/db');
+  const u = { first_name: 'דנה', last_name: 'לוי', email: 'dana.levi@forget.test', id_number: '039876543', phone: '0541234567' };
+  const rows = [
+    'user.create: דנה לוי (dana.levi@forget.test)',
+    'ת.ז. 039876543, טלפון 0541234567',
+    'dana.levi@forget.test → דנה לוי → 039876543 → 0541234567, twice: dana.levi@forget.test',
+    'נוגע לדנה לויט, לא לה', // the name inside a longer word is replaced too, as before
+    'מישהו אחר לגמרי: other@forget.test, 0521111111',
+    null,
+  ];
+  const seed = () => {
+    db.exec("DELETE FROM audit_log WHERE action = 'forget.test'");
+    for (const d of rows) db.prepare("INSERT INTO audit_log (action, details, at) VALUES ('forget.test', ?, '2026-11-25 10:00:00')").run(d);
+  };
+  const read = () => db.prepare("SELECT details FROM audit_log WHERE action = 'forget.test' ORDER BY id").all().map((r) => r.details);
+
+  // The old way, one UPDATE per value, for comparison.
+  seed();
+  for (const s of [u.email, `${u.first_name} ${u.last_name}`, u.id_number, u.phone]) {
+    db.prepare("UPDATE audit_log SET details = replace(details, ?, '[נמחק]') WHERE instr(details, ?) > 0").run(s, s);
+  }
+  const expected = read();
+
+  seed();
+  const touching = [];
+  const prepare = db.prepare;
+  t.mock.method(db, 'prepare', function recording(sql) { if (/audit_log/.test(sql)) touching.push(sql); return prepare.call(this, sql); });
+  forgetIdentifiers(u);
+  db.prepare.mock.restore();
+  assert.equal(touching.length, 1, 'one statement over the action log');
+  assert.deepEqual(read(), expected);
+  assert.ok(read().every((d) => d == null || !/dana\.levi|039876543|0541234567|דנה לוי/.test(d)));
+  assert.match(read()[4], /other@forget\.test, 0521111111/, 'someone else is untouched');
+
+  // Short or missing values are skipped, as before; with nothing to forget the log isn't touched at all.
+  touching.length = 0;
+  t.mock.method(db, 'prepare', function recording(sql) { if (/audit_log/.test(sql)) touching.push(sql); return prepare.call(this, sql); });
+  forgetIdentifiers({ first_name: '', last_name: '', email: '', id_number: '12', phone: null });
+  assert.equal(touching.length, 0);
+});

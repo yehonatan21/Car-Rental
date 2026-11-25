@@ -136,8 +136,9 @@ Ordered by expected impact:
    statement of a job run now uses an index, except reading the few `settings` and the `error_handled` list (a
    handful of rows a manager marked). A test in `test/e2e/performance.test.js` runs the jobs, `EXPLAIN`s each
    statement they prepared, and fails on any other full-table scan. The indexes are built once, at the first start
-   after the deploy. Still open: `forgetIdentifiers()` (`src/db.js`) makes four `instr()` scans of `audit_log` for
-   each deleted user. That runs only when an account is deleted, and an index can't help a search inside text.
+   after the deploy. Also fixed since: `forgetIdentifiers()` (`src/db.js`), which removes a deleted user's details from
+   the action log, made one full pass over `audit_log` per value (email, name, ID number, phone). It now makes one
+   pass for all of them, with the same result (`test/unit/persistence.test.js` compares the two on the same log).
 9. ~~**The same data is read again within one request**~~ **Fixed, and corrected.** Measured statement by statement,
    no page reads the same data twice: the first version of this report was wrong that `getSettings()` and the policy
    lookups repeat. (The push-notification keys looked repeated on `/me`, but `push.js` keeps them in memory after the

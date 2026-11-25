@@ -462,8 +462,14 @@ function audit(actorId, action, targetType, targetId, details) {
  */
 function forgetIdentifiers(u) {
   const name = `${u.first_name || ''} ${u.last_name || ''}`.trim();
-  for (const s of [u.email, name, u.id_number, u.phone].filter((x) => x && String(x).length >= 3)) {
-    db.prepare("UPDATE audit_log SET details = replace(details, ?, '[נמחק]') WHERE instr(details, ?) > 0").run(s, s);
+  const values = [u.email, name, u.id_number, u.phone].filter((x) => x && String(x).length >= 3).map(String);
+  if (values.length) {
+    // One pass over the action log, not one per value: a search inside text can't use an index, so each pass reads the
+    // whole log (two years of it). The replacements nest in the same order as before, and "contains any of them" picks
+    // the same rows the separate updates did (the marker put in can't create a match for another value).
+    const replaced = values.reduce((sql) => `replace(${sql}, ?, '[נמחק]')`, 'details');
+    db.prepare(`UPDATE audit_log SET details = ${replaced} WHERE ${values.map(() => 'instr(details, ?) > 0').join(' OR ')}`)
+      .run(...values, ...values);
   }
   if (u.email) db.prepare('DELETE FROM mail_outbox WHERE instr(recipients, ?) > 0').run(u.email);
 }

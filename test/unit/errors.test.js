@@ -12,6 +12,7 @@ test('the same error from the same place is one kind, counted; ids in the messag
   const req = { method: 'POST', baseUrl: '/admin', path: '/bookings/123/approve' };
   for (const id of [5, 6, 7]) errors.record(boom(`Cannot read properties of undefined (booking ${id})`), { req });
   errors.record(boom('another thing'), { where: 'jobs' });
+  errors.flush(); // repeats within a few seconds are counted in memory first (see the burst test below)
   const rows = db.prepare('SELECT * FROM error_log ORDER BY count DESC').all();
   assert.equal(rows.length, 2);
   assert.equal(rows[0].count, 3);
@@ -43,4 +44,60 @@ test('the summary for the console: kinds in 24 hours, new ones, the latest first
   await require('../../src/jobs').runJobs();
   assert.equal(db.prepare("SELECT 1 FROM error_log WHERE fp = 'old2'").get(), undefined, 'kept 30 days');
   assert.ok(db.prepare("SELECT 1 FROM error_log WHERE fp = 'old1'").get());
+});
+
+test('an error storm is one write per kind: repeats are counted in memory, then written with the next write or flush()', (t) => {
+  db.prepare('DELETE FROM error_log').run();
+  const writes = [];
+  const prepare = db.prepare;
+  t.mock.method(db, 'prepare', function recording(sql) { if (/INSERT INTO error_log/.test(sql)) writes.push(sql); return prepare.call(this, sql); });
+  const row = (m) => db.prepare('SELECT * FROM error_log WHERE message = ?').get(m);
+
+  for (let i = 0; i < 50; i++) errors.record(boom('storm'), { req: { method: 'GET', baseUrl: '', path: '/me' } });
+  assert.equal(writes.length, 1, 'the first one is written at once; the other 49 wait');
+  assert.equal(row('storm').count, 1);
+  errors.record(boom('a different kind'));
+  assert.equal(writes.length, 2, 'a new kind is written at once, storm or not');
+
+  assert.equal(errors.flush(), 49);
+  assert.equal(row('storm').count, 50);
+  assert.equal(errors.flush(), 0, 'nothing held any more');
+
+  // After the window, the next one is written straight away, with whatever was held since.
+  errors.record(boom('storm'));
+  const now = Date.now;
+  t.mock.method(Date, 'now', () => now.call(Date) + errors.WINDOW_MS + 1);
+  errors.record(boom('storm'));
+  assert.equal(row('storm').count, 52);
+});
+
+test('a database that fails is not asked again by every repeat; nothing is lost once it answers', (t) => {
+  db.prepare('DELETE FROM error_log').run();
+  const logged = t.mock.method(console, 'error', () => {});
+  let failing = true;
+  let attempts = 0;
+  const prepare = db.prepare;
+  t.mock.method(db, 'prepare', function maybeFailing(sql) {
+    if (/INSERT INTO error_log/.test(sql)) { attempts += 1; if (failing) throw new Error('database is locked'); }
+    return prepare.call(this, sql);
+  });
+  for (let i = 0; i < 20; i++) errors.record(boom('while down'));
+  assert.equal(attempts, 1, 'one attempt, not twenty');
+  assert.ok(logged.mock.calls.some((c) => /could not record the error/.test(c.arguments[0])));
+  assert.equal(errors.flush(), 0, 'still failing: flush gives up quietly and keeps them');
+  assert.ok(logged.mock.calls.some((c) => /could not record held-back errors/.test(c.arguments[0])));
+  failing = false;
+  assert.equal(errors.flush(), 20);
+  const r = db.prepare("SELECT * FROM error_log WHERE message = 'while down'").get();
+  assert.equal(r.count, 20, 'all of them, the first one included');
+});
+
+test('the scheduled jobs write what is held back', async () => {
+  db.prepare('DELETE FROM error_log').run();
+  errors.record(boom('between runs'));
+  errors.record(boom('between runs'));
+  errors.record(boom('between runs'));
+  assert.equal(db.prepare("SELECT count FROM error_log WHERE message = 'between runs'").get().count, 1);
+  await require('../../src/jobs').runJobs();
+  assert.equal(db.prepare("SELECT count FROM error_log WHERE message = 'between runs'").get().count, 3);
 });

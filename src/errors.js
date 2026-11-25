@@ -34,12 +34,28 @@ const stack = (err) => String(err?.stack || '').split('\n').slice(1)
   .slice(0, 8).map((l) => l.trim().replace(ROOT + path.sep, '')).join('\n');
 
 /**
+ * The same error again within WINDOW_MS of its last write is counted here, in this process, instead of written: during
+ * an error storm (often the database itself being slow or down) every failing request would otherwise add a write. The
+ * first occurrence of a kind is written at once, so the console sees every new kind. The occurrences held back are
+ * added on that kind's next write, or by flush() (the scheduled jobs call it). A process that ends before then loses
+ * its held-back occurrences: during a storm the counts can come out a little low, never a kind of error.
+ */
+const WINDOW_MS = 10000;
+const pending = new Map(); // fp → { writtenAt, held, firstAt, lastAt, name, message, at, stack, where, route }
+
+function write(e, count) {
+  const { db } = require('./db');
+  db.prepare(`INSERT INTO error_log (fp, name, message, frame, stack, where_, route, count, first_at, last_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(fp) DO UPDATE SET count = count + excluded.count, last_at = excluded.last_at, route = COALESCE(excluded.route, route)`)
+    .run(e.fp, e.name, e.message, e.at, e.stack, e.where, e.route, count, e.firstAt, e.lastAt);
+}
+
+/**
  * Records an error. `where` says what was running ('request', 'jobs', 'background'); `req` adds the method and the
  * path (without the query string). Never throws: reporting an error must not cause another.
  */
 function record(err, { where = 'request', req } = {}) {
   try {
-    const { db } = require('./db');
     const name = String(err?.name || 'Error').slice(0, 60);
     const message = clean(err?.message ?? err);
     const at = frame(err);
@@ -47,12 +63,46 @@ function record(err, { where = 'request', req } = {}) {
     const fp = crypto.createHash('sha1').update(`${name}|${message.replace(/\d+/g, '#')}|${at}`).digest('hex').slice(0, 12);
     const route = req ? `${req.method} ${String(req.baseUrl || '') + String(req.path || '')}`.slice(0, 120).replace(/\/\d+(?=\/|$)/g, '/:id') : null;
     const now = time.stamp();
-    db.prepare(`INSERT INTO error_log (fp, name, message, frame, stack, where_, route, count, first_at, last_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-      ON CONFLICT(fp) DO UPDATE SET count = count + 1, last_at = excluded.last_at, route = COALESCE(excluded.route, route)`)
-      .run(fp, name, message, at, stack(err), where, route, now, now);
+    const nowMs = Date.now();
+    const e = pending.get(fp);
+    if (e && nowMs - e.writtenAt < WINDOW_MS) {
+      e.held += 1;
+      e.lastAt = now;
+      if (route) e.route = route;
+      return;
+    }
+    const entry = { fp, name, message, at, stack: stack(err), where, route: route ?? e?.route ?? null, firstAt: e?.firstAt || now, lastAt: now };
+    const count = 1 + (e?.held || 0);
+    // Counted as written even when the write fails: a failing database is not asked again by every failing request.
+    pending.set(fp, { ...entry, writtenAt: nowMs, held: 0 });
+    if (pending.size > 500) for (const [k, v] of pending) if (!v.held && nowMs - v.writtenAt >= WINDOW_MS) pending.delete(k);
+    try {
+      write(entry, count);
+    } catch (err2) {
+      pending.get(fp).held = count; // kept for the next write or flush()
+      throw err2;
+    }
   } catch (e) {
     console.error('[errors] could not record the error:', e.message);
   }
+}
+
+/** Writes the occurrences held back since each kind's last write. Never throws. Returns how many it wrote. */
+function flush() {
+  let written = 0;
+  for (const e of pending.values()) {
+    if (!e.held) continue;
+    try {
+      write(e, e.held);
+      written += e.held;
+      e.held = 0;
+      e.writtenAt = Date.now();
+    } catch (err) {
+      console.error('[errors] could not record held-back errors:', err.message);
+      return written; // the database is the problem: try again at the next flush
+    }
+  }
+  return written;
 }
 
 const since24h = () => time.stamp(new Date(Date.now() - 24 * 3600000));
@@ -73,4 +123,4 @@ function summary({ limit = 5 } = {}) {
   return { kinds24h: n.kinds, new24h: n.fresh, recent: recent({ limit }) };
 }
 
-module.exports = { record, summary, recent, clean, frame };
+module.exports = { record, flush, summary, recent, clean, frame, WINDOW_MS };

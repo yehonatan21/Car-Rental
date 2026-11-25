@@ -386,6 +386,21 @@ if (!schemaIsCurrent) {
     }
   }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL');
+  // For the scheduled clean-ups and checks (src/jobs.js, every 10 minutes): without these each one read its whole
+  // table, the action log (two years of it) and the sessions above all. One statement, so a hosted database's first
+  // start after a deploy makes one round trip for them.
+  db.exec(`
+  CREATE INDEX IF NOT EXISTS audit_log_at ON audit_log(at);
+  CREATE INDEX IF NOT EXISTS sessions_expires ON sessions(expires_at);
+  CREATE INDEX IF NOT EXISTS throttle_window ON throttle(window_start);
+  CREATE INDEX IF NOT EXISTS login_codes_expires ON login_codes(expires_at);
+  CREATE INDEX IF NOT EXISTS password_resets_expires ON password_resets(expires_at);
+  CREATE INDEX IF NOT EXISTS webauthn_challenges_expires ON webauthn_challenges(expires_at);
+  CREATE INDEX IF NOT EXISTS registration_drafts_expires ON registration_drafts(expires_at);
+  CREATE INDEX IF NOT EXISTS error_log_last ON error_log(last_at);
+  -- License expiry (active accounts) and the rejected / never-handled registrations: by status first.
+  CREATE INDEX IF NOT EXISTS users_status_license ON users(status, license_expiry);
+  `);
 
 
 

@@ -54,3 +54,26 @@ test('"my bookings" makes the same number of queries for 1 booking and for 40 (n
   add(19, 2); // and upcoming ones, with their cancel buttons
   assert.equal(await queries(), one);
 });
+
+test('the scheduled jobs read no whole table except the small ones (every clean-up has its index)', async () => {
+  const { runJobs } = require('../../src/jobs');
+  const seen = new Set();
+  const prepare = db.prepare;
+  db.prepare = function recording(sql) { seen.add(sql); return prepare.call(this, sql); };
+  try {
+    await runJobs();
+  } finally {
+    db.prepare = prepare;
+  }
+  // Read whole on purpose: the few settings, and the errors a manager marked as handled (a handful at most).
+  const small = new Set(['settings', 'error_handled']);
+  const scans = [];
+  for (const sql of seen) {
+    for (const { detail } of db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all()) {
+      const table = /^SCAN (\w+)/.exec(detail)?.[1];
+      if (table && !small.has(table)) scans.push(`${table}: ${sql.replace(/\s+/g, ' ').slice(0, 100)}`);
+    }
+  }
+  assert.ok(seen.size > 15, 'the jobs ran their statements');
+  assert.deepEqual(scans, []);
+});

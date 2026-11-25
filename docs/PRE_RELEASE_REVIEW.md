@@ -3,8 +3,8 @@
 *Reviewed 23/11/2026 on top of commit `9dc4ed5`.* Three parts: what has to be checked before a release (with this
 code's own open points), the tests added to reach 100% line coverage, and where the code is slow. Part 3 is a report:
 since then `/me/bookings` (item 2: the N+1 query, and paging), the one-at-a-time e-mails of the
-scheduled jobs (item 3), the visit waiting for a job run (item 4) and the remaining blocking password hashing
-(item 7) have been fixed.
+scheduled jobs (item 3), the visit waiting for a job run (item 4), the remaining blocking password hashing
+(item 7) and the clean-ups without an index (item 8) have been fixed.
 
 ## 1. What to address before a release
 
@@ -109,10 +109,14 @@ Ordered by expected impact:
    the instance for about 35 ms. Only startup (`bootstrap.js`) and the command-line scripts still hash synchronously,
    where nothing waits on them. Tests: a blocking `crypto.scryptSync` during these requests now fails them
    (`test/e2e/account-gaps.test.js`, `manage.test.js`, `master-gaps.test.js`).
-8. **Periodic cleanups with no index** (`src/jobs.js`). `DELETE FROM audit_log WHERE at < ?` scans the whole table on
-   every run, and `sessions`, `login_codes` and `password_resets` are scanned by `expires_at` the same way. The
-   `users` status and `license_expiry` checks are also full scans. All of this runs every 10 minutes per site.
-   `forgetIdentifiers()` (`src/db.js`) makes four `instr()` scans of `audit_log` for each deleted user.
+8. ~~**Periodic cleanups with no index**~~ **Fixed** (`src/db.js`): indexes on `audit_log(at)`,
+   `sessions(expires_at)`, `throttle(window_start)`, the `expires_at` of `login_codes`, `password_resets`,
+   `webauthn_challenges` and `registration_drafts`, `error_log(last_at)`, and `users(status, license_expiry)`. Every
+   statement of a job run now uses an index, except reading the few `settings` and the `error_handled` list (a
+   handful of rows a manager marked). A test in `test/e2e/performance.test.js` runs the jobs, `EXPLAIN`s each
+   statement they prepared, and fails on any other full-table scan. The indexes are built once, at the first start
+   after the deploy. Still open: `forgetIdentifiers()` (`src/db.js`) makes four `instr()` scans of `audit_log` for
+   each deleted user. That runs only when an account is deleted, and an index can't help a search inside text.
 9. **The same data is read again within one request**. `getSettings()` and the policy lookups run several times on
    one page (`/me` makes 12 queries). Login and code throttling (`auth.bump()`) takes two round trips (an upsert, then
    a select) where one `RETURNING` would do.

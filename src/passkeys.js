@@ -4,9 +4,9 @@
 // then on every sign-in of that account (password, e-mailed code or Google) also needs the passkey, so neither a
 // stolen password nor a taken-over mailbox is enough. The server keeps only the public key.
 const crypto = require('node:crypto');
-const {
-  generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse,
-} = require('@simplewebauthn/server');
+// The WebAuthn library (and the certificate packages it pulls in) is loaded on first use, not at startup: it is about
+// 40% of a cold start (~60 ms of ~150 ms), and most sites never add a passkey (they are off unless PASSKEYS=on).
+const webauthn = () => require('@simplewebauthn/server');
 const { db, audit } = require('./db');
 const config = require('./config');
 const time = require('./time');
@@ -47,7 +47,7 @@ function takeChallenge(token, purpose) {
 
 /** Options for adding a passkey to `user` (a signed-in session). */
 async function registrationOptions(req, user) {
-  const options = await generateRegistrationOptions({
+  const options = await webauthn().generateRegistrationOptions({
     rpName: require('./brand').brand().name || 'הזמנת רכב',
     rpID: site(req).rpID,
     userName: user.email,
@@ -69,7 +69,7 @@ async function register(req, user, token, credentialJson, name) {
   const { rpID, origin } = site(req);
   let v;
   try {
-    v = await verifyRegistrationResponse({ response: credential, expectedChallenge: ch.challenge, expectedOrigin: origin, expectedRPID: rpID, requireUserVerification: false });
+    v = await webauthn().verifyRegistrationResponse({ response: credential, expectedChallenge: ch.challenge, expectedOrigin: origin, expectedRPID: rpID, requireUserVerification: false });
   } catch (err) {
     throw new Error(`המפתח לא נשמר: ${err.message}`, { cause: err });
   }
@@ -84,7 +84,7 @@ async function register(req, user, token, credentialJson, name) {
 
 /** Options for proving `user`'s passkey (signing in, or confirming before a sensitive action). */
 async function authenticationOptions(req, user, purpose, next = null) {
-  const options = await generateAuthenticationOptions({
+  const options = await webauthn().generateAuthenticationOptions({
     rpID: site(req).rpID,
     allowCredentials: list(user.id).map((p) => ({ id: p.id, transports: p.transports ? JSON.parse(p.transports) : undefined })),
     userVerification: 'preferred',
@@ -103,7 +103,7 @@ async function authenticate(req, token, credentialJson, purpose) {
   const { rpID, origin } = site(req);
   let v;
   try {
-    v = await verifyAuthenticationResponse({
+    v = await webauthn().verifyAuthenticationResponse({
       response: credential, expectedChallenge: ch.challenge, expectedOrigin: origin, expectedRPID: rpID, requireUserVerification: false,
       credential: { id: key.id, publicKey: Buffer.from(key.public_key, 'base64url'), counter: key.counter, transports: key.transports ? JSON.parse(key.transports) : undefined },
     });

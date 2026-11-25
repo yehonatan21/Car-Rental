@@ -5,8 +5,8 @@ code's own open points), the tests added to reach 100% line coverage, and where 
 since then `/me/bookings` (item 2: the N+1 query, and paging), the one-at-a-time e-mails of the
 scheduled jobs (item 3), the visit waiting for a job run (item 4), the remaining blocking password hashing
 (item 7), the clean-ups without an index (item 8), the status endpoint's cost and the console's repeated status calls (item 5), the stored files
-read whole into memory (item 6), the extra round trips per request (item 9) and the write per error (item 10) have been
-fixed.
+read whole into memory (item 6), the extra round trips per request (item 9), the write per error (item 10) and the
+cold start (item 11) have been fixed. Item 1 is now measured (the console shows each site's request times).
 
 ## 1. What to address before a release
 
@@ -156,6 +156,11 @@ Ordered by expected impact:
     the problem), the repeats aren't retried each time: they wait, and nothing is lost once the database answers. The
     trade-off: occurrences held in a process that ends before the next write or flush are lost, so during a storm the
     counts can come out a little low, never a kind of error. Tests: `test/unit/errors.test.js`.
-11. **Cold start**: `src/db.js` reads and hashes its own source file to decide whether the schema is current, and the
-    icons and asset hashes are read synchronously on first use. The first start after a deploy also runs about 27
-    setup queries (already known and measured in `PERFORMANCE_REPORT.md`).
+11. ~~**Cold start**~~ **Fixed, and corrected after measuring.** Hashing `src/db.js` to check the schema takes 0.6 ms
+    of a cold start of about 150 ms (0.4%), so it isn't worth changing. The full setup also doesn't run after every
+    deploy, only after one that changed `src/db.js`, since that's what the hash tracks. What the time really went to
+    is loading libraries. The biggest was `@simplewebauthn/server`, the passkey library, together with the certificate
+    packages it pulls in: about 60 ms, 40% of the start, loaded although passkeys are off unless `PASSKEYS=on`.
+    `src/passkeys.js` now loads it on first use, so a cold start takes about 93 ms instead of 152 ms (measured with a
+    database that's already set up). Test: `test/e2e/startup.test.js` (the library isn't loaded at start; the first
+    passkey use loads it).
